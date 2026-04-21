@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 代码块折叠 + 表格优化导出
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      2.0.0
-// @description  代码块折叠（阈值/预览可配）+ 表格样式优化及 PNG/CSV 导出（可开关）
+// @version      2.1.0
+// @description  代码块折叠（阈值/预览可配）+ 表格样式优化（始终生效）+ PNG/CSV 导出（可开关）
 // @author       友野YouyEr
 // @icon         https://fe-static.deepseek.com/chat/favicon.svg
 // @match        https://chat.deepseek.com/*
@@ -29,11 +29,11 @@
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
 
-    // ==================== 2. 表格优化开关配置 ====================
+    // ==================== 2. 表格按钮开关配置 ====================
     const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
-    let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);  // 默认开启
+    let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
 
-    // ==================== 3. SVG 图标 ====================
+    // ==================== 3. SVG 图标（代码块折叠用） ====================
     const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 470.6C309.9 483.1 330.2 483.1 342.7 470.6L534.7 278.6C547.2 266.1 547.2 245.8 534.7 233.3C522.2 220.8 501.9 220.8 489.4 233.3L320 402.7L150.6 233.4C138.1 220.9 117.8 220.9 105.3 233.4C92.8 245.9 92.8 266.2 105.3 278.7L297.3 470.7z"/></svg>`;
     const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 169.4C309.9 156.9 330.2 156.9 342.7 169.4L534.7 361.4C547.2 373.9 547.2 394.2 534.7 406.7C522.2 419.2 501.9 419.2 489.4 406.7L320 237.3L150.6 406.6C138.1 419.1 117.8 419.1 105.3 406.6C92.8 394.1 92.8 373.8 105.3 361.3L297.3 169.3z"/></svg>`;
 
@@ -200,7 +200,6 @@
     }
 
     // ==================== 6. 菜单命令 ====================
-    // 代码块折叠菜单
     GM_registerMenuCommand('⚙️ 设置自动折叠阈值', () => {
         showConfigDialog(
             '自动折叠阈值设置',
@@ -221,18 +220,16 @@
         );
     });
 
-    // 表格按钮开关菜单
     GM_registerMenuCommand(`🖼️ 表格导出按钮: ${tableButtonsEnabled ? '开启' : '关闭'}`, () => {
         tableButtonsEnabled = !tableButtonsEnabled;
         GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
         showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}，刷新页面生效`, 2000);
-        // 为了简单，提示刷新页面；也可以动态重新处理所有表格（较复杂，刷新更可靠）
         setTimeout(() => location.reload(), 2000);
     });
 
-    // ==================== 7. 全局样式（合并两个脚本的样式） ====================
+    // ==================== 7. 全局样式（合并） ====================
     GM_addStyle(`
-        /* ---------- 代码块折叠样式 ---------- */
+        /* 代码块折叠样式 */
         .ds-fold-btn {
             background: transparent;
             border: none;
@@ -277,7 +274,7 @@
             margin-top: 4px;
         }
 
-        /* ---------- 表格优化样式 ---------- */
+        /* 表格样式（始终生效） */
         .ds-markdown table {
             width: 100% !important;
             border-collapse: separate !important;
@@ -311,7 +308,8 @@
             background-color: #eff6ff !important;
             transition: background-color 0.2s ease !important;
         }
-        /* 内部按钮容器 */
+
+        /* 表格按钮样式（仅在开关开启时才会出现） */
         .table-internal-buttons {
             position: absolute;
             bottom: 12px;
@@ -379,7 +377,7 @@
         }
     `);
 
-    // ==================== 8. 代码块折叠核心逻辑 ====================
+    // ==================== 8. 代码块折叠核心逻辑（不变） ====================
     const processedAttr = 'data-fold-processed';
 
     function getLineCount(preEl) {
@@ -575,9 +573,64 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // ==================== 9. 表格优化核心逻辑（带开关） ====================
-    // 以下函数只在 tableButtonsEnabled 为 true 时才会被调用初始化
+    // ==================== 9. 表格优化核心逻辑（拆分为样式修复 + 按钮添加） ====================
+    // 9.1 表格样式修复（始终执行，不依赖开关）
+    function applyTableStyles(table) {
+        // 宽度修复：参考虚拟列表宽度
+        const virtualListContainer = document.querySelector('.ds-virtual-list-visible-items');
+        let availableWidth = null;
+        if (virtualListContainer) {
+            availableWidth = virtualListContainer.clientWidth;
+            virtualListContainer.style.overflowX = 'visible';
+            virtualListContainer.style.maxWidth = '100%';
+        }
+        if (availableWidth && availableWidth > 0) {
+            table.style.maxWidth = `${availableWidth}px`;
+        } else {
+            table.style.maxWidth = '100%';
+        }
+        table.style.width = '100%';
+        table.style.tableLayout = 'fixed';
+        if (getComputedStyle(table).position !== 'relative') {
+            table.style.position = 'relative';
+        }
 
+        // 单元格换行
+        const cells = table.querySelectorAll('th, td');
+        cells.forEach(cell => {
+            cell.style.whiteSpace = 'normal';
+            cell.style.wordWrap = 'break-word';
+            cell.style.overflowWrap = 'break-word';
+            cell.style.wordBreak = 'break-word';
+        });
+
+        // 列宽均分
+        const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+        if (headerRow) {
+            const colCount = headerRow.cells.length;
+            if (colCount > 0) {
+                const colPercent = (100 / colCount).toFixed(2) + '%';
+                for (let i = 0; i < colCount; i++) {
+                    if (headerRow.cells[i]) headerRow.cells[i].style.width = colPercent;
+                }
+            }
+        }
+
+        // 清除父级滚动条
+        let parent = table.parentElement;
+        while (parent && parent !== document.body) {
+            const computed = window.getComputedStyle(parent);
+            if (computed.overflowX === 'auto' || computed.overflowX === 'scroll') {
+                parent.style.overflowX = 'visible';
+            }
+            if (parent.style.maxWidth && parent.style.maxWidth !== 'none') {
+                parent.style.maxWidth = '100%';
+            }
+            parent = parent.parentElement;
+        }
+    }
+
+    // 9.2 导出功能函数（不依赖开关，但只在添加按钮时用到）
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) {
             alert('html2canvas 库未加载，请检查网络或稍后再试。');
@@ -669,7 +722,9 @@
         return text.replace(/\s+/g, ' ').trim();
     }
 
-    function addInternalButtons(table) {
+    // 9.3 添加按钮到单个表格（受开关控制）
+    function addButtonsToTable(table) {
+        if (!tableButtonsEnabled) return;
         if (table.getAttribute('data-internal-buttons-added') === 'true') return;
         table.setAttribute('data-internal-buttons-added', 'true');
 
@@ -720,17 +775,8 @@
         btnContainer.addEventListener('mouseleave', hideButtons);
     }
 
-    function fixAllTables() {
-        if (!tableButtonsEnabled) return; // 开关关闭，不处理任何表格
-
-        const virtualListContainer = document.querySelector('.ds-virtual-list-visible-items');
-        let availableWidth = null;
-        if (virtualListContainer) {
-            availableWidth = virtualListContainer.clientWidth;
-            virtualListContainer.style.overflowX = 'visible';
-            virtualListContainer.style.maxWidth = '100%';
-        }
-
+    // 9.4 统一处理所有表格（样式修复 + 可选按钮）
+    function processAllTables() {
         const markdownContainers = document.querySelectorAll('.ds-markdown');
         if (!markdownContainers.length) return;
 
@@ -740,77 +786,39 @@
 
             const tables = container.querySelectorAll('table');
             tables.forEach(table => {
-                if (availableWidth && availableWidth > 0) {
-                    table.style.maxWidth = `${availableWidth}px`;
-                } else {
-                    table.style.maxWidth = '100%';
-                }
-                table.style.width = '100%';
-                table.style.tableLayout = 'fixed';
-                if (getComputedStyle(table).position !== 'relative') {
-                    table.style.position = 'relative';
-                }
-                const cells = table.querySelectorAll('th, td');
-                cells.forEach(cell => {
-                    cell.style.whiteSpace = 'normal';
-                    cell.style.wordWrap = 'break-word';
-                    cell.style.overflowWrap = 'break-word';
-                    cell.style.wordBreak = 'break-word';
-                });
-                const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
-                if (headerRow) {
-                    const colCount = headerRow.cells.length;
-                    if (colCount > 0) {
-                        const colPercent = (100 / colCount).toFixed(2) + '%';
-                        for (let i = 0; i < colCount; i++) {
-                            if (headerRow.cells[i]) headerRow.cells[i].style.width = colPercent;
-                        }
-                    }
-                }
-                let parent = table.parentElement;
-                while (parent && parent !== document.body) {
-                    const computed = window.getComputedStyle(parent);
-                    if (computed.overflowX === 'auto' || computed.overflowX === 'scroll') {
-                        parent.style.overflowX = 'visible';
-                    }
-                    if (parent.style.maxWidth && parent.style.maxWidth !== 'none') {
-                        parent.style.maxWidth = '100%';
-                    }
-                    parent = parent.parentElement;
-                }
-                addInternalButtons(table);
+                applyTableStyles(table);      // 始终修复样式
+                addButtonsToTable(table);     // 根据开关决定是否加按钮
             });
         });
     }
 
+    // 9.5 监听表格变化（新增表格时同样处理）
     function observeTables() {
-        if (!tableButtonsEnabled) return;
-        const observer = new MutationObserver(() => fixAllTables());
+        const observer = new MutationObserver(() => {
+            processAllTables();
+        });
         observer.observe(document.body, { childList: true, subtree: true });
-        window.addEventListener('load', fixAllTables);
+
+        // 页面加载完成和窗口缩放时也重新处理
+        window.addEventListener('load', processAllTables);
         window.addEventListener('resize', () => {
             clearTimeout(window._resizeFix);
-            window._resizeFix = setTimeout(fixAllTables, 100);
+            window._resizeFix = setTimeout(processAllTables, 100);
         });
-        setInterval(fixAllTables, 2000);
-        fixAllTables();
+        setInterval(processAllTables, 2000);
+        processAllTables();
     }
 
     // ==================== 10. 初始化入口 ====================
     function init() {
-        // 代码块折叠初始化
+        // 代码块折叠
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
         observeCodeBlocks();
 
-        // 表格优化初始化（受开关控制）
-        if (tableButtonsEnabled) {
-            observeTables();
-        } else {
-            // 可选：如果开关关闭，可以清理已存在的按钮，但刷新页面即可，简单处理
-            console.log('表格导出按钮已禁用');
-        }
+        // 表格优化（样式修复始终执行，按钮根据开关决定）
+        observeTables();
     }
 
     if (document.readyState === 'loading') {
