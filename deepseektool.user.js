@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         DeepSeek 代码块折叠 + 表格优化导出
+// @name         DeepSeek 代码块折叠 + 表格优化\导出
 // @namespace    https://github.com/yourname/deepseek-tools
 // @version      2.1.0
 // @description  代码块折叠（阈值/预览可配）+ 表格样式优化（始终生效）+ PNG/CSV 导出（可开关）
