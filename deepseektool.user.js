@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DeepSeek 代码块折叠
-// @namespace    https://github.com/yourname/deepseek-code-fold
-// @version      1.15.0
-// @description  代码块折叠按钮，支持自定义自动折叠阈值和预览行数（双菜单配置）
+// @name         DeepSeek 代码块折叠 + 表格优化导出
+// @namespace    https://github.com/yourname/deepseek-tools
+// @version      2.0.0
+// @description  代码块折叠（阈值/预览可配）+ 表格样式优化及 PNG/CSV 导出（可开关）
 // @author       友野YouyEr
 // @icon         https://fe-static.deepseek.com/chat/favicon.svg
 // @match        https://chat.deepseek.com/*
@@ -12,30 +12,32 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @require      https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
 // @run-at       document-end
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // ==================== 配置存储 ====================
+    // ==================== 1. 代码块折叠相关配置 ====================
     const STORAGE_FOLD_THRESHOLD = 'deepseek_fold_threshold';
     const STORAGE_PREVIEW_LINES = 'deepseek_fold_preview_lines';
-
-    // 读取存储的配置，未设置时使用默认值
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
-    const enablePreviewLines = previewLines > 0;
+    let enablePreviewLines = previewLines > 0;
 
-    // 按钮文字（可手动修改）
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
 
-    // ==================== SVG 图标 ====================
+    // ==================== 2. 表格优化开关配置 ====================
+    const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
+    let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);  // 默认开启
+
+    // ==================== 3. SVG 图标 ====================
     const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 470.6C309.9 483.1 330.2 483.1 342.7 470.6L534.7 278.6C547.2 266.1 547.2 245.8 534.7 233.3C522.2 220.8 501.9 220.8 489.4 233.3L320 402.7L150.6 233.4C138.1 220.9 117.8 220.9 105.3 233.4C92.8 245.9 92.8 266.2 105.3 278.7L297.3 470.7z"/></svg>`;
     const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 169.4C309.9 156.9 330.2 156.9 342.7 169.4L534.7 361.4C547.2 373.9 547.2 394.2 534.7 406.7C522.2 419.2 501.9 419.2 489.4 406.7L320 237.3L150.6 406.6C138.1 419.1 117.8 419.1 105.3 406.6C92.8 394.1 92.8 373.8 105.3 361.3L297.3 169.3z"/></svg>`;
 
-    // ==================== 自定义 Toast 提示 ====================
+    // ==================== 4. 通用 Toast ====================
     function showToast(message, duration = 2000) {
         const existingToast = document.getElementById('ds-fold-toast');
         if (existingToast) existingToast.remove();
@@ -70,7 +72,7 @@
         }, duration);
     }
 
-    // ==================== 通用配置弹窗 ====================
+    // ==================== 5. 配置弹窗（代码块用） ====================
     function showConfigDialog(title, description, currentValue, storageKey, onConfirm) {
         const existingDialog = document.getElementById('ds-fold-config-dialog');
         if (existingDialog) existingDialog.remove();
@@ -197,8 +199,8 @@
         input.focus();
     }
 
-    // ==================== 菜单命令 ====================
-    // 先注册自动折叠阈值菜单（位置在上方）
+    // ==================== 6. 菜单命令 ====================
+    // 代码块折叠菜单
     GM_registerMenuCommand('⚙️ 设置自动折叠阈值', () => {
         showConfigDialog(
             '自动折叠阈值设置',
@@ -209,7 +211,6 @@
         );
     });
 
-    // 再注册预览行数菜单
     GM_registerMenuCommand('⚙️ 设置折叠预览行数', () => {
         showConfigDialog(
             '折叠预览行数设置',
@@ -220,8 +221,18 @@
         );
     });
 
-    // ==================== 样式 ====================
+    // 表格按钮开关菜单
+    GM_registerMenuCommand(`🖼️ 表格导出按钮: ${tableButtonsEnabled ? '开启' : '关闭'}`, () => {
+        tableButtonsEnabled = !tableButtonsEnabled;
+        GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
+        showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}，刷新页面生效`, 2000);
+        // 为了简单，提示刷新页面；也可以动态重新处理所有表格（较复杂，刷新更可靠）
+        setTimeout(() => location.reload(), 2000);
+    });
+
+    // ==================== 7. 全局样式（合并两个脚本的样式） ====================
     GM_addStyle(`
+        /* ---------- 代码块折叠样式 ---------- */
         .ds-fold-btn {
             background: transparent;
             border: none;
@@ -265,16 +276,117 @@
             opacity: 0.6;
             margin-top: 4px;
         }
+
+        /* ---------- 表格优化样式 ---------- */
+        .ds-markdown table {
+            width: 100% !important;
+            border-collapse: separate !important;
+            border-spacing: 0 !important;
+            margin: 1em 0 !important;
+            background-color: #ffffff !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
+            position: relative;
+        }
+        .ds-markdown th,
+        .ds-markdown td {
+            border: 1px solid #e5e7eb !important;
+            padding: 12px 16px !important;
+            vertical-align: top !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+        }
+        .ds-markdown th {
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%) !important;
+            font-weight: 600 !important;
+            color: #1f2937 !important;
+            border-bottom: 1px solid #e5e7eb !important;
+            letter-spacing: 0.02em !important;
+        }
+        .ds-markdown tbody tr:nth-child(even) {
+            background-color: #fafafa !important;
+        }
+        .ds-markdown tbody tr:hover {
+            background-color: #eff6ff !important;
+            transition: background-color 0.2s ease !important;
+        }
+        /* 内部按钮容器 */
+        .table-internal-buttons {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            pointer-events: none;
+        }
+        .ds-markdown table:hover .table-internal-buttons,
+        .table-internal-buttons:hover {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+        .internal-export-btn {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            transition: all 0.2s ease;
+            font-size: 16px;
+            position: relative;
+        }
+        .internal-export-btn:hover {
+            background: #ffffff;
+            transform: scale(1.05);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            border-color: #cbd5e1;
+        }
+        .internal-export-btn:active {
+            transform: scale(0.98);
+        }
+        .internal-export-btn::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            right: 40px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #1f2937;
+            color: white;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: 0.1s;
+            pointer-events: none;
+        }
+        .internal-export-btn:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
     `);
 
+    // ==================== 8. 代码块折叠核心逻辑 ====================
     const processedAttr = 'data-fold-processed';
 
-    // ---------- 辅助函数 ----------
     function getLineCount(preEl) {
         const text = preEl.innerText || preEl.textContent || '';
         let lines = text.split('\n');
         if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-        return lines.length || 1;
+        return lines.length;
     }
 
     function getLineHeight(preEl) {
@@ -287,8 +399,14 @@
         return parseFloat(lineHeight);
     }
 
+    function shouldUsePreviewMode(preEl) {
+        if (!enablePreviewLines) return false;
+        const lineCount = getLineCount(preEl);
+        return lineCount > previewLines;
+    }
+
     function collapseBlock(preEl, btn) {
-        if (enablePreviewLines && previewLines > 0) {
+        if (shouldUsePreviewMode(preEl)) {
             const lineHeight = getLineHeight(preEl);
             const maxHeight = lineHeight * previewLines;
             if (!preEl.dataset.origMaxHeight) {
@@ -303,6 +421,7 @@
                 preEl.dataset.origDisplay = window.getComputedStyle(preEl).display;
             }
             preEl.style.display = 'none';
+            preEl.classList.remove('ds-fold-preview');
         }
         const iconDiv = btn.querySelector('.fold-icon');
         if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_UP;
@@ -311,12 +430,15 @@
     }
 
     function expandBlock(preEl, btn) {
-        if (enablePreviewLines && previewLines > 0) {
+        if (preEl.dataset.origMaxHeight !== undefined) {
             preEl.style.maxHeight = preEl.dataset.origMaxHeight || '';
             preEl.style.overflow = preEl.dataset.origOverflow || '';
             preEl.classList.remove('ds-fold-preview');
-        } else {
+        }
+        if (preEl.dataset.origDisplay !== undefined) {
             preEl.style.display = preEl.dataset.origDisplay || '';
+        } else {
+            preEl.style.display = '';
         }
         const iconDiv = btn.querySelector('.fold-icon');
         if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_DOWN;
@@ -338,12 +460,10 @@
             preEl.dataset.origDisplay = window.getComputedStyle(preEl).display;
         }
 
-        // 使用动态读取的 foldThreshold 判断是否自动折叠
         const shouldAutoFold = foldThreshold > 0 && getLineCount(preEl) > foldThreshold;
-
         let isFolded = false;
         if (shouldAutoFold) {
-            if (enablePreviewLines && previewLines > 0) {
+            if (shouldUsePreviewMode(preEl)) {
                 const lineHeight = getLineHeight(preEl);
                 const maxHeight = lineHeight * previewLines;
                 if (!preEl.dataset.origMaxHeight) {
@@ -355,6 +475,7 @@
                 preEl.classList.add('ds-fold-preview');
             } else {
                 preEl.style.display = 'none';
+                preEl.classList.remove('ds-fold-preview');
             }
             isFolded = true;
         }
@@ -375,13 +496,14 @@
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const currentlyFolded = (() => {
-                if (enablePreviewLines && previewLines > 0) {
-                    return preEl.style.maxHeight !== '' && preEl.style.maxHeight !== 'none';
-                } else {
-                    return preEl.style.display === 'none';
-                }
-            })();
+            let currentlyFolded;
+            if (preEl.dataset.origMaxHeight !== undefined && preEl.style.maxHeight !== '' && preEl.style.maxHeight !== 'none') {
+                currentlyFolded = true;
+            } else if (preEl.style.display === 'none') {
+                currentlyFolded = true;
+            } else {
+                currentlyFolded = false;
+            }
             if (currentlyFolded) {
                 expandBlock(preEl, btn);
             } else {
@@ -412,15 +534,19 @@
         preEl.setAttribute(processedAttr, 'true');
     }
 
-    function removeOldFoldWrappers() {
+    function processAllExistingCodeBlocks() {
+        document.querySelectorAll('pre').forEach(block => {
+            if (!block.hasAttribute(processedAttr)) {
+                addFoldButtonToCodeBlock(block);
+            }
+        });
+    }
+
+    function cleanupLegacyWrappers() {
         document.querySelectorAll('.ds-fold-btn-wrapper').forEach(w => w.remove());
     }
 
-    function resetProcessedFlags() {
-        document.querySelectorAll(`[${processedAttr}]`).forEach(block => block.removeAttribute(processedAttr));
-    }
-
-    function cleanDuplicateButtons() {
+    function deduplicateButtons() {
         document.querySelectorAll('.efa13877').forEach(container => {
             const btns = container.querySelectorAll('.ds-fold-btn');
             if (btns.length > 1) {
@@ -429,54 +555,262 @@
         });
     }
 
-    function processAllCodeBlocks() {
-        removeOldFoldWrappers();
-        resetProcessedFlags();
-        cleanDuplicateButtons();
-
-        document.querySelectorAll('pre').forEach(block => {
-            if (!block.hasAttribute(processedAttr)) {
-                addFoldButtonToCodeBlock(block);
-            }
-        });
-    }
-
     function observeCodeBlocks() {
         const observer = new MutationObserver((mutations) => {
-            let needProcess = false;
             for (const mutation of mutations) {
                 if (mutation.type === 'childList' && mutation.addedNodes.length) {
                     for (const node of mutation.addedNodes) {
                         if (node.nodeType === Node.ELEMENT_NODE) {
                             if (node.matches && node.matches('pre')) {
-                                if (!node.hasAttribute(processedAttr)) {
-                                    addFoldButtonToCodeBlock(node);
-                                }
-                                needProcess = true;
+                                addFoldButtonToCodeBlock(node);
                             }
                             if (node.querySelectorAll) {
-                                const innerBlocks = node.querySelectorAll('pre');
-                                innerBlocks.forEach(block => {
-                                    if (!block.hasAttribute(processedAttr)) {
-                                        addFoldButtonToCodeBlock(block);
-                                    }
-                                });
-                                if (innerBlocks.length) needProcess = true;
+                                node.querySelectorAll('pre').forEach(innerPre => addFoldButtonToCodeBlock(innerPre));
                             }
                         }
                     }
                 }
             }
-            if (needProcess) {
-                processAllCodeBlocks();
-            }
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
+    // ==================== 9. 表格优化核心逻辑（带开关） ====================
+    // 以下函数只在 tableButtonsEnabled 为 true 时才会被调用初始化
+
+    async function exportTableAsPNG(table) {
+        if (!window.html2canvas) {
+            alert('html2canvas 库未加载，请检查网络或稍后再试。');
+            return;
+        }
+        try {
+            const btnContainer = table.querySelector('.table-internal-buttons');
+            let originalDisplay = null;
+            if (btnContainer) {
+                originalDisplay = btnContainer.style.display;
+                btnContainer.style.display = 'none';
+            }
+            const canvas = await html2canvas(table, {
+                scale: 2,
+                backgroundColor: '#ffffff',
+                logging: false,
+                useCORS: false
+            });
+            if (btnContainer) btnContainer.style.display = originalDisplay;
+            const link = document.createElement('a');
+            link.download = `table_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        } catch (err) {
+            console.error('导出PNG失败:', err);
+            alert('导出失败，请查看控制台错误信息。');
+        }
+    }
+
+    function exportTableAsCSV(table) {
+        const rows = [];
+        const thead = table.querySelector('thead');
+        if (thead) {
+            thead.querySelectorAll('tr').forEach(tr => {
+                const rowData = [];
+                tr.querySelectorAll('th').forEach(th => rowData.push(getCellText(th)));
+                if (rowData.length) rows.push(rowData);
+            });
+        }
+        const tbody = table.querySelector('tbody');
+        if (tbody) {
+            tbody.querySelectorAll('tr').forEach(tr => {
+                const rowData = [];
+                tr.querySelectorAll('td').forEach(td => rowData.push(getCellText(td)));
+                if (rowData.length) rows.push(rowData);
+            });
+        } else {
+            table.querySelectorAll('tr').forEach(tr => {
+                const rowData = [];
+                tr.querySelectorAll('td, th').forEach(cell => rowData.push(getCellText(cell)));
+                if (rowData.length) rows.push(rowData);
+            });
+        }
+        if (rows.length === 0) {
+            alert('表格无数据可导出');
+            return;
+        }
+        const csvContent = rows.map(row => 
+            row.map(cell => {
+                if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+                    cell = cell.replace(/"/g, '""');
+                    cell = `"${cell}"`;
+                }
+                return cell;
+            }).join(',')
+        ).join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.setAttribute('download', `table_${Date.now()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    function getCellText(cell) {
+        let text = '';
+        cell.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                text += node.textContent;
+            } else if (node.nodeName === 'BR') {
+                text += '\n';
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                text += getCellText(node);
+            }
+        });
+        return text.replace(/\s+/g, ' ').trim();
+    }
+
+    function addInternalButtons(table) {
+        if (table.getAttribute('data-internal-buttons-added') === 'true') return;
+        table.setAttribute('data-internal-buttons-added', 'true');
+
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'table-internal-buttons';
+
+        const pngBtn = document.createElement('button');
+        pngBtn.className = 'internal-export-btn';
+        pngBtn.innerHTML = '📸';
+        pngBtn.setAttribute('data-tooltip', '导出为 PNG');
+        pngBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await exportTableAsPNG(table);
+        });
+
+        const csvBtn = document.createElement('button');
+        csvBtn.className = 'internal-export-btn';
+        csvBtn.innerHTML = '📄';
+        csvBtn.setAttribute('data-tooltip', '导出为 CSV');
+        csvBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportTableAsCSV(table);
+        });
+
+        btnContainer.appendChild(pngBtn);
+        btnContainer.appendChild(csvBtn);
+        table.appendChild(btnContainer);
+
+        // 智能显隐：鼠标进入表格或按钮容器时显示，离开延迟隐藏
+        let hideTimer = null;
+        const showButtons = () => {
+            if (hideTimer) clearTimeout(hideTimer);
+            btnContainer.style.opacity = '1';
+            btnContainer.style.visibility = 'visible';
+            btnContainer.style.pointerEvents = 'auto';
+        };
+        const hideButtons = () => {
+            if (hideTimer) clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+                btnContainer.style.opacity = '';
+                btnContainer.style.visibility = '';
+                btnContainer.style.pointerEvents = '';
+            }, 300);
+        };
+        table.addEventListener('mouseenter', showButtons);
+        table.addEventListener('mouseleave', hideButtons);
+        btnContainer.addEventListener('mouseenter', showButtons);
+        btnContainer.addEventListener('mouseleave', hideButtons);
+    }
+
+    function fixAllTables() {
+        if (!tableButtonsEnabled) return; // 开关关闭，不处理任何表格
+
+        const virtualListContainer = document.querySelector('.ds-virtual-list-visible-items');
+        let availableWidth = null;
+        if (virtualListContainer) {
+            availableWidth = virtualListContainer.clientWidth;
+            virtualListContainer.style.overflowX = 'visible';
+            virtualListContainer.style.maxWidth = '100%';
+        }
+
+        const markdownContainers = document.querySelectorAll('.ds-markdown');
+        if (!markdownContainers.length) return;
+
+        markdownContainers.forEach(container => {
+            container.style.overflowX = 'visible';
+            container.style.maxWidth = '100%';
+
+            const tables = container.querySelectorAll('table');
+            tables.forEach(table => {
+                if (availableWidth && availableWidth > 0) {
+                    table.style.maxWidth = `${availableWidth}px`;
+                } else {
+                    table.style.maxWidth = '100%';
+                }
+                table.style.width = '100%';
+                table.style.tableLayout = 'fixed';
+                if (getComputedStyle(table).position !== 'relative') {
+                    table.style.position = 'relative';
+                }
+                const cells = table.querySelectorAll('th, td');
+                cells.forEach(cell => {
+                    cell.style.whiteSpace = 'normal';
+                    cell.style.wordWrap = 'break-word';
+                    cell.style.overflowWrap = 'break-word';
+                    cell.style.wordBreak = 'break-word';
+                });
+                const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+                if (headerRow) {
+                    const colCount = headerRow.cells.length;
+                    if (colCount > 0) {
+                        const colPercent = (100 / colCount).toFixed(2) + '%';
+                        for (let i = 0; i < colCount; i++) {
+                            if (headerRow.cells[i]) headerRow.cells[i].style.width = colPercent;
+                        }
+                    }
+                }
+                let parent = table.parentElement;
+                while (parent && parent !== document.body) {
+                    const computed = window.getComputedStyle(parent);
+                    if (computed.overflowX === 'auto' || computed.overflowX === 'scroll') {
+                        parent.style.overflowX = 'visible';
+                    }
+                    if (parent.style.maxWidth && parent.style.maxWidth !== 'none') {
+                        parent.style.maxWidth = '100%';
+                    }
+                    parent = parent.parentElement;
+                }
+                addInternalButtons(table);
+            });
+        });
+    }
+
+    function observeTables() {
+        if (!tableButtonsEnabled) return;
+        const observer = new MutationObserver(() => fixAllTables());
+        observer.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('load', fixAllTables);
+        window.addEventListener('resize', () => {
+            clearTimeout(window._resizeFix);
+            window._resizeFix = setTimeout(fixAllTables, 100);
+        });
+        setInterval(fixAllTables, 2000);
+        fixAllTables();
+    }
+
+    // ==================== 10. 初始化入口 ====================
     function init() {
-        processAllCodeBlocks();
+        // 代码块折叠初始化
+        cleanupLegacyWrappers();
+        deduplicateButtons();
+        processAllExistingCodeBlocks();
         observeCodeBlocks();
+
+        // 表格优化初始化（受开关控制）
+        if (tableButtonsEnabled) {
+            observeTables();
+        } else {
+            // 可选：如果开关关闭，可以清理已存在的按钮，但刷新页面即可，简单处理
+            console.log('表格导出按钮已禁用');
+        }
     }
 
     if (document.readyState === 'loading') {
