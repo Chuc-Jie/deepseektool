@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      4.0.0
-// @description  一站式管理：代码块折叠、表格优化导出、用户消息折叠、自动折叠AI思考过程。所有设置即时生效。
+// @version      4.0.1
+// @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -26,7 +26,6 @@
     const STORAGE_FOLD_THRESHOLD = 'deepseek_fold_threshold';
     const STORAGE_PREVIEW_LINES = 'deepseek_fold_preview_lines';
     const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
-    const STORAGE_USER_MSG_THRESHOLD = 'deepseek_user_msg_threshold';
     const STORAGE_AUTO_COLLAPSE_THINKING = 'deepseek_auto_collapse_thinking';
     const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
 
@@ -34,7 +33,6 @@
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
     let enablePreviewLines = previewLines > 0;
     let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
-    let userMsgThreshold = GM_getValue(STORAGE_USER_MSG_THRESHOLD, 100);
     let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
 
@@ -92,7 +90,7 @@
         title.style.cssText = 'margin:0 0 24px 0; font-size:20px; font-weight:600;';
 
         // --- 代码块折叠部分 ---
-        const codeSectionTitle = createSectionTitle('📝 代码块折叠');
+        const codeSectionTitle = createSectionTitle('代码块折叠');
         panel.appendChild(codeSectionTitle);
 
         panel.appendChild(createNumberSetting(
@@ -117,7 +115,7 @@
         ));
 
         // --- 表格优化部分 ---
-        const tableSectionTitle = createSectionTitle('📊 表格优化导出');
+        const tableSectionTitle = createSectionTitle('表格优化导出');
         panel.appendChild(tableSectionTitle);
 
         const switchLabel1 = document.createElement('label');
@@ -125,7 +123,7 @@
         switchLabel1.innerHTML = `
             <span style="font-size:15px; font-weight:500;">表格导出按钮</span>
             <input type="checkbox" id="ds-table-switch" ${tableButtonsEnabled ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#0f6e4a; cursor:pointer;">
+                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
             <span style="font-size:13px; opacity:0.7;">悬停表格显示 PNG/CSV 导出按钮</span>
         `;
         panel.appendChild(switchLabel1);
@@ -137,22 +135,8 @@
             showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}`);
         });
 
-        // --- 用户消息折叠部分 ---
-        const msgSectionTitle = createSectionTitle('💬 用户消息折叠');
-        panel.appendChild(msgSectionTitle);
-
-        panel.appendChild(createNumberSetting(
-            '折叠阈值 (字符)', '用户消息超过该字符数时自动折叠（0 = 禁用）',
-            userMsgThreshold, value => {
-                userMsgThreshold = value;
-                GM_setValue(STORAGE_USER_MSG_THRESHOLD, value);
-                reapplyUserMessages();
-                showToast(`用户消息折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
-            }
-        ));
-
         // --- AI思考区域自动折叠 ---
-        const thinkSectionTitle = createSectionTitle('🧠 AI思考过程折叠');
+        const thinkSectionTitle = createSectionTitle('AI思考过程折叠');
         panel.appendChild(thinkSectionTitle);
 
         const switchLabel2 = document.createElement('label');
@@ -160,7 +144,7 @@
         switchLabel2.innerHTML = `
             <span style="font-size:15px; font-weight:500;">自动折叠思考区域</span>
             <input type="checkbox" id="ds-auto-think-switch" ${autoCollapseThinking ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#0f6e4a; cursor:pointer;">
+                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
             <span style="font-size:13px; opacity:0.7;">AI开始思考后自动收起“已思考”过程</span>
         `;
         panel.appendChild(switchLabel2);
@@ -177,7 +161,7 @@
         switchLabel3.innerHTML = `
             <span style="font-size:15px; font-weight:500;">模拟点击折叠</span>
             <input type="checkbox" id="ds-simulate-switch" ${simulateClickThinking ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#0f6e4a; cursor:pointer;">
+                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
             <span style="font-size:13px; opacity:0.7;">通过模拟点击箭头折叠（保持原生交互）</span>
         `;
         panel.appendChild(switchLabel3);
@@ -193,11 +177,11 @@
         closeBtn.textContent = '关闭面板';
         closeBtn.style.cssText = `
             width:100%; padding:10px; border:none; border-radius:10px;
-            background:#0f6e4a; color:white; font-size:15px; cursor:pointer;
+            background:#4f46e5; color:white; font-size:15px; cursor:pointer;
             transition: background 0.2s;
         `;
-        closeBtn.onmouseenter = () => closeBtn.style.background = '#0a5a3c';
-        closeBtn.onmouseleave = () => closeBtn.style.background = '#0f6e4a';
+        closeBtn.onmouseenter = () => closeBtn.style.background = '#6366f1';
+        closeBtn.onmouseleave = () => closeBtn.style.background = '#4f46e5';
         closeBtn.addEventListener('click', () => overlay.remove());
 
         panel.appendChild(closeBtn);
@@ -292,28 +276,7 @@
         });
     }
 
-    function reapplyUserMessages() {
-        document.querySelectorAll('.fbb737a4[data-collapse-processed]').forEach(msg => {
-            // 移除折叠标记和相关DOM结构
-            const wrapper = msg.closest('.user-message-wrapper');
-            if (wrapper) {
-                const btn = wrapper.querySelector('.user-message-toggle');
-                if (btn) btn.remove();
-                const originalParent = wrapper.parentNode;
-                if (originalParent) {
-                    originalParent.insertBefore(msg, wrapper);
-                    wrapper.remove();
-                }
-            }
-            msg.removeAttribute('data-collapse-processed');
-            msg.classList.remove('user-message-collapsible', 'expanded');
-        });
-        processAllUserMessages();
-    }
-
     function reapplyThinkingSections() {
-        // 如果关闭自动折叠，我们无法自动展开已折叠的思考区域，但可以允许新产生的思考区域不再折叠
-        // 如果开启，则立即对现有所有思考区域进行折叠（未折叠过的）
         if (autoCollapseThinking) {
             processAllThinkingSections();
         }
@@ -322,7 +285,7 @@
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
 
-    // ==================== 全局样式（包含代码块、表格、用户消息折叠） ====================
+    // ==================== 全局样式 ====================
     GM_addStyle(`
         /* 代码块折叠 */
         .ds-fold-btn {
@@ -383,31 +346,6 @@
             pointer-events: none;
         }
         .internal-export-btn:hover::after { opacity: 1; visibility: visible; }
-
-        /* 用户消息折叠 */
-        .user-message-collapsible {
-            position: relative; max-height: 200px; overflow: hidden;
-            transition: max-height 0.3s ease;
-        }
-        .user-message-collapsible.expanded { max-height: none; }
-        .user-message-collapsible:not(.expanded)::after {
-            content: ''; position: absolute; bottom: 0; left: 0; right: 0;
-            height: 60px; background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.95));
-            pointer-events: none; border-radius: 0 0 12px 12px;
-        }
-        .dark .user-message-collapsible:not(.expanded)::after {
-            background: linear-gradient(to bottom, transparent, rgba(30,30,35,0.95));
-        }
-        .user-message-toggle {
-            display: block; margin: 8px 0 4px 0; padding: 6px 16px;
-            background-color: #e8e8e8; border: none; border-radius: 20px;
-            font-size: 12px; color: #333; cursor: pointer;
-            transition: background-color 0.2s; text-align: center;
-        }
-        .user-message-toggle:hover { background-color: #d0d0d0; }
-        .dark .user-message-toggle { background-color: #2a2a2a; color: #e0e0e0; }
-        .dark .user-message-toggle:hover { background-color: #3a3a3a; }
-        .user-message-wrapper { margin-bottom: 16px; }
     `);
 
     // ==================== 代码块折叠逻辑 ====================
@@ -714,58 +652,6 @@
         processAllTables();
     }
 
-    // ==================== 用户消息折叠逻辑 ====================
-    function isUserMessage(el) {
-        return el.classList && el.classList.contains('fbb737a4');
-    }
-
-    function getMessageText(el) {
-        return el.innerText || el.textContent || '';
-    }
-
-    function addCollapseToMessage(msgDiv) {
-        if (msgDiv.hasAttribute('data-collapse-processed')) return;
-        const text = getMessageText(msgDiv);
-        if (userMsgThreshold === 0 || text.length < userMsgThreshold) return;
-
-        msgDiv.setAttribute('data-collapse-processed', 'true');
-        const parent = msgDiv.parentNode;
-        if (!parent) return;
-
-        let wrapper = msgDiv.parentElement;
-        if (!wrapper.classList.contains('user-message-wrapper')) {
-            wrapper = document.createElement('div');
-            wrapper.className = 'user-message-wrapper';
-            parent.insertBefore(wrapper, msgDiv);
-            wrapper.appendChild(msgDiv);
-        }
-
-        msgDiv.classList.add('user-message-collapsible');
-        if (wrapper.querySelector('.user-message-toggle')) return;
-
-        const btn = document.createElement('button');
-        btn.className = 'user-message-toggle';
-        btn.textContent = '▼ 展开全文';
-        let expanded = false;
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            if (expanded) {
-                msgDiv.classList.remove('expanded');
-                btn.textContent = '▼ 展开全文';
-                expanded = false;
-            } else {
-                msgDiv.classList.add('expanded');
-                btn.textContent = '▲ 收起';
-                expanded = true;
-            }
-        });
-        wrapper.appendChild(btn);
-    }
-
-    function processAllUserMessages() {
-        document.querySelectorAll('.fbb737a4').forEach(addCollapseToMessage);
-    }
-
     // ==================== AI思考区域自动折叠逻辑 ====================
     function collapseThinkingSection(container) {
         if (!autoCollapseThinking || container.hasAttribute('data-thinking-collapsed')) return;
@@ -787,7 +673,6 @@
 
     function processAllThinkingSections() {
         if (!autoCollapseThinking) return;
-        // 查找包含“已思考”文本的 span
         const spans = document.querySelectorAll('span[class*="5255ff8"], span[class*="4d41763"]');
         spans.forEach(span => {
             if (span.textContent && span.textContent.includes('已思考')) {
@@ -795,7 +680,6 @@
                 if (container) collapseThinkingSection(container);
             }
         });
-        // 备用：文本节点直接包含“已思考”
         document.querySelectorAll('*').forEach(el => {
             if (el.childNodes.length === 1 && el.childNodes[0].nodeType === Node.TEXT_NODE && el.textContent.includes('已思考')) {
                 if (!el.hasAttribute('data-thinking-processed')) {
@@ -810,12 +694,11 @@
     // ==================== 统一 DOM 监听 ====================
     function observeDynamicContent() {
         const observer = new MutationObserver(mutations => {
-            let needUser = false, needThink = false;
+            let needThink = false;
             for (const m of mutations) {
                 if (m.type === 'childList') {
                     for (const node of m.addedNodes) {
                         if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (isUserMessage(node) || node.querySelector('.fbb737a4')) needUser = true;
                             if (autoCollapseThinking && (node.textContent && node.textContent.includes('已思考') ||
                                 (node.querySelector && node.querySelector('span') && node.querySelector('span').textContent?.includes('已思考')))) {
                                 needThink = true;
@@ -824,7 +707,6 @@
                     }
                 }
             }
-            if (needUser) setTimeout(processAllUserMessages, 100);
             if (needThink) setTimeout(processAllThinkingSections, 150);
         });
         observer.observe(document.body, { childList: true, subtree: true });
@@ -837,7 +719,6 @@
         processAllExistingCodeBlocks();
         observeCodeBlocks();
         observeTables();
-        processAllUserMessages();
         if (autoCollapseThinking) processAllThinkingSections();
         observeDynamicContent();
     }
