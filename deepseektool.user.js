@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         DeepSeek 代码块折叠 + 表格优化导出
+// @name         DeepSeek 代码块折叠 + 表格优化导出 (统一控制面板)
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      2.1.0
-// @description  代码块折叠（阈值/预览可配）+ 表格样式优化（始终生效）+ PNG/CSV 导出（可开关）
+// @version      3.0.0
+// @description  代码块折叠（阈值/预览可配）+ 表格样式优化（始终生效）+ PNG/CSV 导出（可开关），所有设置通过统一面板管理，即时生效。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -27,7 +27,7 @@
     const STORAGE_PREVIEW_LINES = 'deepseek_fold_preview_lines';
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
-    let enablePreviewLines = previewLines > 0;
+    let enablePreviewLines = previewLines > 0;   // 会被面板回调实时更新
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -75,50 +75,119 @@
         }, duration);
     }
 
-    // ==================== 5. 配置弹窗（代码块用） ====================
-    function showConfigDialog(title, description, currentValue, storageKey, onConfirm) {
-        const existingDialog = document.getElementById('ds-fold-config-dialog');
-        if (existingDialog) existingDialog.remove();
+    // ==================== 5. 统一控制面板（替代原菜单） ====================
+    function openControlPanel() {
+        const existingOverlay = document.getElementById('ds-control-panel-overlay');
+        if (existingOverlay) existingOverlay.remove();
 
         const overlay = document.createElement('div');
-        overlay.id = 'ds-fold-config-overlay';
+        overlay.id = 'ds-control-panel-overlay';
         overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+            z-index: 10001; display: flex; align-items: center; justify-content: center;
         `;
 
-        const dialog = document.createElement('div');
-        dialog.id = 'ds-fold-config-dialog';
-        dialog.style.cssText = `
+        const panel = document.createElement('div');
+        panel.style.cssText = `
             background: var(--ds-bg-primary, #1e1e2f);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-            width: 360px;
-            max-width: 90%;
-            padding: 24px;
-            font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+            border-radius: 16px; box-shadow: 0 12px 32px rgba(0,0,0,0.3);
+            width: 420px; max-width: 90%; padding: 28px;
+            font-family: system-ui, -apple-system, sans-serif;
             color: var(--ds-text-primary, #e2e2e2);
+            max-height: 80vh; overflow-y: auto;
         `;
 
-        const titleEl = document.createElement('h3');
-        titleEl.textContent = title;
-        titleEl.style.cssText = `margin: 0 0 16px 0; font-size: 18px; font-weight: 500;`;
+        const title = document.createElement('h2');
+        title.textContent = '⚙️ DeepSeek 增强工具设置';
+        title.style.cssText = 'margin:0 0 24px 0; font-size:20px; font-weight:600;';
 
-        const descEl = document.createElement('p');
-        descEl.textContent = description;
-        descEl.style.cssText = `margin: 0 0 20px 0; font-size: 13px; opacity: 0.7; line-height: 1.4;`;
+        // 折叠阈值设置项
+        const thresholdSection = createNumberSetting(
+            '自动折叠阈值',
+            '代码块行数超过该值时自动折叠（设为 0 则禁用自动折叠）',
+            foldThreshold,
+            value => {
+                foldThreshold = value;
+                GM_setValue(STORAGE_FOLD_THRESHOLD, value);
+                reapplyFoldToAllCodeBlocks();
+                showToast(`折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
+            }
+        );
 
-        const inputWrapper = document.createElement('div');
-        inputWrapper.style.marginBottom = '24px';
+        // 预览行数设置项
+        const previewSection = createNumberSetting(
+            '折叠预览行数',
+            '折叠后显示的行数（设为 0 则完全隐藏代码块）',
+            previewLines,
+            value => {
+                previewLines = value;
+                enablePreviewLines = value > 0;   // 实时同步全局开关
+                GM_setValue(STORAGE_PREVIEW_LINES, value);
+                reapplyFoldToAllCodeBlocks();
+                showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
+            }
+        );
+
+        // 表格导出按钮开关
+        const switchSection = document.createElement('div');
+        switchSection.style.marginBottom = '24px';
+
+        const switchLabel = document.createElement('label');
+        switchLabel.style.cssText = 'display:flex; align-items:center; gap:12px; cursor:pointer;';
+        switchLabel.innerHTML = `
+            <span style="font-size:15px; font-weight:500;">表格导出按钮</span>
+            <input type="checkbox" id="ds-table-switch" ${tableButtonsEnabled ? 'checked' : ''} 
+                style="width:18px; height:18px; accent-color:#0f6e4a; cursor:pointer;">
+            <span style="font-size:13px; opacity:0.7;">鼠标悬停表格时显示 PNG / CSV 导出按钮</span>
+        `;
+        switchSection.appendChild(switchLabel);
+
+        const switchInput = switchLabel.querySelector('input');
+        switchInput.addEventListener('change', () => {
+            tableButtonsEnabled = switchInput.checked;
+            GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
+            toggleTableButtons(tableButtonsEnabled);
+            showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}`);
+        });
+
+        // 关闭按钮
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '关闭面板';
+        closeBtn.style.cssText = `
+            width:100%; padding:10px; border:none; border-radius:10px;
+            background:#0f6e4a; color:white; font-size:15px; cursor:pointer;
+            transition: background 0.2s; margin-top:8px;
+        `;
+        closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = '#0a5a3c');
+        closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = '#0f6e4a');
+        closeBtn.addEventListener('click', () => overlay.remove());
+
+        panel.appendChild(title);
+        panel.appendChild(thresholdSection);
+        panel.appendChild(previewSection);
+        panel.appendChild(switchSection);
+        panel.appendChild(closeBtn);
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+    }
+
+    // 辅助：创建数字输入设置行
+    function createNumberSetting(labelText, description, currentValue, onChange) {
+        const section = document.createElement('div');
+        section.style.marginBottom = '20px';
+
+        const label = document.createElement('div');
+        label.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;';
+        label.innerHTML = `<span style="font-size:15px; font-weight:500;">${labelText}</span>`;
+
+        const desc = document.createElement('div');
+        desc.textContent = description;
+        desc.style.cssText = 'font-size:13px; opacity:0.7; margin-bottom:10px; line-height:1.4;';
 
         const input = document.createElement('input');
         input.type = 'number';
@@ -126,111 +195,71 @@
         input.min = 0;
         input.step = 1;
         input.style.cssText = `
-            width: 100%;
-            padding: 10px 12px;
-            border-radius: 8px;
-            border: 1px solid rgba(128, 128, 128, 0.3);
+            width:100%; padding:10px 12px; border-radius:8px;
+            border:1px solid rgba(128,128,128,0.3);
             background: var(--ds-bg-secondary, #2a2a36);
             color: var(--ds-text-primary, #e2e2e2);
-            font-size: 14px;
-            box-sizing: border-box;
-            outline: none;
+            font-size:14px; box-sizing:border-box; outline:none;
             transition: border-color 0.2s;
         `;
-        input.addEventListener('focus', () => input.style.borderColor = 'rgba(128, 128, 128, 0.6)');
-        input.addEventListener('blur', () => input.style.borderColor = 'rgba(128, 128, 128, 0.3)');
-        inputWrapper.appendChild(input);
-
-        const buttonGroup = document.createElement('div');
-        buttonGroup.style.display = 'flex';
-        buttonGroup.style.gap = '12px';
-        buttonGroup.style.justifyContent = 'flex-end';
-
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = '取消';
-        cancelBtn.style.cssText = `
-            padding: 8px 16px;
-            border-radius: 8px;
-            border: none;
-            background: transparent;
-            color: var(--ds-text-primary, #e2e2e2);
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s;
-        `;
-        cancelBtn.addEventListener('mouseenter', () => cancelBtn.style.background = 'rgba(128, 128, 128, 0.1)');
-        cancelBtn.addEventListener('mouseleave', () => cancelBtn.style.background = 'transparent');
-        cancelBtn.addEventListener('click', () => overlay.remove());
-
-        const confirmBtn = document.createElement('button');
-        confirmBtn.textContent = '确认';
-        confirmBtn.style.cssText = `
-            padding: 8px 16px;
-            border-radius: 8px;
-            border: none;
-            background: #0f6e4a;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s;
-        `;
-        confirmBtn.addEventListener('mouseenter', () => confirmBtn.style.background = '#0a5a3c');
-        confirmBtn.addEventListener('mouseleave', () => confirmBtn.style.background = '#0f6e4a');
-        confirmBtn.addEventListener('click', () => {
-            let newValue = parseInt(input.value, 10);
-            if (isNaN(newValue)) newValue = 0;
-            if (newValue < 0) newValue = 0;
-            GM_setValue(storageKey, newValue);
-            overlay.remove();
-            if (onConfirm) onConfirm(newValue);
-            showToast(`已设置为 ${newValue === 0 ? '关闭' : newValue}`, 1800);
-            setTimeout(() => location.reload(), 1800);
+        input.addEventListener('focus', () => input.style.borderColor = 'rgba(128,128,128,0.6)');
+        input.addEventListener('blur', () => input.style.borderColor = 'rgba(128,128,128,0.3)');
+        input.addEventListener('change', () => {
+            let val = parseInt(input.value, 10);
+            if (isNaN(val) || val < 0) val = 0;
+            input.value = val;
+            onChange(val);
         });
 
-        buttonGroup.appendChild(cancelBtn);
-        buttonGroup.appendChild(confirmBtn);
+        section.appendChild(label);
+        section.appendChild(desc);
+        section.appendChild(input);
+        return section;
+    }
 
-        dialog.appendChild(titleEl);
-        dialog.appendChild(descEl);
-        dialog.appendChild(inputWrapper);
-        dialog.appendChild(buttonGroup);
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
+    // 重新应用折叠到所有现有代码块（设置改变后调用）
+    function reapplyFoldToAllCodeBlocks() {
+        document.querySelectorAll('pre').forEach(pre => {
+            pre.removeAttribute(processedAttr);
+            if (pre.dataset.origDisplay) {
+                pre.style.display = pre.dataset.origDisplay;
+                delete pre.dataset.origDisplay;
+            }
+            if (pre.dataset.origMaxHeight) {
+                pre.style.maxHeight = pre.dataset.origMaxHeight;
+                pre.style.overflow = pre.dataset.origOverflow || '';
+                delete pre.dataset.origMaxHeight;
+                delete pre.dataset.origOverflow;
+            }
+            pre.classList.remove('ds-fold-preview');
+            const btn = pre.parentElement?.querySelector('.ds-fold-btn');
+            if (btn) btn.remove();
+            addFoldButtonToCodeBlock(pre);
+        });
+    }
 
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-        input.addEventListener('keypress', (e) => { if (e.key === 'Enter') confirmBtn.click(); });
-        input.focus();
+    // 动态开关表格导出按钮
+    function toggleTableButtons(enabled) {
+        document.querySelectorAll('.ds-markdown table').forEach(table => {
+            const existingBtn = table.querySelector('.table-internal-buttons');
+            if (enabled) {
+                if (!existingBtn) {
+                    table.removeAttribute('data-internal-buttons-added');
+                    addButtonsToTable(table);
+                }
+            } else {
+                if (existingBtn) {
+                    existingBtn.remove();
+                    table.removeAttribute('data-internal-buttons-added');
+                }
+            }
+        });
     }
 
     // ==================== 6. 菜单命令 ====================
-    GM_registerMenuCommand('⚙️ 设置自动折叠阈值', () => {
-        showConfigDialog(
-            '自动折叠阈值设置',
-            '设置代码块自动折叠的行数阈值（0 表示禁用自动折叠）',
-            foldThreshold,
-            STORAGE_FOLD_THRESHOLD,
-            (newVal) => { foldThreshold = newVal; }
-        );
-    });
+    GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
 
-    GM_registerMenuCommand('⚙️ 设置折叠预览行数', () => {
-        showConfigDialog(
-            '折叠预览行数设置',
-            '设置折叠时显示的行数（0 表示关闭预览，完全隐藏代码块）',
-            previewLines,
-            STORAGE_PREVIEW_LINES,
-            (newVal) => { previewLines = newVal; }
-        );
-    });
-
-    GM_registerMenuCommand(`🖼️ 表格导出按钮: ${tableButtonsEnabled ? '开启' : '关闭'}`, () => {
-        tableButtonsEnabled = !tableButtonsEnabled;
-        GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
-        showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}，刷新页面生效`, 2000);
-        setTimeout(() => location.reload(), 2000);
-    });
-
-    // ==================== 7. 全局样式（合并） ====================
+    // ==================== 7. 全局样式 ====================
     GM_addStyle(`
         /* 代码块折叠样式 */
         .ds-fold-btn {
@@ -283,7 +312,7 @@
             border-collapse: separate !important;
             border-spacing: 0 !important;
             margin: 1em 0 !important;
-            background-color: #ffffff !important;
+            background-color: var(--ds-bg-primary, #ffffff) !important;
             border-radius: 12px !important;
             overflow: hidden !important;
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
@@ -312,7 +341,7 @@
             transition: background-color 0.2s ease !important;
         }
 
-        /* 表格按钮样式（仅在开关开启时才会出现） */
+        /* 表格按钮样式 */
         .table-internal-buttons {
             position: absolute;
             bottom: 12px;
@@ -380,7 +409,7 @@
         }
     `);
 
-    // ==================== 8. 代码块折叠核心逻辑（不变） ====================
+    // ==================== 8. 代码块折叠核心逻辑 ====================
     const processedAttr = 'data-fold-processed';
 
     function getLineCount(preEl) {
@@ -576,10 +605,8 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // ==================== 9. 表格优化核心逻辑（拆分为样式修复 + 按钮添加） ====================
-    // 9.1 表格样式修复（始终执行，不依赖开关）
+    // ==================== 9. 表格优化核心逻辑 ====================
     function applyTableStyles(table) {
-        // 宽度修复：参考虚拟列表宽度
         const virtualListContainer = document.querySelector('.ds-virtual-list-visible-items');
         let availableWidth = null;
         if (virtualListContainer) {
@@ -598,7 +625,6 @@
             table.style.position = 'relative';
         }
 
-        // 单元格换行
         const cells = table.querySelectorAll('th, td');
         cells.forEach(cell => {
             cell.style.whiteSpace = 'normal';
@@ -607,7 +633,6 @@
             cell.style.wordBreak = 'break-word';
         });
 
-        // 列宽均分
         const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
         if (headerRow) {
             const colCount = headerRow.cells.length;
@@ -619,7 +644,6 @@
             }
         }
 
-        // 清除父级滚动条
         let parent = table.parentElement;
         while (parent && parent !== document.body) {
             const computed = window.getComputedStyle(parent);
@@ -633,7 +657,6 @@
         }
     }
 
-    // 9.2 导出功能函数（不依赖开关，但只在添加按钮时用到）
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) {
             alert('html2canvas 库未加载，请检查网络或稍后再试。');
@@ -725,7 +748,6 @@
         return text.replace(/\s+/g, ' ').trim();
     }
 
-    // 9.3 添加按钮到单个表格（受开关控制）
     function addButtonsToTable(table) {
         if (!tableButtonsEnabled) return;
         if (table.getAttribute('data-internal-buttons-added') === 'true') return;
@@ -755,30 +777,8 @@
         btnContainer.appendChild(pngBtn);
         btnContainer.appendChild(csvBtn);
         table.appendChild(btnContainer);
-
-        // 智能显隐：鼠标进入表格或按钮容器时显示，离开延迟隐藏
-        let hideTimer = null;
-        const showButtons = () => {
-            if (hideTimer) clearTimeout(hideTimer);
-            btnContainer.style.opacity = '1';
-            btnContainer.style.visibility = 'visible';
-            btnContainer.style.pointerEvents = 'auto';
-        };
-        const hideButtons = () => {
-            if (hideTimer) clearTimeout(hideTimer);
-            hideTimer = setTimeout(() => {
-                btnContainer.style.opacity = '';
-                btnContainer.style.visibility = '';
-                btnContainer.style.pointerEvents = '';
-            }, 300);
-        };
-        table.addEventListener('mouseenter', showButtons);
-        table.addEventListener('mouseleave', hideButtons);
-        btnContainer.addEventListener('mouseenter', showButtons);
-        btnContainer.addEventListener('mouseleave', hideButtons);
     }
 
-    // 9.4 统一处理所有表格（样式修复 + 可选按钮）
     function processAllTables() {
         const markdownContainers = document.querySelectorAll('.ds-markdown');
         if (!markdownContainers.length) return;
@@ -789,38 +789,33 @@
 
             const tables = container.querySelectorAll('table');
             tables.forEach(table => {
-                applyTableStyles(table);      // 始终修复样式
-                addButtonsToTable(table);     // 根据开关决定是否加按钮
+                applyTableStyles(table);
+                addButtonsToTable(table);
             });
         });
     }
 
-    // 9.5 监听表格变化（新增表格时同样处理）
     function observeTables() {
         const observer = new MutationObserver(() => {
             processAllTables();
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // 页面加载完成和窗口缩放时也重新处理
         window.addEventListener('load', processAllTables);
         window.addEventListener('resize', () => {
             clearTimeout(window._resizeFix);
             window._resizeFix = setTimeout(processAllTables, 100);
         });
-        setInterval(processAllTables, 2000);
+        // 初始执行
         processAllTables();
     }
 
-    // ==================== 10. 初始化入口 ====================
+    // ==================== 10. 初始化 ====================
     function init() {
-        // 代码块折叠
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
         observeCodeBlocks();
-
-        // 表格优化（样式修复始终执行，按钮根据开关决定）
         observeTables();
     }
 
