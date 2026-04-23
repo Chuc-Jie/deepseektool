@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         DeepSeek 全功能增强工具箱 (统一控制面板)
+// @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/yourname/deepseek-tools
 // @version      4.0.0
 // @description  一站式管理：代码块折叠、表格优化导出、用户消息折叠、自动折叠AI思考过程。所有设置即时生效。
