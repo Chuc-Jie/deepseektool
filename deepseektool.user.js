@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      4.0.1
-// @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效。
+// @version      4.1.0
+// @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -298,7 +298,6 @@
         .ds-fold-btn:hover { background: rgba(128,128,128,0.2); opacity: 1; }
         .ds-fold-btn .fold-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
-        .efa13877 .ds-fold-btn { margin-left: 4px; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
 
         /* 表格样式 */
@@ -412,10 +411,11 @@
     }
 
     function findButtonContainer(preEl) {
-        let parent = preEl.closest('.md-code-block');
-        if (!parent) return null;
-        return parent.querySelector('.efa13877') ||
-               parent.querySelector('[class*="button-group"], [class*="actions"], [class*="buttons"]') || null;
+        const codeBlock = preEl.closest('.md-code-block');
+        if (!codeBlock) return null;
+        // 通过稳定的 .ds-text-button 按钮找到其父容器（复制/下载按钮所在容器）
+        const actionBtn = codeBlock.querySelector('.ds-text-button');
+        return actionBtn ? actionBtn.parentElement : null;
     }
 
     function createFoldButton(preEl) {
@@ -498,27 +498,18 @@
     }
 
     function deduplicateButtons() {
-        document.querySelectorAll('.efa13877').forEach(container => {
+        // 通过稳定的 .ds-text-button 找到按钮容器，去重其中的折叠按钮
+        const seen = new Set();
+        document.querySelectorAll('.ds-text-button').forEach(btn => {
+            const container = btn.parentElement;
+            if (!container || seen.has(container)) return;
+            seen.add(container);
             const btns = container.querySelectorAll('.ds-fold-btn');
             if (btns.length > 1) for (let i = 1; i < btns.length; i++) btns[i].remove();
         });
     }
 
-    function observeCodeBlocks() {
-        const observer = new MutationObserver(mutations => {
-            for (const m of mutations) {
-                if (m.type === 'childList' && m.addedNodes.length) {
-                    for (const node of m.addedNodes) {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.matches && node.matches('pre')) addFoldButtonToCodeBlock(node);
-                            if (node.querySelectorAll) node.querySelectorAll('pre').forEach(addFoldButtonToCodeBlock);
-                        }
-                    }
-                }
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    }
+
 
     // ==================== 表格优化逻辑 ====================
     function applyTableStyles(table) {
@@ -547,12 +538,13 @@
             for (let i = 0; i < headerRow.cells.length; i++) headerRow.cells[i].style.width = per;
         }
 
-        let parent = table.parentElement;
-        while (parent && parent !== document.body) {
-            const comp = window.getComputedStyle(parent);
-            if (comp.overflowX === 'auto' || comp.overflowX === 'scroll') parent.style.overflowX = 'visible';
-            if (parent.style.maxWidth && parent.style.maxWidth !== 'none') parent.style.maxWidth = '100%';
-            parent = parent.parentElement;
+        // 仅处理直接包裹表格的 .ds-scroll-area 容器，避免破坏祖先布局
+        const scrollArea = table.closest('.ds-scroll-area');
+        if (scrollArea) {
+            if (!scrollArea.dataset.dsOrigOverflowX) {
+                scrollArea.dataset.dsOrigOverflowX = scrollArea.style.overflowX || '';
+            }
+            scrollArea.style.overflowX = 'visible';
         }
     }
 
@@ -607,7 +599,9 @@
             else if (n.nodeName === 'BR') t += '\n';
             else if (n.nodeType === Node.ELEMENT_NODE) t += getCellText(n);
         });
-        return t.replace(/\s+/g,' ').trim();
+        // 保留 <br> 产生的换行，压缩其他空白字符
+        t = t.replace(/[^\S\n]+/g, ' ').replace(/ *\n */g, '\n').trim();
+        return t;
     }
 
     function addButtonsToTable(table) {
@@ -641,75 +635,138 @@
         });
     }
 
-    function observeTables() {
-        const observer = new MutationObserver(() => processAllTables());
-        observer.observe(document.body, { childList: true, subtree: true });
-        window.addEventListener('load', processAllTables);
-        window.addEventListener('resize', () => {
-            clearTimeout(window._resizeFix);
-            window._resizeFix = setTimeout(processAllTables, 100);
-        });
-        processAllTables();
+    let _tableDebounceTimer = null;
+    function scheduleTableProcess() {
+        clearTimeout(_tableDebounceTimer);
+        _tableDebounceTimer = setTimeout(processAllTables, 200);
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
     function collapseThinkingSection(container) {
         if (!autoCollapseThinking || container.hasAttribute('data-thinking-collapsed')) return;
-        if (!simulateClickThinking) return;
+        container.setAttribute('data-thinking-collapsed', 'true');
 
-        let clickableArrow = null;
-        const icons = container.querySelectorAll('.ds-icon');
-        if (icons.length >= 2) clickableArrow = icons[icons.length-1];
-        else if (icons.length === 1) clickableArrow = icons[0];
-        if (!clickableArrow) {
-            const svg = container.querySelector('svg');
-            if (svg && svg.parentElement) clickableArrow = svg.parentElement;
+        if (simulateClickThinking) {
+            // 模拟点击折叠箭头（保持原生交互）
+            let clickableArrow = null;
+            const icons = container.querySelectorAll('.ds-icon');
+            if (icons.length >= 2) clickableArrow = icons[icons.length-1];
+            else if (icons.length === 1) clickableArrow = icons[0];
+            if (!clickableArrow) {
+                const svg = container.querySelector('svg');
+                if (svg && svg.parentElement) clickableArrow = svg.parentElement;
+            }
+            if (clickableArrow && typeof clickableArrow.click === 'function') {
+                setTimeout(() => clickableArrow.click(), 100);
+            }
+        } else {
+            // CSS 直接折叠：隐藏思考内容区域
+            const thinkContent = findThinkContent(container);
+            if (thinkContent) {
+                thinkContent.dataset.dsScriptCollapsed = 'true';
+                thinkContent.style.display = 'none';
+            }
         }
-        if (clickableArrow && typeof clickableArrow.click === 'function') {
-            container.setAttribute('data-thinking-collapsed', 'true');
-            setTimeout(() => clickableArrow.click(), 100);
+    }
+
+    // 从标题栏容器向上找到对应的 .ds-think-content 元素
+    function findThinkContent(titleBar) {
+        // 向上查找 collapsible 包装器，再找其中的 think content
+        let parent = titleBar.parentElement;
+        while (parent && parent !== document.body) {
+            const tc = parent.querySelector('.ds-think-content');
+            if (tc) return tc;
+            parent = parent.parentElement;
         }
+        return null;
     }
 
     function processAllThinkingSections() {
         if (!autoCollapseThinking) return;
-        const spans = document.querySelectorAll('span[class*="5255ff8"], span[class*="4d41763"]');
-        spans.forEach(span => {
-            if (span.textContent && span.textContent.includes('已思考')) {
-                let container = span.closest('div[class*="_5ab5d64"]') || span.parentElement;
-                if (container) collapseThinkingSection(container);
-            }
-        });
-        document.querySelectorAll('*').forEach(el => {
-            if (el.childNodes.length === 1 && el.childNodes[0].nodeType === Node.TEXT_NODE && el.textContent.includes('已思考')) {
-                if (!el.hasAttribute('data-thinking-processed')) {
-                    let container = el.closest('div[class*="_5ab5d64"]') || el.parentElement;
-                    if (container) collapseThinkingSection(container);
-                    el.setAttribute('data-thinking-processed', 'true');
+        // 基于稳定的 .ds-think-content 类名定位思考区域
+        document.querySelectorAll('.ds-think-content').forEach(thinkContent => {
+            // 排除代码块内的文本（避免脚本源码中的"已思考"文字误匹配）
+            if (thinkContent.closest('pre, .md-code-block')) return;
+            if (thinkContent.dataset.dsScriptCollapsed === 'true') return;
+
+            // 向上查找包含标题栏的 collapsible 包装器
+            let wrapper = thinkContent.parentElement;
+            while (wrapper && wrapper !== document.body) {
+                const titleBar = wrapper.querySelector('div[class*="_5ab5d64"]');
+                if (titleBar && titleBar.textContent && titleBar.textContent.includes('已思考')) {
+                    if (simulateClickThinking) {
+                        collapseThinkingSection(titleBar);
+                    } else {
+                        // CSS 回退：直接隐藏 think content
+                        if (!titleBar.hasAttribute('data-thinking-collapsed')) {
+                            titleBar.setAttribute('data-thinking-collapsed', 'true');
+                            thinkContent.dataset.dsScriptCollapsed = 'true';
+                            thinkContent.style.display = 'none';
+                        }
+                    }
+                    return;
                 }
+                wrapper = wrapper.parentElement;
+            }
+
+            // 未找到标题栏时，CSS 回退模式下直接隐藏
+            if (!simulateClickThinking) {
+                thinkContent.dataset.dsScriptCollapsed = 'true';
+                thinkContent.style.display = 'none';
             }
         });
     }
 
-    // ==================== 统一 DOM 监听 ====================
-    function observeDynamicContent() {
-        const observer = new MutationObserver(mutations => {
-            let needThink = false;
+    // ==================== 统一 DOM 监听（合并三个 observer，添加节流） ====================
+    let _domObserver = null;
+    function observeDOM() {
+        if (_domObserver) return;
+        _domObserver = new MutationObserver(mutations => {
+            let hasNewCodeBlocks = false;
+            let hasNewTables = false;
+            let hasNewThinking = false;
+
             for (const m of mutations) {
-                if (m.type === 'childList') {
-                    for (const node of m.addedNodes) {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (autoCollapseThinking && (node.textContent && node.textContent.includes('已思考') ||
-                                (node.querySelector && node.querySelector('span') && node.querySelector('span').textContent?.includes('已思考')))) {
-                                needThink = true;
-                            }
+                if (m.type !== 'childList' || !m.addedNodes.length) continue;
+                for (const node of m.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+                    // 代码块检测
+                    if (!hasNewCodeBlocks) {
+                        if (node.matches && node.matches('pre')) { hasNewCodeBlocks = true; }
+                        else if (node.querySelectorAll) {
+                            if (node.querySelector('pre')) hasNewCodeBlocks = true;
+                            // 只查直接子级 pre，深度遍历留给具体处理
+                        }
+                    }
+
+                    // 表格检测
+                    if (!hasNewTables) {
+                        if (node.matches && (node.matches('table') || node.matches('.ds-markdown'))) hasNewTables = true;
+                        else if (node.querySelectorAll && (node.querySelector('table') || node.querySelector('.ds-markdown'))) hasNewTables = true;
+                    }
+
+                    // 思考区域检测（排除代码块内的文本）
+                    if (!hasNewThinking && autoCollapseThinking) {
+                        if (node.closest && node.closest('pre, .md-code-block')) continue;
+                        if (node.classList && node.classList.contains('ds-think-content')) {
+                            hasNewThinking = true;
+                        } else if (node.querySelectorAll && node.querySelector('.ds-think-content')) {
+                            hasNewThinking = true;
                         }
                     }
                 }
             }
-            if (needThink) setTimeout(processAllThinkingSections, 150);
+
+            if (hasNewCodeBlocks) {
+                document.querySelectorAll('pre').forEach(pre => {
+                    if (!pre.hasAttribute(processedAttr)) addFoldButtonToCodeBlock(pre);
+                });
+            }
+            if (hasNewTables) scheduleTableProcess();
+            if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        _domObserver.observe(document.body, { childList: true, subtree: true });
     }
 
     // ==================== 初始化 ====================
@@ -717,10 +774,15 @@
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
-        observeCodeBlocks();
-        observeTables();
+        processAllTables();
         if (autoCollapseThinking) processAllThinkingSections();
-        observeDynamicContent();
+        observeDOM();
+
+        // resize 节流处理表格
+        window.addEventListener('resize', () => {
+            clearTimeout(window._resizeFix);
+            window._resizeFix = setTimeout(processAllTables, 100);
+        });
     }
 
     if (document.readyState === 'loading') {
