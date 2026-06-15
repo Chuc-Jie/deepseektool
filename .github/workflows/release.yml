@@ -60,9 +60,10 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.current }}
           name: v${{ steps.version.outputs.current }}
+          body: |
+            ️ 请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。
           files: |
             deepseektool.user.js
             deepseektool-v${{ steps.version.outputs.current }}.zip
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
