@@ -6,8 +6,7 @@ on:
     paths:
       - 'deepseektool.user.js'
 
-permissions:
-  contents: write
+  workflow_dispatch:  # 手动触发
 
 jobs:
   release:
@@ -15,42 +14,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0  # 获取完整历史，方便对比版本
 
       - name: 提取版本号
         id: version
         run: |
-          VERSION=$(grep -oP '(?<=@version\s+)\S+' deepseektool.user.js)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "检测到版本: v$VERSION"
+          VERSION=$(grep -oP '@version\s+\K[\d.]+' deepseektool.user.js)
+          echo "current=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "当前版本: $VERSION"
 
-      - name: 检查版本是否真的变了
+      - name: 获取上一版本
+        id: prev_version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
+          if [ "$LATEST_TAG" != "none" ]; then
+            PREV_VERSION=${LATEST_TAG#v}
+            echo "previous=$PREV_VERSION" >> "$GITHUB_OUTPUT"
+            echo "上一版本: $PREV_VERSION"
+          else
+            echo "previous=none" >> "$GITHUB_OUTPUT"
+            echo "未找到历史版本"
+          fi
+
+      - name: 检查版本是否更新
         id: check
         run: |
-          if git show HEAD^:deepseektool.user.js 2>/dev/null | grep -qP "@version\s+${{ steps.version.outputs.version }}"; then
+          if [ "${{ steps.prev_version.outputs.previous }}" = "${{ steps.version.outputs.current }}" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "版本号未变化，跳过发布"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "版本号已更新，准备发布"
+            echo "版本已更新: ${{ steps.prev_version.outputs.previous }} → ${{ steps.version.outputs.current }}"
           fi
 
-      - name: 打包 zip
+      - name: 打包源码
         if: steps.check.outputs.changed == 'true'
         run: |
-          ZIP_NAME="deepseektool-v${{ steps.version.outputs.version }}.zip"
-          git archive --format=zip --output="$ZIP_NAME" HEAD
-          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
-          echo "打包完成: $ZIP_NAME"
+          VERSION=${{ steps.version.outputs.current }}
+          git archive --format=zip --output=deepseektool-v${VERSION}.zip HEAD
+          echo "打包完成: deepseektool-v${VERSION}.zip"
 
       - name: 创建 Release
         if: steps.check.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          body: |
-            请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。
+          tag_name: v${{ steps.version.outputs.current }}
+          name: v${{ steps.version.outputs.current }}
           files: |
             deepseektool.user.js
-            deepseektool-v${{ steps.version.outputs.version }}.zip
+            deepseektool-v${{ steps.version.outputs.current }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
