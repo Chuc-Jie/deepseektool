@@ -413,9 +413,19 @@
     function findButtonContainer(preEl) {
         const codeBlock = preEl.closest('.md-code-block');
         if (!codeBlock) return null;
-        // 通过稳定的 .ds-text-button 按钮找到其父容器（复制/下载按钮所在容器）
-        const actionBtn = codeBlock.querySelector('.ds-text-button');
-        return actionBtn ? actionBtn.parentElement : null;
+        // 优先通过 .code-info-button-text（"复制"/"下载"文字）定位按钮容器
+        const textSpan = codeBlock.querySelector('.code-info-button-text');
+        if (textSpan) {
+            const btn = textSpan.closest('[role="button"], .ds-button');
+            if (btn && btn.parentElement) return btn.parentElement;
+        }
+        // 兼容旧版 .ds-text-button
+        const oldBtn = codeBlock.querySelector('.ds-text-button');
+        if (oldBtn) return oldBtn.parentElement;
+        // 最后尝试已知的哈希容器名
+        const hashContainer = codeBlock.querySelector('.efa13877');
+        if (hashContainer) return hashContainer;
+        return null;
     }
 
     function createFoldButton(preEl) {
@@ -498,8 +508,19 @@
     }
 
     function deduplicateButtons() {
-        // 通过稳定的 .ds-text-button 找到按钮容器，去重其中的折叠按钮
+        // 通过按钮文字或类名找到按钮容器，去重其中的折叠按钮
         const seen = new Set();
+        // 新版按钮：.code-info-button-text
+        document.querySelectorAll('.code-info-button-text').forEach(span => {
+            const btn = span.closest('[role="button"], .ds-button');
+            if (!btn) return;
+            const container = btn.parentElement;
+            if (!container || seen.has(container)) return;
+            seen.add(container);
+            const btns = container.querySelectorAll('.ds-fold-btn');
+            if (btns.length > 1) for (let i = 1; i < btns.length; i++) btns[i].remove();
+        });
+        // 旧版按钮：.ds-text-button
         document.querySelectorAll('.ds-text-button').forEach(btn => {
             const container = btn.parentElement;
             if (!container || seen.has(container)) return;
