@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'deepseektool.user.js'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 提取版本号
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=@version\s+)\S+' deepseektool.user.js)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "检测到版本: v$VERSION"
+
+      - name: 检查版本是否真的变了
+        id: check
+        run: |
+          if git show HEAD^:deepseektool.user.js 2>/dev/null | grep -qP "@version\s+${{ steps.version.outputs.version }}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "版本号未变化，跳过发布"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "版本号已更新，准备发布"
+          fi
+
+      - name: 打包 zip
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          ZIP_NAME="deepseektool-v${{ steps.version.outputs.version }}.zip"
+          git archive --format=zip --output="$ZIP_NAME" HEAD
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "打包完成: $ZIP_NAME"
+
+      - name: 创建 Release
+        if: steps.check.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。
+          files: |
+            deepseektool.user.js
+            deepseektool-v${{ steps.version.outputs.version }}.zip
