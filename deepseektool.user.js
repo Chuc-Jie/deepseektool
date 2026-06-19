@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      4.1.2
+// @version      4.1.3
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -572,17 +572,147 @@
 
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) { alert('html2canvas 未加载'); return; }
+        let iframe = null;
         try {
-            const bc = table.querySelector('.table-internal-buttons');
-            let orig = null;
-            if (bc) { orig = bc.style.display; bc.style.display = 'none'; }
-            const canvas = await html2canvas(table, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: false });
-            if (bc) bc.style.display = orig;
-            const a = document.createElement('a');
-            a.download = `table_${Date.now()}.png`;
-            a.href = canvas.toDataURL('image/png');
-            a.click();
-        } catch (e) { console.error(e); alert('导出PNG失败'); }
+            // 克隆表格（深拷贝，避免污染页面 DOM）
+            const clone = table.cloneNode(true);
+            // 移除导出按钮，避免出现在截图中
+            const btns = clone.querySelector('.table-internal-buttons');
+            if (btns) btns.remove();
+            // 移除脚本注入的自定义属性
+            clone.removeAttribute('data-internal-buttons-added');
+
+            // 清洗 applyTableStyles 注入的内联样式，使 iframe 中表格回归 auto 布局
+            clone.style.tableLayout = '';
+            clone.style.width = '';
+            clone.style.maxWidth = '';
+            clone.style.position = '';
+            clone.querySelectorAll('th,td').forEach(cell => {
+                cell.style.width = '';
+                cell.style.whiteSpace = '';
+                cell.style.wordWrap = '';
+                cell.style.overflowWrap = '';
+                cell.style.wordBreak = '';
+            });
+
+            // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）
+            const styles = collectTableStyles();
+
+            // 构建隔离 iframe
+            iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:800px;height:600px;';
+            iframe.srcdoc = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>${styles}</style></head>
+<body style="margin:16px;background:#ffffff;">${clone.outerHTML}</body></html>`;
+
+            document.body.appendChild(iframe);
+
+            // 等待 iframe 加载完成
+            await new Promise((resolve, reject) => {
+                iframe.onload = resolve;
+                iframe.onerror = reject;
+                setTimeout(resolve, 3000); // 超时保护
+            });
+
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            const iframeTable = iframeDoc.querySelector('table');
+            if (!iframeTable) throw new Error('iframe 中未找到表格元素');
+
+            const canvas = await html2canvas(iframeTable, {
+                scale: 2,
+                backgroundColor: '#ffffff',
+                logging: false,
+            });
+
+            // 导出
+            canvas.toBlob(blob => {
+                if (blob) {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.download = `table_${Date.now()}.png`;
+                    a.href = url;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                } else {
+                    // toBlob 返回 null，回退 dataURL
+                    try {
+                        const dataUrl = canvas.toDataURL('image/png');
+                        fetch(dataUrl).then(r => r.blob()).then(blob => {
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.download = `table_${Date.now()}.png`;
+                            a.href = url;
+                            a.click();
+                            setTimeout(() => URL.revokeObjectURL(url), 100);
+                        }).catch(() => alert('导出PNG失败：无法生成图片数据'));
+                    } catch (_) {
+                        alert('导出PNG失败：canvas 被污染，无法导出');
+                    }
+                }
+            }, 'image/png');
+
+        } catch (e) {
+            console.error('PNG导出异常:', e);
+            alert('导出PNG失败：' + (e.message || '未知错误'));
+        } finally {
+            if (iframe) setTimeout(() => iframe.remove(), 200);
+        }
+    }
+
+    // 收集页面上表格所需的样式，注入 iframe
+    function collectTableStyles() {
+        let css = '';
+
+        // DeepSeek CSS 变量（背景、文字色等）
+        const dsVars = [
+            '--ds-bg-primary', '--ds-bg-secondary', '--ds-text-primary',
+            '--ds-text-secondary', '--ds-border', '--ds-gray-100',
+        ];
+        const rootStyles = getComputedStyle(document.documentElement);
+        css += ':root {\n';
+        dsVars.forEach(v => {
+            const val = rootStyles.getPropertyValue(v).trim();
+            if (val) css += `  ${v}: ${val};\n`;
+        });
+        css += '}\n';
+
+        // 从页面提取表格相关样式（.ds-markdown 表格部分）
+        for (const sheet of document.styleSheets) {
+            try {
+                for (const rule of sheet.cssRules || []) {
+                    const txt = rule.cssText;
+                    if (txt.includes('table') || txt.includes('th') || txt.includes('td') ||
+                        txt.includes('.ds-markdown') || txt.includes('.md-code-block')) {
+                        // 跳过脚本自己注入的 fixed 布局和导出按钮样式
+                        if (txt.includes('table-layout: fixed') || txt.includes('table-internal-buttons')) continue;
+                        css += txt + '\n';
+                    }
+                }
+            } catch (_) {
+                // 跨域样式表无法读取，忽略
+            }
+        }
+
+        // 基础表格样式（兜底）
+        css += `
+            table {
+                width: 100%; border-collapse: separate; border-spacing: 0;
+                margin: 1em 0; border-radius: 12px; overflow: hidden;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            }
+            th, td {
+                border: 1px solid #e5e7eb; padding: 12px 16px;
+                vertical-align: top; font-size: 14px; line-height: 1.5;
+                white-space: normal; word-wrap: break-word;
+            }
+            th {
+                background: linear-gradient(135deg, #f9fafb, #f3f4f6);
+                font-weight: 600; color: #1f2937;
+            }
+            tbody tr:nth-child(even) { background-color: #fafafa; }
+        `;
+
+        return css;
     }
 
     function exportTableAsCSV(table) {
