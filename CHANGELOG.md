@@ -1,12 +1,12 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
-## v4.1.3 (2026-06-27)
+## v4.1.3 (2026-06-19)
 
 ### 修复
 - **PNG 导出修复**：解决表格 PNG 导出损坏问题。最终方案为隔离 iframe (srcdoc) 渲染，深克隆表格并清洗 fixed 内联样式，html2canvas 截图后通过 toBlob → blob URL 导出，导出图片中表格为 auto 布局。期间解决：data URL 截断、allowTaint canvas 污染、toBlob() 返回 null、多列 fixed 布局冲突等连锁问题。
 - 新增 collectTableStyles() 自动收集页面 CSS 变量注入 iframe
 
-## v4.1.2 (2026-06-27)
+## v4.1.2 (2026-06-19)
 
 ### 修复
 - **表格流式输出**：新增表格指纹稳定检测，样式只在表格停止变化后才应用，解决流式输出中表格显示错乱
