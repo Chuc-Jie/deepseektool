@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/yourname/deepseek-tools
-// @version      4.1.1
+// @version      4.1.2
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -646,21 +646,43 @@
         table.appendChild(bc);
     }
 
+    // 表格指纹追踪：记录每个表格的行/单元格数，只有指纹稳定后才应用样式
+    const _tableFingerprints = new WeakMap();
+
+    function getTableFingerprint(table) {
+        const rows = table.querySelectorAll('tr').length;
+        const cells = table.querySelectorAll('td,th').length;
+        return rows + ':' + cells;
+    }
+
     function processAllTables() {
+        let anyUnstable = false;
         document.querySelectorAll('.ds-markdown').forEach(container => {
             container.style.overflowX = 'visible';
             container.style.maxWidth = '100%';
             container.querySelectorAll('table').forEach(table => {
+                const fp = getTableFingerprint(table);
+                const lastFp = _tableFingerprints.get(table);
+                if (fp !== lastFp) {
+                    // 表格仍在变化中（流式输出未完成），跳过并重新调度
+                    _tableFingerprints.set(table, fp);
+                    anyUnstable = true;
+                    return;
+                }
+                // 指纹稳定，应用样式
                 applyTableStyles(table);
                 addButtonsToTable(table);
             });
         });
+        if (anyUnstable) {
+            scheduleTableProcess();
+        }
     }
 
     let _tableDebounceTimer = null;
     function scheduleTableProcess() {
         clearTimeout(_tableDebounceTimer);
-        _tableDebounceTimer = setTimeout(processAllTables, 200);
+        _tableDebounceTimer = setTimeout(processAllTables, 500);
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
@@ -762,9 +784,9 @@
                         }
                     }
 
-                    // 表格检测
+                    // 表格检测（含增量行/列，防范流式输出中仅新增 tr/td/th 的情况）
                     if (!hasNewTables) {
-                        if (node.matches && (node.matches('table') || node.matches('.ds-markdown'))) hasNewTables = true;
+                        if (node.matches && (node.matches('table') || node.matches('.ds-markdown') || node.matches('tr') || node.matches('td') || node.matches('th'))) hasNewTables = true;
                         else if (node.querySelectorAll && (node.querySelector('table') || node.querySelector('.ds-markdown'))) hasNewTables = true;
                     }
 
