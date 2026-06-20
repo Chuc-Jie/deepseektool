@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.1.4
+// @version      4.2.0
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -549,9 +549,8 @@
 
         table.querySelectorAll('th,td').forEach(cell => {
             cell.style.whiteSpace = 'normal';
-            cell.style.wordWrap = 'break-word';
-            cell.style.overflowWrap = 'break-word';
-            cell.style.wordBreak = 'break-word';
+            cell.style.overflowWrap = 'anywhere';  // 现代标准，优于 break-word
+            cell.style.wordBreak = 'break-word';   // 兼容回退
         });
 
         const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
@@ -776,8 +775,12 @@
         table.appendChild(bc);
     }
 
-    // 表格指纹追踪：记录每个表格的行/单元格数，只有指纹稳定后才应用样式
-    const _tableFingerprints = new WeakMap();
+    // 表格指纹追踪：记录每个表格的稳定计数，连续 2 次指纹不变即视为稳定
+    const _tableFingerprints = new WeakMap();  // table → { fp, count, firstSeen }
+
+    const STABLE_COUNT_NEEDED = 2;    // 连续稳定次数阈值
+    const MAX_WAIT_MS = 5000;         // 最长等待时间，超时强制应用
+    const TABLE_DEBOUNCE_MS = 200;    // Observer 批处理间隔
 
     function getTableFingerprint(table) {
         const rows = table.querySelectorAll('tr').length;
@@ -787,24 +790,43 @@
 
     function processAllTables() {
         let anyUnstable = false;
+        const now = Date.now();
+
         document.querySelectorAll('.ds-markdown').forEach(container => {
             container.style.overflowX = 'visible';
             container.style.maxWidth = '100%';
             container.querySelectorAll('table').forEach(table => {
                 const fp = getTableFingerprint(table);
-                const lastFp = _tableFingerprints.get(table);
-                if (lastFp !== undefined && fp !== lastFp) {
-                    // 非首次出现且指纹变化：表格仍在流式构建中，跳过并重新调度
-                    _tableFingerprints.set(table, fp);
+                const state = _tableFingerprints.get(table);
+
+                if (!state) {
+                    // 首次见到：立即应用
+                    _tableFingerprints.set(table, { fp, count: STABLE_COUNT_NEEDED, firstSeen: now });
+                    applyTableStyles(table);
+                    addButtonsToTable(table);
+                    return;
+                }
+
+                if (fp !== state.fp) {
+                    // 指纹变化：重置计数，重新等待稳定
+                    _tableFingerprints.set(table, { fp, count: 0, firstSeen: state.firstSeen });
                     anyUnstable = true;
                     return;
                 }
-                // 首次出现或指纹已稳定：立即应用样式
-                _tableFingerprints.set(table, fp);
-                applyTableStyles(table);
-                addButtonsToTable(table);
+
+                // 指纹相同：增加稳定计数
+                state.count++;
+                if (state.count >= STABLE_COUNT_NEEDED || (now - state.firstSeen) > MAX_WAIT_MS) {
+                    // 达到稳定阈值 或 超时兜底：应用样式
+                    state.count = STABLE_COUNT_NEEDED;  // 标记已稳定
+                    applyTableStyles(table);
+                    addButtonsToTable(table);
+                } else {
+                    anyUnstable = true;
+                }
             });
         });
+
         if (anyUnstable) {
             scheduleTableProcess();
         }
@@ -813,7 +835,7 @@
     let _tableDebounceTimer = null;
     function scheduleTableProcess() {
         clearTimeout(_tableDebounceTimer);
-        _tableDebounceTimer = setTimeout(processAllTables, 500);
+        _tableDebounceTimer = setTimeout(processAllTables, TABLE_DEBOUNCE_MS);
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
