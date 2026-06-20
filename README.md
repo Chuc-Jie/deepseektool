@@ -1,4 +1,4 @@
-## DeepSeek 功能增强工具箱 v4.2.0
+## DeepSeek 功能增强工具箱 v4.2.1
 
 ### 一、脚本概述
 
@@ -48,7 +48,7 @@
 
 ### 六、版本历史
 
-- **v4.2.0**（当前）：稳定性计数替代时间防抖 + overflow-wrap: anywhere 现代化。
+- **v4.2.1**（当前）：审计修复 — done 标记防止重复 reflow、超时重置、Observer 补检 tbody/thead/tfoot。
 - **v4.1.2**：修复流式输出时表格样式过早触发导致显示错乱。
 - **v4.1.1**：适配 DeepSeek 新版代码块按钮结构（`.ds-text-button` → `.code-info-button-text`）。
 - **v4.1.0**：选择器全面加固，移除对哈希类名的依赖；修复思考折叠 CSS 回退失效问题；修复 CSV 换行丢失；合并三个 MutationObserver 并添加节流；排除代码块内文本误匹配。

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.2.0
+// @version      4.2.1
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -589,7 +589,6 @@
             clone.querySelectorAll('th,td').forEach(cell => {
                 cell.style.width = '';
                 cell.style.whiteSpace = '';
-                cell.style.wordWrap = '';
                 cell.style.overflowWrap = '';
                 cell.style.wordBreak = '';
             });
@@ -800,25 +799,40 @@
                 const state = _tableFingerprints.get(table);
 
                 if (!state) {
-                    // 首次见到：立即应用
-                    _tableFingerprints.set(table, { fp, count: STABLE_COUNT_NEEDED, firstSeen: now });
+                    // 首次见到：立即应用并标记完成
+                    _tableFingerprints.set(table, { fp, count: STABLE_COUNT_NEEDED, firstSeen: now, done: true });
                     applyTableStyles(table);
                     addButtonsToTable(table);
                     return;
                 }
 
+                if (state.done) {
+                    // 已稳定应用过，指纹未变则跳过
+                    if (fp === state.fp) return;
+                    // 指纹变了（流式输出新增行/列），重置重新等待
+                    state.fp = fp;
+                    state.count = 0;
+                    state.done = false;
+                    anyUnstable = true;
+                    return;
+                }
+
                 if (fp !== state.fp) {
                     // 指纹变化：重置计数，重新等待稳定
-                    _tableFingerprints.set(table, { fp, count: 0, firstSeen: state.firstSeen });
+                    state.fp = fp;
+                    state.count = 0;
                     anyUnstable = true;
                     return;
                 }
 
                 // 指纹相同：增加稳定计数
                 state.count++;
-                if (state.count >= STABLE_COUNT_NEEDED || (now - state.firstSeen) > MAX_WAIT_MS) {
-                    // 达到稳定阈值 或 超时兜底：应用样式
-                    state.count = STABLE_COUNT_NEEDED;  // 标记已稳定
+                const timedOut = (now - state.firstSeen) > MAX_WAIT_MS;
+                if (state.count >= STABLE_COUNT_NEEDED || timedOut) {
+                    // 达到稳定阈值或超时兜底：应用样式并标记完成
+                    state.count = STABLE_COUNT_NEEDED;
+                    state.done = true;
+                    if (timedOut) state.firstSeen = now;   // 重置计时，防止永久超时
                     applyTableStyles(table);
                     addButtonsToTable(table);
                 } else {
@@ -939,7 +953,7 @@
 
                     // 表格检测（含增量行/列，防范流式输出中仅新增 tr/td/th 的情况）
                     if (!hasNewTables) {
-                        if (node.matches && (node.matches('table') || node.matches('.ds-markdown') || node.matches('tr') || node.matches('td') || node.matches('th'))) hasNewTables = true;
+                        if (node.matches && node.matches('table,tbody,thead,tfoot,tr,td,th,.ds-markdown')) hasNewTables = true;
                         else if (node.querySelectorAll && (node.querySelector('table') || node.querySelector('.ds-markdown'))) hasNewTables = true;
                     }
 
