@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.1.3
+// @version      4.1.4
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -793,13 +793,14 @@
             container.querySelectorAll('table').forEach(table => {
                 const fp = getTableFingerprint(table);
                 const lastFp = _tableFingerprints.get(table);
-                if (fp !== lastFp) {
-                    // 表格仍在变化中（流式输出未完成），跳过并重新调度
+                if (lastFp !== undefined && fp !== lastFp) {
+                    // 非首次出现且指纹变化：表格仍在流式构建中，跳过并重新调度
                     _tableFingerprints.set(table, fp);
                     anyUnstable = true;
                     return;
                 }
-                // 指纹稳定，应用样式
+                // 首次出现或指纹已稳定：立即应用样式
+                _tableFingerprints.set(table, fp);
                 applyTableStyles(table);
                 addButtonsToTable(table);
             });
