@@ -1,0 +1,464 @@
+你朋友这轮 review 是有深度的，而且不是“泛泛建议”，而是真正站在浏览器布局机制、MutationObserver 生命周期、html2canvas 行为模型上看的。整体上，我会把这些建议分成三类：
+
+值得立刻吸收的
+
+可以作为未来增强，但不该现在引入复杂度的
+
+理论正确，但当前场景收益有限的
+
+下面我按“工程价值”重新拆一下。
+
+先说总体评价
+
+你这套方案真正厉害的地方，不是“表格美化”。
+
+而是：
+
+你已经把 DeepSeek 的 Markdown 表格当成了一个“流式、不稳定、虚拟列表驱动”的动态系统来处理。
+
+这和普通 userscript 最大区别在于：
+
+不是“一次性 querySelectorAll(table)”
+
+而是：
+
+增量 DOM
+
+streaming token
+
+虚拟列表
+
+样式污染
+
+导出隔离
+
+浏览器布局模式切换
+
+这些问题你已经系统性处理了。
+
+实际上你已经从：
+
+“写个 Tampermonkey 美化脚本”
+
+升级到了：
+
+“给 AI Chat UI 做 runtime rendering middleware”
+
+这是层级差异。
+
+一、你朋友最值得采纳的建议
+
+1. 给 processed table 打命名空间属性
+
+这个建议非常对。
+
+你现在如果是：
+table.style.tableLayout = "fixed";
+
+未来会有两个问题：
+
+无法判断是否已处理
+
+无法做差异化覆盖
+
+无法支持用户 toggle
+
+CSS 会越来越难维护
+
+推荐直接：
+table.dataset.dstoolbox = "processed";
+
+然后 CSS：
+table[data-dstoolbox="processed"] {
+...
+}
+
+这是非常标准的“运行时标记”。
+
+未来你还能扩展：
+data-dstoolbox="fixed"
+data-dstoolbox="auto"
+data-dstoolbox-export="true"
+
+甚至：
+data-ds-table-kind="dense"
+data-ds-table-kind="wide"
+
+这个收益非常高，复杂度极低。
+
+这是我认为最该立刻加的。
+
+2. 不可见表格跳过处理
+
+这个也很值。
+
+尤其 DeepSeek 是虚拟列表。
+
+你现在可能会处理：
+
+已被卸载但引用还在的节点
+
+display:none 的中间态
+
+transition 中宽度未稳定节点
+
+加一句：
+if (!table.offsetParent) return;
+
+能减少很多无意义 reflow。
+
+甚至建议升级成：
+const rect = table.getBoundingClientRect();
+
+if (
+rect.width === 0 ||
+rect.height === 0
+) return;
+
+因为有些元素：
+
+position: fixed
+
+visibility: hidden
+
+contain layout
+
+offsetParent 不一定可靠。
+
+3. clientWidth 过小延迟重试
+
+这个建议非常专业。
+
+因为虚拟列表 + sidebar 动画期间：
+vc.clientWidth
+
+确实可能短暂：
+
+0
+
+84
+
+120
+
+这会导致：
+100 / cols
+
+得到错误布局。
+
+建议：
+if (vc.clientWidth < 240) {
+requestAnimationFrame(() => processTable(table));
+return;
+}
+
+这个是典型 UI runtime 防御。
+
+很值。
+
+二、我认为“理论正确，但当前不要加”的部分
+
+4. auto 测量 → fixed 比例列宽
+
+这是最容易让系统复杂度爆炸的点。
+
+理论上：
+
+更自然
+
+更智能
+
+更接近 spreadsheet
+
+但实际上你会引入：
+
+(1) 双 reflow
+
+先：
+table-layout: auto
+
+测量：
+cell.offsetWidth
+
+再：
+table-layout: fixed
+
+浏览器要做两轮布局。
+
+(2) streaming 下会疯狂抖动
+
+因为 AI 输出是增量的：
+
+token 变化
+
+宽度变化
+
+列比例变化
+
+你会看到：
+25% → 40% → 31% → 36%
+
+整张表左右跳。
+
+现在你的 fixed 最大优点：
+
+一旦确定就稳定。
+
+这是 AI UI 非常重要的体验。
+
+(3) html2canvas 导出会再次复杂化
+
+因为：
+
+你现在已经靠：
+
+“页面 fixed / 导出 auto”
+
+实现了解耦。
+
+如果页面本身变成：
+
+“动态比例 fixed”
+
+导出清洗逻辑会急剧复杂。
+
+所以：
+
+我建议你坚持现在的“等宽 fixed”策略。
+
+这是正确的工程取舍。
+
+尤其 AI 表格不是 Excel。
+
+用户更在意：
+
+不炸布局
+
+不横向滚动
+
+可阅读
+
+而不是：
+
+每列精确自适应。
+
+三、关于 MutationObserver，我建议的真正增强
+
+你朋友提到了：
+
+500ms 经验值问题
+
+但我觉得真正更重要的是：
+
+“idle stabilization” 模型
+
+你现在本质上：
+有变化 → debounce 500ms → 检测指纹
+
+未来更稳的模型其实是：
+只要 fingerprint 在持续变化
+就一直延后
+
+直到：
+- fingerprint 连续稳定 N 次
+或
+- 超过 maxWait
+
+即：
+stability-based
+而不是
+time-based
+
+这是 React DevTools / Monaco / VSCode 插件常见思路。
+
+你已经有 WeakMap 了。
+
+其实再进一步很容易：
+{
+fp,
+stableCount,
+lastChangeTime
+}
+
+然后：
+if (fp === last.fp) {
+stableCount++;
+} else {
+stableCount = 0;
+}
+
+达到：
+stableCount >= 2
+
+再应用。
+
+这会比“固定 500ms”更鲁棒。
+
+四、你现在最大的潜在问题（朋友没提）
+
+这是我最在意的点。
+
+word-break: break-word
+
+其实是危险的。
+
+因为：
+word-break: break-word
+
+不是标准主流行为。
+
+现代浏览器真正稳定的是：
+overflow-wrap: anywhere;
+
+建议改成：
+overflow-wrap: anywhere;
+word-break: break-word; /* fallback */
+
+因为：
+
+URL
+
+hash
+
+code
+
+base64
+
+UUID
+
+在某些 Chromium 版本里：
+word-break: break-word
+
+行为不一致。
+
+而：
+overflow-wrap:anywhere
+
+是现代正确解。
+
+五、PNG 导出部分，你其实已经超过大多数 userscript 了
+
+iframe 隔离这块其实非常高级。
+
+因为你已经意识到：
+
+“html2canvas 不是截图工具，而是 DOM 重绘器。”
+
+所以：
+
+layout context
+
+CSS variables
+
+computed styles
+
+table-layout
+
+都会影响结果。
+
+你现在实际上是：
+
+重建一个“纯净渲染环境”。
+
+这是正确方向。
+
+但我会建议你未来增加：
+
+“导出渲染模式”
+
+比如：
+📸 Export:
+- Auto layout
+- Fixed layout
+- Light theme
+- Dark theme
+
+因为：
+
+当前“导出 auto”虽然自然：
+
+但用户有时希望：
+
+导出的图和页面一模一样。
+
+尤其技术文档。
+
+六、CSV 部分我建议的真正改进
+
+你朋友提到：
+
+trim()
+嵌套 table
+分隔行
+
+这些都对。
+
+但真正重要的是：
+
+CSV Injection
+
+这是很多人会漏掉的。
+
+如果单元格内容：
+=cmd|' /C calc'!A0
+
+Excel 会执行公式。
+
+你最好做：
+if (/^[=+\-@]/.test(text)) {
+text = "'" + text;
+}
+
+这是标准 CSV 安全处理。
+
+尤其 AI 很可能生成：
+=SUM(A1:A5)
+
+最后一句总结
+
+你现在这套方案最正确的地方是：
+
+没有试图“完美还原浏览器表格算法”。
+
+而是：
+
+在 AI Chat 场景下，构建一个“稳定、可控、低抖动”的表格运行时。
+
+这是非常成熟的方向。
+
+真正建议优先级我会这么排：
+
+立刻加（高收益低复杂度）
+
+data-dstoolbox
+
+width guard
+
+invisible skip
+
+overflow-wrap:anywhere
+
+CSV Injection 防护
+
+中期增强
+
+stabilization count
+
+export mode toggle
+
+light/dark export toggle
+
+不建议现在做
+
+auto → fixed 比例测量
+
+复杂智能列宽系统
+
+因为那会把系统从：
+
+“稳定 runtime”
+
+重新拖回：
+
+“浏览器 layout simulator”
+
+复杂度会指数上升。

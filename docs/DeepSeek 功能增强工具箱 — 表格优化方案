@@ -1,0 +1,152 @@
+DeepSeek 功能增强工具箱 — 表格优化方案
+
+### 要解决的核心问题
+
+DeepSeek 对话页面渲染 Markdown 表格时有三个痛点：
+
+1. **列宽失控**：某些列内容长，把表格撑出可视区，需要横向滚动
+2. **不美观**：原生表格无圆角、无斑马纹、无悬停高亮
+3. **无法导出**：没有 PNG / CSV 导出功能
+
+### 整体架构：两层分工
+
+```
+┌─────────────────────────────────────────────┐
+│ 第一层：全局 CSS（GM_addStyle，一次性注入） │
+│ 视觉美化：圆角、边框、斑马纹、悬停、深色主题 │
+├─────────────────────────────────────────────┤
+│ 第二层：JS 运行时（每个表格动态处理）       │
+│ tableLayout: fixed + 等宽均分列 → 杜绝溢出  │
+└─────────────────────────────────────────────┘
+```
+
+**为什么分两层？** 视觉层是静态的，不需要 DOM 操作；布局层需要根据表格的实际列数动态计算列宽，必须用 JS。
+
+---
+
+### 第一层：CSS 视觉美化（始终生效，无需 JS）
+
+| 属性 | 作用 |
+|------|------|
+| `border-collapse: separate` + `border-spacing: 0` | 分离边框模型，为圆角做准备 |
+| `border-radius: 12px` | 表格外框圆角 |
+| `overflow: hidden` | 配合圆角，裁剪溢出内容 |
+| `box-shadow` | 轻微阴影，立体感 |
+| `background-color: var(--ds-bg-primary)` | 跟随 DeepSeek 深色/浅色主题 |
+| `thead th` 渐变背景 | 表头视觉分层 |
+| `tbody tr:nth-child(even)` | 斑马纹行 |
+| `tbody tr:hover` | 行悬停高亮 |
+| 所有 `!important` | 覆盖 DeepSeek 原生样式 |
+
+---
+
+### 第二层：JS 运行时布局修复
+
+#### 核心策略：`tableLayout: fixed` + 等宽均分列
+
+```
+┌──────┬──────┬──────┬──────┐
+│ 25%  │ 25%  │ 25%  │ 25%  │  ← 4列表格：每列 100/4 = 25%
+├──────┼──────┼──────┼──────┤
+│ ...  │ ...  │ ...  │ ...  │
+└──────┴──────┴──────┴──────┘
+```
+
+**为什么用 `fixed` 而不用默认的 `auto`？**
+
+`auto` 布局下浏览器会根据**所有行**的内容计算列宽，某一列出现长内容就会把整列撑宽，挤压其他列。`fixed` 布局只看**第一行（表头）**，后续内容只能换行不能撑宽。
+
+**配合同步措施：**
+- 每格 `word-wrap: break-word` + `word-break: break-word` → 长单词/URL 强制换行
+- 每格 `white-space: normal` → 取消 DeepSeek 可能的 `nowrap`
+- 调整外层 `.ds-scroll-area` 的 `overflow-x: visible` → 防止被裁剪
+
+#### 何时触发？
+
+通过**单一 MutationObserver** 监听整个 `document.body` 的 `childList` 变动，检测到新的 `<table>` / `<tr>` / `<td>` / `<th>` 节点后，调度表格处理。
+
+#### 流式输出下的防抖与稳定检测
+
+这是最有意思的部分——DeepSeek 的 AI 回复是流式输出的，Markdown 表格在构建过程中会多次重渲染。
+
+```
+Observer 检测到新表格
+    │
+    ▼
+scheduleTableProcess()  ← 500ms 防抖，每次新内容重置计时
+    │
+    ▼
+processAllTables()
+    │
+    对每个表格计算指纹 (行数:单元格数)
+    │
+    ├── 首次见到 ──→ 立即应用样式（v4.1.4 优化）
+    │
+    ├── 已见过 + 指纹未变 ──→ 表格稳定，应用样式
+    │
+    └── 已见过 + 指纹变了 ──→ 仍在流式构建，跳过 → 重新调度
+```
+
+关键点：用 `WeakMap<HTMLTableElement, "rows:cells">` 做指纹追踪，只有同一表格元素连续两次指纹相同才认为"稳定"，防止在半成品上应用 `fixed` 布局导致列宽算错。
+
+#### 虚拟列表适配
+
+DeepSeek 使用虚拟列表（`.ds-virtual-list-visible-items`），表格实际宽度受限于可见视口。处理时调用 `vc.clientWidth` 获取真实可用宽度。
+
+---
+
+### 导出模块（PNG / CSV）
+
+#### PNG 导出（html2canvas）
+
+导出的痛点是 `tableLayout: fixed` 会影响 html2canvas 的渲染效果，导致多列表格截图失败。解决方案是**隔离 iframe**：
+
+```
+用户点击 📸
+  │
+  ├── 1. 深克隆表格
+  │     └── 清洗掉 applyTableStyles 的所有内联样式
+  │         (tableLayout, width, maxWidth, 每格 width 等)
+  │
+  ├── 2. collectTableStyles()
+  │     └── 从页面收集 CSS 变量 + 表格样式规则
+  │         注入到 <iframe srcdoc> 的 <style> 中
+  │
+  ├── 3. html2canvas 在 iframe 内截图
+  │     └── 表格此时是纯 auto 布局，渲染自然
+  │
+  └── 4. canvas.toBlob() → blob URL → 下载
+       └── 失败时回退 dataURL → fetch → blob
+```
+
+导出图片中表格是 `auto` 布局——列宽自适应内容，更自然。
+
+#### CSV 导出
+
+纯文本解析，递归遍历单元格 DOM 树，`<br>` 转 `\n`，逗号/引号转义，UTF-8 BOM 头保证 Excel 正确识别中文。
+
+---
+
+### 优劣分析
+
+| | `tableLayout: fixed` | `tableLayout: auto`（原生） |
+|------|------|------|
+| 列宽可控 | ✅ 均分，不会溢出 | ❌ 长内容撑宽整列 |
+| 渲染速度 | ✅ 只读第一行，快 | ❌ 需遍历全部行 |
+| 内容适应性 | ❌ 对极长单词列，空间紧张 | ✅ 自然分配 |
+| 导出兼容性 | ❌ html2canvas 容易出问题 | ✅ 天然兼容 |
+
+**我们的取舍**：页面显示用 `fixed`（牺牲一点内容适应性换取可控布局），导出用 `auto`（牺牲列宽一致性换取渲染正确性）。两种模式各用于最合适的场景。
+
+---
+
+### 版本迭代中的关键教训
+
+1. **200ms 防抖不够** → 500ms
+2. **Observer 只检测 `<table>` 节点** → 漏检增量 `<tr>/<td>` → 补充
+3. **toDataURL 超长截断** → toBlob
+4. **allowTaint 污染 canvas** → 移除
+5. **toBlob 大 canvas 返回 null** → 隔离 iframe 彻底解决
+6. **WeakMap 空导致首次误延迟** → `lastFp !== undefined` 判断
+
+---
