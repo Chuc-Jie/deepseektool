@@ -29,6 +29,7 @@
     const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
     const STORAGE_AUTO_COLLAPSE_THINKING = 'deepseek_auto_collapse_thinking';
     const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
+    const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -36,6 +37,7 @@
     let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
     let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
+    let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -134,6 +136,30 @@
             GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
             toggleTableButtons(tableButtonsEnabled);
             showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}`);
+        });
+
+        // 表格主题适配选择
+        const themeSelectLabel = document.createElement('div');
+        themeSelectLabel.style.cssText = 'margin-bottom:24px;';
+        themeSelectLabel.innerHTML = `
+            <div style="font-size:15px; font-weight:500; margin-bottom:6px;">表格主题适配</div>
+            <div style="font-size:13px; opacity:0.7; margin-bottom:8px; line-height:1.4;">自动：半透明叠加色，浅色/深色通用<br>双模式：浅色/深色各自优化配色</div>
+            <select id="ds-table-theme-select"
+                style="width:100%;padding:10px 12px;border-radius:8px;
+                border:1px solid rgba(128,128,128,0.3);
+                background:var(--ds-bg-secondary, #2a2a36);
+                color:var(--ds-text-primary, #e2e2e2);font-size:14px;cursor:pointer;outline:none;">
+                <option value="auto" ${tableThemeMode === 'auto' ? 'selected' : ''}>自动适应（透明叠加）</option>
+                <option value="dual" ${tableThemeMode === 'dual' ? 'selected' : ''}>双模式（浅色/深色）</option>
+            </select>
+        `;
+        panel.appendChild(themeSelectLabel);
+        const themeSelect = themeSelectLabel.querySelector('select');
+        themeSelect.addEventListener('change', () => {
+            tableThemeMode = themeSelect.value;
+            GM_setValue(STORAGE_TABLE_THEME_MODE, tableThemeMode);
+            applyTableThemeClass(tableThemeMode);
+            showToast(`表格主题已切换为${tableThemeMode === 'auto' ? '自动适应' : '双模式'}`);
         });
 
         // --- AI思考区域自动折叠 ---
@@ -283,6 +309,12 @@
         }
     }
 
+    function applyTableThemeClass(mode) {
+        const html = document.documentElement;
+        html.classList.remove('ds-table-auto', 'ds-table-dual');
+        html.classList.add(mode === 'auto' ? 'ds-table-auto' : 'ds-table-dual');
+    }
+
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
 
@@ -301,26 +333,71 @@
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
 
-        /* 表格样式 */
+        /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */
         .ds-markdown table {
             width: 100% !important; border-collapse: separate !important;
             border-spacing: 0 !important; margin: 1em 0 !important;
-            background-color: var(--ds-bg-primary, #ffffff) !important;
             border-radius: 12px !important; overflow: hidden !important;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important; position: relative;
         }
         .ds-markdown th, .ds-markdown td {
-            border: 1px solid #e5e7eb !important; padding: 12px 16px !important;
+            padding: 12px 16px !important;
             vertical-align: top !important; font-size: 14px !important; line-height: 1.5 !important;
         }
         .ds-markdown th {
-            background: linear-gradient(135deg, #f9fafb, #f3f4f6) !important;
-            font-weight: 600 !important; color: #1f2937 !important;
-            border-bottom: 1px solid #e5e7eb !important; letter-spacing: 0.02em !important;
+            font-weight: 600 !important; letter-spacing: 0.02em !important;
         }
-        .ds-markdown tbody tr:nth-child(even) { background-color: #fafafa !important; }
-        .ds-markdown tbody tr:hover { background-color: #eff6ff !important; transition: background-color 0.2s !important; }
+        .ds-markdown tbody tr { transition: background-color 0.2s !important; }
 
+        /* === Plan A：透明叠加色（自动适应浅色/深色） === */
+        html.ds-table-auto .ds-markdown th,
+        html.ds-table-auto .ds-markdown td {
+            border: 1px solid rgba(128,128,128,0.2) !important;
+        }
+        html.ds-table-auto .ds-markdown th {
+            background: rgba(128,128,128,0.08) !important;
+            border-bottom: 1px solid rgba(128,128,128,0.2) !important;
+        }
+        html.ds-table-auto .ds-markdown tbody tr:nth-child(even) {
+            background-color: rgba(128,128,128,0.04) !important;
+        }
+        html.ds-table-auto .ds-markdown tbody tr:hover {
+            background-color: rgba(79,70,229,0.06) !important;
+        }
+
+        /* === Plan B 浅色模式 === */
+        html.ds-table-dual body:not(.dark) .ds-markdown th,
+        html.ds-table-dual body:not(.dark) .ds-markdown td {
+            border: 1px solid #e5e7eb !important;
+        }
+        html.ds-table-dual body:not(.dark) .ds-markdown th {
+            background: #f3f4f6 !important;
+            border-bottom: 1px solid #e5e7eb !important; color: #1f2937 !important;
+        }
+        html.ds-table-dual body:not(.dark) .ds-markdown tbody tr:nth-child(even) {
+            background-color: #fafafa !important;
+        }
+        html.ds-table-dual body:not(.dark) .ds-markdown tbody tr:hover {
+            background-color: #eff6ff !important;
+        }
+
+        /* === Plan B 深色模式 === */
+        html.ds-table-dual body.dark .ds-markdown th,
+        html.ds-table-dual body.dark .ds-markdown td {
+            border: 1px solid #2d2d3d !important;
+        }
+        html.ds-table-dual body.dark .ds-markdown th {
+            background: #1e1e2d !important;
+            border-bottom: 1px solid #2d2d3d !important; color: #e4e4e8 !important;
+        }
+        html.ds-table-dual body.dark .ds-markdown tbody tr:nth-child(even) {
+            background-color: rgba(255,255,255,0.03) !important;
+        }
+        html.ds-table-dual body.dark .ds-markdown tbody tr:hover {
+            background-color: rgba(79,70,229,0.1) !important;
+        }
+
+        /* 导出按钮 — 公共布局 */
         .table-internal-buttons {
             position: absolute; bottom: 12px; right: 12px;
             display: flex; flex-direction: column; gap: 8px; z-index: 10;
@@ -330,22 +407,52 @@
         .ds-markdown table:hover .table-internal-buttons,
         .table-internal-buttons:hover { opacity: 1; visibility: visible; pointer-events: auto; }
         .internal-export-btn {
-            width: 32px; height: 32px; background: rgba(255,255,255,0.95);
-            backdrop-filter: blur(4px); border: 1px solid #e2e8f0; border-radius: 8px;
+            width: 32px; height: 32px; border-radius: 8px;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
             box-shadow: 0 2px 6px rgba(0,0,0,0.1); transition: all 0.2s; font-size: 16px;
             position: relative;
         }
-        .internal-export-btn:hover { background: #fff; transform: scale(1.05); box-shadow: 0 4px 10px rgba(0,0,0,0.15); border-color: #cbd5e1; }
         .internal-export-btn:active { transform: scale(0.98); }
         .internal-export-btn::after {
             content: attr(data-tooltip); position: absolute; right: 40px; top: 50%;
-            transform: translateY(-50%); background: #1f2937; color: white;
-            font-size: 12px; padding: 4px 8px; border-radius: 6px;
+            transform: translateY(-50%); font-size: 12px; padding: 4px 8px; border-radius: 6px;
             white-space: nowrap; opacity: 0; visibility: hidden; transition: 0.1s;
             pointer-events: none;
         }
         .internal-export-btn:hover::after { opacity: 1; visibility: visible; }
+
+        /* 导出按钮 — Plan A 自动 */
+        html.ds-table-auto .internal-export-btn {
+            background: rgba(128,128,128,0.12); border: 1px solid rgba(128,128,128,0.24);
+        }
+        html.ds-table-auto .internal-export-btn:hover {
+            background: rgba(128,128,128,0.2); border-color: rgba(128,128,128,0.36);
+        }
+        html.ds-table-auto .internal-export-btn::after {
+            background: rgba(0,0,0,0.82); color: white;
+        }
+
+        /* 导出按钮 — Plan B 浅色 */
+        html.ds-table-dual body:not(.dark) .internal-export-btn {
+            background: rgba(255,255,255,0.95); border: 1px solid #e2e8f0;
+        }
+        html.ds-table-dual body:not(.dark) .internal-export-btn:hover {
+            background: #fff; border-color: #cbd5e1;
+        }
+        html.ds-table-dual body:not(.dark) .internal-export-btn::after {
+            background: #1f2937; color: white;
+        }
+
+        /* 导出按钮 — Plan B 深色 */
+        html.ds-table-dual body.dark .internal-export-btn {
+            background: rgba(45,45,58,0.95); border: 1px solid #3d3d4a;
+        }
+        html.ds-table-dual body.dark .internal-export-btn:hover {
+            background: #3d3d4a; border-color: #5d5d6a;
+        }
+        html.ds-table-dual body.dark .internal-export-btn::after {
+            background: #e4e4e8; color: #1a1a22;
+        }
     `);
 
     // ==================== 代码块折叠逻辑 ====================
@@ -601,7 +708,7 @@
             iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:800px;height:600px;';
             iframe.srcdoc = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>${styles}</style></head>
-<body style="margin:16px;background:#ffffff;">${clone.outerHTML}</body></html>`;
+<body style="margin:16px;">${clone.outerHTML}</body></html>`;
 
             document.body.appendChild(iframe);
 
@@ -661,20 +768,10 @@
     function collectTableStyles() {
         let css = '';
 
-        // DeepSeek CSS 变量（背景、文字色等）
-        const dsVars = [
-            '--ds-bg-primary', '--ds-bg-secondary', '--ds-text-primary',
-            '--ds-text-secondary', '--ds-border', '--ds-gray-100',
-        ];
-        const rootStyles = getComputedStyle(document.documentElement);
-        css += ':root {\n';
-        dsVars.forEach(v => {
-            const val = rootStyles.getPropertyValue(v).trim();
-            if (val) css += `  ${v}: ${val};\n`;
-        });
-        css += '}\n';
+        const isDark = document.body.classList.contains('dark');
+        const mode = tableThemeMode;
 
-        // 从页面提取表格相关样式（.ds-markdown 表格部分）
+        // 从页面提取表格相关样式（.ds-markdown 表格部分，含脚本注入的规则）
         for (const sheet of document.styleSheets) {
             try {
                 for (const rule of sheet.cssRules || []) {
@@ -691,23 +788,34 @@
             }
         }
 
-        // 基础表格样式（兜底）
-        css += `
+        // 基础表格样式（兜底，根据当前主题模式选择配色）
+        const bodyBg = getComputedStyle(document.body).backgroundColor || '#ffffff';
+        css += /*css*/`
+            body { background: ${bodyBg}; }
             table {
                 width: 100%; border-collapse: separate; border-spacing: 0;
                 margin: 1em 0; border-radius: 12px; overflow: hidden;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.05);
             }
             th, td {
-                border: 1px solid #e5e7eb; padding: 12px 16px;
-                vertical-align: top; font-size: 14px; line-height: 1.5;
+                padding: 12px 16px; vertical-align: top;
+                font-size: 14px; line-height: 1.5;
                 white-space: normal; word-wrap: break-word;
             }
-            th {
-                background: linear-gradient(135deg, #f9fafb, #f3f4f6);
-                font-weight: 600; color: #1f2937;
-            }
-            tbody tr:nth-child(even) { background-color: #fafafa; }
+            th { font-weight: 600; }
+            ${mode === 'auto' ? /* 自动透明叠加 */`
+                th, td { border: 1px solid rgba(128,128,128,0.2); }
+                th { background: rgba(128,128,128,0.08); border-bottom: 1px solid rgba(128,128,128,0.2); }
+                tbody tr:nth-child(even) { background-color: rgba(128,128,128,0.04); }
+            ` : isDark ? /* 双模式 — 深色 */`
+                th, td { border: 1px solid #2d2d3d; }
+                th { background: #1e1e2d; border-bottom: 1px solid #2d2d3d; color: #e4e4e8; }
+                tbody tr:nth-child(even) { background-color: rgba(255,255,255,0.03); }
+            ` : /* 双模式 — 浅色 */`
+                th, td { border: 1px solid #e5e7eb; }
+                th { background: #f3f4f6; border-bottom: 1px solid #e5e7eb; color: #1f2937; }
+                tbody tr:nth-child(even) { background-color: #fafafa; }
+            `}
         `;
 
         return css;
@@ -982,6 +1090,7 @@
 
     // ==================== 初始化 ====================
     function init() {
+        applyTableThemeClass(tableThemeMode);
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
