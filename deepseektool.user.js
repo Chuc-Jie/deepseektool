@@ -693,15 +693,41 @@
                     hr.cells[i].style.minWidth = '';
                 }
             }
+        } else if (tableWidthMode === 'equal-minwidth') {
+            const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+            const colCount = headerRow ? headerRow.cells.length : 1;
+            // 计算可用容器宽度
+            const containerWidth = vc ? vc.clientWidth : (table.parentElement ? table.parentElement.clientWidth : window.innerWidth);
+            if (colCount * 80 > containerWidth) {
+                // 总最小宽度超出容器 → 自动切换自适应模式
+                table.style.tableLayout = 'auto';
+                if (headerRow) {
+                    for (let i = 0; i < headerRow.cells.length; i++) {
+                        headerRow.cells[i].style.width = '';
+                        headerRow.cells[i].style.minWidth = '';
+                    }
+                }
+                if (!table.dataset.dsWidthWarned) {
+                    table.dataset.dsWidthWarned = '1';
+                    showToast(`列数较多（${colCount}列），已自动切换为自适应列宽`, 3000);
+                }
+            } else {
+                table.style.tableLayout = 'fixed';
+                const per = (100 / colCount).toFixed(2) + '%';
+                for (let i = 0; i < colCount; i++) {
+                    headerRow.cells[i].style.width = per;
+                    headerRow.cells[i].style.minWidth = '80px';
+                }
+            }
         } else {
-            // equal 或 equal-minwidth
+            // equal
             table.style.tableLayout = 'fixed';
             const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
             if (headerRow && headerRow.cells.length) {
                 const per = (100 / headerRow.cells.length).toFixed(2) + '%';
                 for (let i = 0; i < headerRow.cells.length; i++) {
                     headerRow.cells[i].style.width = per;
-                    headerRow.cells[i].style.minWidth = tableWidthMode === 'equal-minwidth' ? '80px' : '';
+                    headerRow.cells[i].style.minWidth = '';
                 }
             }
         }
