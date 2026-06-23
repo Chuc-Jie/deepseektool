@@ -672,6 +672,7 @@
 
     // ==================== 表格优化逻辑 ====================
     function applyTableStyles(table) {
+        // maxWidth 约束：所有模式统一，表格宽度不得超过容器
         const vc = document.querySelector('.ds-virtual-list-visible-items');
         if (vc) {
             table.style.maxWidth = vc.clientWidth + 'px';
@@ -680,11 +681,11 @@
         } else {
             table.style.maxWidth = '100%';
         }
-        table.style.width = '100%';
 
         // 列宽策略
         if (tableWidthMode === 'auto') {
             table.style.tableLayout = 'auto';
+            table.style.width = '';  // auto 模式不设 width，靠 maxWidth 约束上限
             // 清除之前均分设置的列宽
             const hr = table.querySelector('thead tr') || table.querySelector('tr');
             if (hr) {
@@ -694,6 +695,7 @@
                 }
             }
         } else if (tableWidthMode === 'equal-minwidth') {
+            table.style.width = '100%';
             const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
             const colCount = headerRow ? headerRow.cells.length : 1;
             // 计算可用容器宽度
@@ -701,6 +703,7 @@
             if (colCount * 80 > containerWidth) {
                 // 总最小宽度超出容器 → 自动切换自适应模式
                 table.style.tableLayout = 'auto';
+                table.style.width = '';
                 if (headerRow) {
                     for (let i = 0; i < headerRow.cells.length; i++) {
                         headerRow.cells[i].style.width = '';
@@ -721,6 +724,7 @@
             }
         } else {
             // equal
+            table.style.width = '100%';
             table.style.tableLayout = 'fixed';
             const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
             if (headerRow && headerRow.cells.length) {
