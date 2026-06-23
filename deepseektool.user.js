@@ -674,18 +674,21 @@
     function applyTableStyles(table) {
         // maxWidth 约束：所有模式统一，表格宽度不得超过容器
         const vc = document.querySelector('.ds-virtual-list-visible-items');
+        let maxW;
         if (vc) {
-            table.style.maxWidth = vc.clientWidth + 'px';
+            maxW = vc.clientWidth + 'px';
+            table.style.maxWidth = maxW;
             vc.style.overflowX = 'visible';
             vc.style.maxWidth = '100%';
         } else {
-            table.style.maxWidth = '100%';
+            maxW = '100%';
+            table.style.maxWidth = maxW;
         }
 
         // 列宽策略
         if (tableWidthMode === 'auto') {
             table.style.tableLayout = 'auto';
-            table.style.width = '';  // auto 模式不设 width，靠 maxWidth 约束上限
+            table.style.width = maxW;  // auto 模式设 width = maxWidth，给 auto 布局硬目标宽度
             // 清除之前均分设置的列宽
             const hr = table.querySelector('thead tr') || table.querySelector('tr');
             if (hr) {
@@ -703,7 +706,7 @@
             if (colCount * 80 > containerWidth) {
                 // 总最小宽度超出容器 → 自动切换自适应模式
                 table.style.tableLayout = 'auto';
-                table.style.width = '';
+                table.style.width = maxW;
                 if (headerRow) {
                     for (let i = 0; i < headerRow.cells.length; i++) {
                         headerRow.cells[i].style.width = '';
