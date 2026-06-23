@@ -671,6 +671,25 @@
 
 
     // ==================== 表格优化逻辑 ====================
+    // 根据内容文本长度计算列宽百分比（采样表头+前5行）
+    function calcColumnWeights(table, colCount) {
+        const weights = new Array(colCount).fill(0);
+        const rows = table.querySelectorAll('tr');
+        const limit = Math.min(rows.length, 6);
+        for (let r = 0; r < limit; r++) {
+            const cells = rows[r].cells;
+            for (let c = 0; c < Math.min(cells.length, colCount); c++) {
+                const len = (cells[c].textContent || '').length;
+                if (len > weights[c]) weights[c] = len;
+            }
+        }
+        for (let c = 0; c < colCount; c++) {
+            if (weights[c] < 1) weights[c] = 1;
+        }
+        const total = weights.reduce((a, b) => a + b, 0);
+        return weights.map(w => ((w / total) * 100).toFixed(2) + '%');
+    }
+
     function applyTableStyles(table) {
         // maxWidth 约束：所有模式统一，表格宽度不得超过容器
         const vc = document.querySelector('.ds-virtual-list-visible-items');
@@ -687,14 +706,15 @@
 
         // 列宽策略
         if (tableWidthMode === 'auto') {
-            table.style.tableLayout = 'auto';
-            table.style.width = maxW;  // auto 模式设 width = maxWidth，给 auto 布局硬目标宽度
-            // 清除之前均分设置的列宽
-            const hr = table.querySelector('thead tr') || table.querySelector('tr');
-            if (hr) {
-                for (let i = 0; i < hr.cells.length; i++) {
-                    hr.cells[i].style.width = '';
-                    hr.cells[i].style.minWidth = '';
+            // 自适应模式：根据内容比例分配列宽，严格限制在 maxWidth 内
+            table.style.tableLayout = 'fixed';
+            table.style.width = maxW;
+            const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+            if (headerRow && headerRow.cells.length) {
+                const pcts = calcColumnWeights(table, headerRow.cells.length);
+                for (let i = 0; i < pcts.length; i++) {
+                    headerRow.cells[i].style.width = pcts[i];
+                    headerRow.cells[i].style.minWidth = '';
                 }
             }
         } else if (tableWidthMode === 'equal-minwidth') {
@@ -704,12 +724,13 @@
             // 计算可用容器宽度
             const containerWidth = vc ? vc.clientWidth : (table.parentElement ? table.parentElement.clientWidth : window.innerWidth);
             if (colCount * 80 > containerWidth) {
-                // 总最小宽度超出容器 → 自动切换自适应模式
-                table.style.tableLayout = 'auto';
+                // 总最小宽度超出容器 → 自动切换自适应模式（内容比例分配）
+                table.style.tableLayout = 'fixed';
                 table.style.width = maxW;
                 if (headerRow) {
-                    for (let i = 0; i < headerRow.cells.length; i++) {
-                        headerRow.cells[i].style.width = '';
+                    const pcts = calcColumnWeights(table, colCount);
+                    for (let i = 0; i < pcts.length; i++) {
+                        headerRow.cells[i].style.width = pcts[i];
                         headerRow.cells[i].style.minWidth = '';
                     }
                 }
