@@ -1,21 +1,28 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
-## v4.3.0 (2026-06-23)
+## v4.4.0 (2026-06-23)
 
 ### 新增
 - **表格主题适配双方案**：解决表格硬编码浅色配色在深色模式下视觉错乱的问题
   - **方案 A「自动适应」**：使用 `rgba()` 半透明叠加色（如 `border: rgba(128,128,128,0.2)`），不区分浅色/深色，自动通透
   - **方案 B「双模式」**：通过 `body.dark` / `body:not(.dark)` 选择器为两种主题定义独立配色
   - 控制面板「表格优化导出」区新增「表格主题适配」下拉框，即时切换无需刷新
-- **表格列宽策略**：三种策略可选 —「均分」（等宽）、「自适应」（`table-layout: auto`）、「均分 + 最小宽度保护」（等宽 + `min-width: 80px`），控制面板可切换
+- **表格列宽策略三模式**：
+  - **均分**：`table-layout: fixed` + 每列等宽（默认）
+  - **自适应**：`table-layout: fixed` + 采样内容文本长度按比例分配列宽百分比
+  - **均分+保护**：均分 + `min-width: 80px`，当 `80px × 列数 > 容器宽度` 时自动回落自适应并 Toast 提示
+  - 控制面板「表格优化导出」区新增「表格列宽策略」下拉框
 - **PNG 导出跟随主题**：`collectTableStyles` 运行时检测当前模式和 `body.dark` 状态，动态生成匹配的回退 CSS；iframe body 背景取计算值
 
 ### 修复
-- 移除所有无效的 `var(--ds-xxx)` CSS 变量引用（这些变量在 DeepSeek 中实际不存在，始终回落为浅色值）
+- **自适应模式溢出**：`table-layout: auto` 在内容较宽时无视 `max-width` 穿破容器（实测 6 列 100 行从 752px 溢出到 801px），改为 `fixed` + 内容比例分配方案彻底解决
+- 移除所有无效的 `var(--ds-xxx)` CSS 变量引用（这些变量在 DeepSeek 中实际不存在，永远回落为浅色值）
+- 三种列宽模式的 `width`/`maxWidth` 统一由 `applyTableStyles` 顶部提取 `maxW` 变量派发
 
 ### 架构
 - `GM_addStyle` 表格 CSS 拆为三层：公共布局（无颜色）+ Plan A 规则 + Plan B 规则
-- 通过 `html.ds-table-auto` / `html.ds-table-dual` 类切换，CSS 选择器自动生效，无需 JS 重处理
+- 通过 `html.ds-table-auto` / `html.ds-table-dual` 类切换，CSS 选择器自动生效
+- 提取 `calcColumnWeights()` 公共函数，避免自适应和回落分支的代码重复
 
 ## v4.2.1 (2026-06-20)
 
