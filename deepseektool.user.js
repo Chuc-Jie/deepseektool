@@ -30,6 +30,7 @@
     const STORAGE_AUTO_COLLAPSE_THINKING = 'deepseek_auto_collapse_thinking';
     const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
     const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
+    const STORAGE_TABLE_WIDTH_MODE = 'deepseek_table_width_mode';
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -38,6 +39,7 @@
     let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
     let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
+    let tableWidthMode = GM_getValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -160,6 +162,34 @@
             GM_setValue(STORAGE_TABLE_THEME_MODE, tableThemeMode);
             applyTableThemeClass(tableThemeMode);
             showToast(`表格主题已切换为${tableThemeMode === 'auto' ? '自动适应' : '双模式'}`);
+        });
+
+        // 表格列宽策略选择
+        const widthModeLabel = document.createElement('div');
+        widthModeLabel.style.cssText = 'margin-bottom:24px;';
+        widthModeLabel.innerHTML = `
+            <div style="font-size:15px; font-weight:500; margin-bottom:6px;">表格列宽策略</div>
+            <div style="font-size:13px; opacity:0.7; margin-bottom:8px; line-height:1.4;">均分：所有列等宽，整齐美观<br>自适应：浏览器根据内容自动分配<br>均分+保护：等宽但每列不低于 80px</div>
+            <select id="ds-table-width-select"
+                style="width:100%;padding:10px 12px;border-radius:8px;
+                border:1px solid rgba(128,128,128,0.3);
+                background:var(--ds-bg-secondary, #2a2a36);
+                color:var(--ds-text-primary, #e2e2e2);font-size:14px;cursor:pointer;outline:none;">
+                <option value="equal" ${tableWidthMode === 'equal' ? 'selected' : ''}>均分列宽</option>
+                <option value="equal-minwidth" ${tableWidthMode === 'equal-minwidth' ? 'selected' : ''}>均分 + 最小宽度保护</option>
+                <option value="auto" ${tableWidthMode === 'auto' ? 'selected' : ''}>自适应</option>
+            </select>
+        `;
+        panel.appendChild(widthModeLabel);
+        const widthSelect = widthModeLabel.querySelector('select');
+        widthSelect.addEventListener('change', () => {
+            tableWidthMode = widthSelect.value;
+            GM_setValue(STORAGE_TABLE_WIDTH_MODE, tableWidthMode);
+            // 重新处理所有表格以应用新策略
+            document.querySelectorAll('.ds-markdown table').forEach(table => {
+                applyTableStyles(table);
+            });
+            showToast(`列宽策略已切换为${widthSelect.options[widthSelect.selectedIndex].text}`);
         });
 
         // --- AI思考区域自动折叠 ---
@@ -651,20 +681,38 @@
             table.style.maxWidth = '100%';
         }
         table.style.width = '100%';
-        table.style.tableLayout = 'fixed';
+
+        // 列宽策略
+        if (tableWidthMode === 'auto') {
+            table.style.tableLayout = 'auto';
+            // 清除之前均分设置的列宽
+            const hr = table.querySelector('thead tr') || table.querySelector('tr');
+            if (hr) {
+                for (let i = 0; i < hr.cells.length; i++) {
+                    hr.cells[i].style.width = '';
+                    hr.cells[i].style.minWidth = '';
+                }
+            }
+        } else {
+            // equal 或 equal-minwidth
+            table.style.tableLayout = 'fixed';
+            const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+            if (headerRow && headerRow.cells.length) {
+                const per = (100 / headerRow.cells.length).toFixed(2) + '%';
+                for (let i = 0; i < headerRow.cells.length; i++) {
+                    headerRow.cells[i].style.width = per;
+                    headerRow.cells[i].style.minWidth = tableWidthMode === 'equal-minwidth' ? '80px' : '';
+                }
+            }
+        }
+
         if (getComputedStyle(table).position !== 'relative') table.style.position = 'relative';
 
         table.querySelectorAll('th,td').forEach(cell => {
             cell.style.whiteSpace = 'normal';
-            cell.style.overflowWrap = 'anywhere';  // 现代标准，优于 break-word
-            cell.style.wordBreak = 'break-word';   // 兼容回退
+            cell.style.overflowWrap = 'anywhere';
+            cell.style.wordBreak = 'break-word';
         });
-
-        const headerRow = table.querySelector('thead tr') || table.querySelector('tr');
-        if (headerRow && headerRow.cells.length) {
-            const per = (100 / headerRow.cells.length).toFixed(2) + '%';
-            for (let i = 0; i < headerRow.cells.length; i++) headerRow.cells[i].style.width = per;
-        }
 
         // 仅处理直接包裹表格的 .ds-scroll-area 容器，避免破坏祖先布局
         const scrollArea = table.closest('.ds-scroll-area');
