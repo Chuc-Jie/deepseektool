@@ -201,7 +201,13 @@
 
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
-        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        overlay.addEventListener('click', e => {
+            if (e.target === overlay) overlay.remove();
+            // 点击面板外部关闭所有下拉
+            if (!e.target.closest('.ds-custom-select')) {
+                document.querySelectorAll('.ds-custom-select-dropdown').forEach(d => d.style.display = 'none');
+            }
+        });
     }
 
     // 控件工厂
@@ -280,17 +286,51 @@
             <div class="ds-panel-label">${labelText}</div>
             <div class="ds-panel-desc">${description}</div>
         `;
-        const select = document.createElement('select');
-        select.className = 'ds-panel-input';
+
+        const container = document.createElement('div');
+        container.className = 'ds-custom-select';
+
+        const trigger = document.createElement('button');
+        trigger.className = 'ds-custom-select-trigger';
+        trigger.type = 'button';
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'ds-custom-select-dropdown';
+        dropdown.style.display = 'none';
+
+        let selectedLabel = '';
         options.forEach(opt => {
-            const o = document.createElement('option');
-            o.value = opt.value;
-            o.textContent = opt.label;
-            if (opt.value === selectedValue) o.selected = true;
-            select.appendChild(o);
+            const item = document.createElement('div');
+            item.className = 'ds-custom-select-option';
+            item.textContent = opt.label;
+            item.dataset.value = opt.value;
+            if (opt.value === selectedValue) {
+                item.classList.add('active');
+                selectedLabel = opt.label;
+            }
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 更新选中态
+                dropdown.querySelectorAll('.ds-custom-select-option').forEach(o => o.classList.remove('active'));
+                item.classList.add('active');
+                trigger.textContent = opt.label;
+                dropdown.style.display = 'none';
+                onChange(opt.value);
+            });
+            dropdown.appendChild(item);
         });
-        select.addEventListener('change', () => onChange(select.value));
-        wrap.appendChild(select);
+        trigger.textContent = selectedLabel;
+
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // 关闭所有其他下拉
+            document.querySelectorAll('.ds-custom-select-dropdown').forEach(d => d.style.display = 'none');
+            dropdown.style.display = 'block';
+        });
+
+        container.appendChild(trigger);
+        container.appendChild(dropdown);
+        wrap.appendChild(container);
         return wrap;
     }
 
@@ -413,9 +453,31 @@
             background-repeat: no-repeat; background-position: right 10px center;
             padding-right: 28px;
         }
-        .ds-panel-input option {
-            background: #1a1a24; color: #e4e4e8;
+        /* 自定义下拉面板 */
+        .ds-custom-select { position: relative; }
+        .ds-custom-select-trigger {
+            width: 100%; padding: 8px 28px 8px 12px; border-radius: 8px;
+            border: 1px solid rgba(128,128,128,0.25); font-size: 14px;
+            background: rgba(128,128,128,0.08); color: inherit; cursor: pointer;
+            box-sizing: border-box; outline: none; transition: border-color 0.2s;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23aaa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 10px center;
+            -webkit-appearance: none; appearance: none;
         }
+        .ds-custom-select-trigger:focus { border-color: #4f46e5; }
+        .ds-custom-select-dropdown {
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 10002;
+            background: #1e1e2d; border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 8px; margin-top: 4px; overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            max-height: 200px; overflow-y: auto;
+        }
+        .ds-custom-select-option {
+            padding: 10px 12px; font-size: 14px; cursor: pointer; color: #e4e4e8;
+            transition: background 0.1s;
+        }
+        .ds-custom-select-option:hover { background: rgba(128,128,128,0.12); }
+        .ds-custom-select-option.active { background: rgba(79,70,229,0.2); color: #a5b4fc; }
         .ds-panel-footer { border-top: 1px solid rgba(128,128,128,0.15); padding-top: 12px; margin-top: 4px; }
         .ds-panel-btn {
             width: 100%; padding: 10px; border: none; border-radius: 10px;
