@@ -477,7 +477,7 @@
             transition: background 0.1s;
         }
         .ds-custom-select-option:hover { background: rgba(128,128,128,0.12); }
-        .ds-custom-select-option.active { background: rgba(79,70,229,0.2); color: #a5b4fc; }
+        .ds-custom-select-option.active { background: rgba(255,255,255,0.08); }
         .ds-panel-footer { border-top: 1px solid rgba(128,128,128,0.15); padding-top: 12px; margin-top: 4px; }
         .ds-panel-btn {
             width: 100%; padding: 10px; border: none; border-radius: 10px;
