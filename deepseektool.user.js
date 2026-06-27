@@ -77,222 +77,221 @@
         overlay.id = 'ds-control-panel-overlay';
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+            background: rgba(0,0,0,0.45); backdrop-filter: blur(6px);
             z-index: 10001; display: flex; align-items: center; justify-content: center;
         `;
 
         const panel = document.createElement('div');
         panel.style.cssText = `
-            background: var(--ds-bg-primary, #1e1e2f); border-radius: 16px;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.3); width: 440px; max-width: 90%;
-            padding: 28px; font-family: system-ui, -apple-system, sans-serif;
-            color: var(--ds-text-primary, #e2e2e2); max-height: 80vh; overflow-y: auto;
+            background: #1a1a24; border-radius: 20px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.35); width: 420px; max-width: 92%;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: #e4e4e8; max-height: 82vh; overflow-y: auto;
         `;
 
-        // 标题
-        const title = document.createElement('h2');
-        title.textContent = '⚙️ DeepSeek 全功能增强设置';
-        title.style.cssText = 'margin:0 0 24px 0; font-size:20px; font-weight:600;';
+        // 头部
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:20px 24px 0 24px;';
+        const closeX = document.createElement('button');
+        closeX.textContent = '\u2715';
+        closeX.style.cssText = 'background:none; border:none; color:rgba(255,255,255,0.4); font-size:22px; cursor:pointer; padding:4px 8px; line-height:1; border-radius:6px; transition:all 0.15s;';
+        closeX.addEventListener('mouseenter', () => { closeX.style.background = 'rgba(255,255,255,0.08)'; closeX.style.color = 'rgba(255,255,255,0.8)'; });
+        closeX.addEventListener('mouseleave', () => { closeX.style.background = 'none'; closeX.style.color = 'rgba(255,255,255,0.4)'; });
+        closeX.addEventListener('click', () => overlay.remove());
+        header.innerHTML = '<h2 style="margin:0; font-size:18px; font-weight:600;">\u2699\ufe0f 脚本设置</h2>';
+        header.appendChild(closeX);
+        panel.appendChild(header);
 
-        // --- 代码块折叠部分 ---
-        const codeSectionTitle = createSectionTitle('代码块折叠');
-        panel.appendChild(codeSectionTitle);
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:16px 24px;';
 
-        panel.appendChild(createNumberSetting(
-            '自动折叠阈值', '代码块行数超过该值时自动折叠（0 = 禁用）',
-            foldThreshold, value => {
+        // 代码块折叠
+        body.appendChild(createCard('\uD83D\uDCE6 代码块折叠', [
+            createNumberSetting('自动折叠阈值', '代码行数超过该值时自动折叠（0 = 禁用）', '行', foldThreshold, value => {
                 foldThreshold = value;
                 GM_setValue(STORAGE_FOLD_THRESHOLD, value);
                 reapplyFoldToAllCodeBlocks();
                 showToast(`折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
-            }
-        ));
-
-        panel.appendChild(createNumberSetting(
-            '折叠预览行数', '折叠后显示的行数（0 = 完全隐藏）',
-            previewLines, value => {
+            }),
+            createNumberSetting('折叠预览行数', '折叠后显示的行数（0 = 完全隐藏）', '行', previewLines, value => {
                 previewLines = value;
                 enablePreviewLines = value > 0;
                 GM_setValue(STORAGE_PREVIEW_LINES, value);
                 reapplyFoldToAllCodeBlocks();
                 showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
+            }),
+        ]));
+
+        // 表格优化导出
+        body.appendChild(createCard('\uD83D\uDCCA 表格优化导出', [
+            createToggle('表格导出按钮', '悬停表格显示 PNG / CSV 导出按钮', tableButtonsEnabled, checked => {
+                tableButtonsEnabled = checked;
+                GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, checked);
+                toggleTableButtons(checked);
+                showToast(`表格导出按钮已${checked ? '开启' : '关闭'}`);
+            }),
+            createSelect('表格主题适配', '自动：半透明叠加色通用 \u00B7 双模式：浅色/深色各自优化', [
+                { value: 'auto', label: '自动适应（透明叠加）' },
+                { value: 'dual', label: '双模式（浅色 / 深色）' },
+            ], tableThemeMode, value => {
+                tableThemeMode = value;
+                GM_setValue(STORAGE_TABLE_THEME_MODE, value);
+                applyTableThemeClass(value);
+                showToast(`表格主题已切换为${value === 'auto' ? '自动适应' : '双模式'}`);
+            }),
+            createSelect('表格列宽策略', '均分：等宽 \u00B7 自适应：按内容比例 \u00B7 均分+保护：等宽且不低于 80px', [
+                { value: 'equal', label: '均分列宽' },
+                { value: 'auto', label: '自适应（内容比例）' },
+                { value: 'equal-minwidth', label: '均分 + 最小宽度保护' },
+            ], tableWidthMode, value => {
+                tableWidthMode = value;
+                GM_setValue(STORAGE_TABLE_WIDTH_MODE, value);
+                document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
+                showToast('列宽策略已切换');
+            }),
+        ]));
+
+        // AI 思考过程折叠
+        body.appendChild(createCard('\uD83E\uDDE0 AI 思考过程折叠', [
+            createToggle('自动折叠思考区域', 'AI 开始思考后自动收起\u300C已思考\u300D过程', autoCollapseThinking, checked => {
+                autoCollapseThinking = checked;
+                GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
+                reapplyThinkingSections();
+                showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}`);
+            }),
+            createToggle('模拟点击折叠', '通过模拟点击箭头折叠（保持原生交互）', simulateClickThinking, checked => {
+                simulateClickThinking = checked;
+                GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
+                showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}（新产生的思考生效）`);
+            }),
+        ]));
+
+        panel.appendChild(body);
+
+        // 底部
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding:0 24px 20px 24px;';
+        footer.innerHTML = `
+            <div class="ds-panel-footer">
+                <button class="ds-panel-btn" id="ds-panel-close-btn">关闭面板</button>
+                <span class="ds-panel-reset" id="ds-panel-reset">恢复默认设置</span>
+            </div>
+        `;
+        footer.querySelector('#ds-panel-close-btn').addEventListener('click', () => overlay.remove());
+        footer.querySelector('#ds-panel-reset').addEventListener('click', () => {
+            if (confirm('确定恢复所有设置为默认值？')) {
+                foldThreshold = 20; GM_setValue(STORAGE_FOLD_THRESHOLD, 20);
+                previewLines = 0; enablePreviewLines = false; GM_setValue(STORAGE_PREVIEW_LINES, 0);
+                tableButtonsEnabled = true; GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
+                autoCollapseThinking = true; GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
+                simulateClickThinking = true; GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, true);
+                tableThemeMode = 'auto'; GM_setValue(STORAGE_TABLE_THEME_MODE, 'auto');
+                tableWidthMode = 'equal'; GM_setValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
+                applyTableThemeClass('auto');
+                reapplyFoldToAllCodeBlocks();
+                toggleTableButtons(true);
+                reapplyThinkingSections();
+                document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
+                showToast('已恢复默认设置');
+                overlay.remove();
+                setTimeout(() => openControlPanel(), 300);
             }
-        ));
-
-        // --- 表格优化部分 ---
-        const tableSectionTitle = createSectionTitle('表格优化导出');
-        panel.appendChild(tableSectionTitle);
-
-        const switchLabel1 = document.createElement('label');
-        switchLabel1.style.cssText = 'display:flex; align-items:center; gap:12px; cursor:pointer; margin-bottom: 24px;';
-        switchLabel1.innerHTML = `
-            <span style="font-size:15px; font-weight:500;">表格导出按钮</span>
-            <input type="checkbox" id="ds-table-switch" ${tableButtonsEnabled ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
-            <span style="font-size:13px; opacity:0.7;">悬停表格显示 PNG/CSV 导出按钮</span>
-        `;
-        panel.appendChild(switchLabel1);
-        const tableSwitch = switchLabel1.querySelector('input');
-        tableSwitch.addEventListener('change', () => {
-            tableButtonsEnabled = tableSwitch.checked;
-            GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, tableButtonsEnabled);
-            toggleTableButtons(tableButtonsEnabled);
-            showToast(`表格导出按钮已${tableButtonsEnabled ? '开启' : '关闭'}`);
         });
+        panel.appendChild(footer);
 
-        // 表格主题适配选择
-        const themeSelectLabel = document.createElement('div');
-        themeSelectLabel.style.cssText = 'margin-bottom:24px;';
-        themeSelectLabel.innerHTML = `
-            <div style="font-size:15px; font-weight:500; margin-bottom:6px;">表格主题适配</div>
-            <div style="font-size:13px; opacity:0.7; margin-bottom:8px; line-height:1.4;">自动：半透明叠加色，浅色/深色通用<br>双模式：浅色/深色各自优化配色</div>
-            <select id="ds-table-theme-select"
-                style="width:100%;padding:10px 12px;border-radius:8px;
-                border:1px solid rgba(128,128,128,0.3);
-                background:var(--ds-bg-secondary, #2a2a36);
-                color:var(--ds-text-primary, #e2e2e2);font-size:14px;cursor:pointer;outline:none;">
-                <option value="auto" ${tableThemeMode === 'auto' ? 'selected' : ''}>自动适应（透明叠加）</option>
-                <option value="dual" ${tableThemeMode === 'dual' ? 'selected' : ''}>双模式（浅色/深色）</option>
-            </select>
-        `;
-        panel.appendChild(themeSelectLabel);
-        const themeSelect = themeSelectLabel.querySelector('select');
-        themeSelect.addEventListener('change', () => {
-            tableThemeMode = themeSelect.value;
-            GM_setValue(STORAGE_TABLE_THEME_MODE, tableThemeMode);
-            applyTableThemeClass(tableThemeMode);
-            showToast(`表格主题已切换为${tableThemeMode === 'auto' ? '自动适应' : '双模式'}`);
-        });
-
-        // 表格列宽策略选择
-        const widthModeLabel = document.createElement('div');
-        widthModeLabel.style.cssText = 'margin-bottom:24px;';
-        widthModeLabel.innerHTML = `
-            <div style="font-size:15px; font-weight:500; margin-bottom:6px;">表格列宽策略</div>
-            <div style="font-size:13px; opacity:0.7; margin-bottom:8px; line-height:1.4;">均分：所有列等宽，整齐美观<br>自适应：浏览器根据内容自动分配<br>均分+保护：等宽但每列不低于 80px</div>
-            <select id="ds-table-width-select"
-                style="width:100%;padding:10px 12px;border-radius:8px;
-                border:1px solid rgba(128,128,128,0.3);
-                background:var(--ds-bg-secondary, #2a2a36);
-                color:var(--ds-text-primary, #e2e2e2);font-size:14px;cursor:pointer;outline:none;">
-                <option value="equal" ${tableWidthMode === 'equal' ? 'selected' : ''}>均分列宽</option>
-                <option value="equal-minwidth" ${tableWidthMode === 'equal-minwidth' ? 'selected' : ''}>均分 + 最小宽度保护</option>
-                <option value="auto" ${tableWidthMode === 'auto' ? 'selected' : ''}>自适应</option>
-            </select>
-        `;
-        panel.appendChild(widthModeLabel);
-        const widthSelect = widthModeLabel.querySelector('select');
-        widthSelect.addEventListener('change', () => {
-            tableWidthMode = widthSelect.value;
-            GM_setValue(STORAGE_TABLE_WIDTH_MODE, tableWidthMode);
-            // 重新处理所有表格以应用新策略
-            document.querySelectorAll('.ds-markdown table').forEach(table => {
-                applyTableStyles(table);
-            });
-            showToast(`列宽策略已切换为${widthSelect.options[widthSelect.selectedIndex].text}`);
-        });
-
-        // --- AI思考区域自动折叠 ---
-        const thinkSectionTitle = createSectionTitle('AI思考过程折叠');
-        panel.appendChild(thinkSectionTitle);
-
-        const switchLabel2 = document.createElement('label');
-        switchLabel2.style.cssText = 'display:flex; align-items:center; gap:12px; cursor:pointer; margin-bottom: 12px;';
-        switchLabel2.innerHTML = `
-            <span style="font-size:15px; font-weight:500;">自动折叠思考区域</span>
-            <input type="checkbox" id="ds-auto-think-switch" ${autoCollapseThinking ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
-            <span style="font-size:13px; opacity:0.7;">AI开始思考后自动收起“已思考”过程</span>
-        `;
-        panel.appendChild(switchLabel2);
-        const thinkSwitch = switchLabel2.querySelector('input');
-        thinkSwitch.addEventListener('change', () => {
-            autoCollapseThinking = thinkSwitch.checked;
-            GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, autoCollapseThinking);
-            reapplyThinkingSections();
-            showToast(`自动折叠思考区域已${autoCollapseThinking ? '开启' : '关闭'}`);
-        });
-
-        const switchLabel3 = document.createElement('label');
-        switchLabel3.style.cssText = 'display:flex; align-items:center; gap:12px; cursor:pointer; margin-bottom: 24px;';
-        switchLabel3.innerHTML = `
-            <span style="font-size:15px; font-weight:500;">模拟点击折叠</span>
-            <input type="checkbox" id="ds-simulate-switch" ${simulateClickThinking ? 'checked' : ''}
-                style="width:18px; height:18px; accent-color:#4f46e5; cursor:pointer;">
-            <span style="font-size:13px; opacity:0.7;">通过模拟点击箭头折叠（保持原生交互）</span>
-        `;
-        panel.appendChild(switchLabel3);
-        const simulateSwitch = switchLabel3.querySelector('input');
-        simulateSwitch.addEventListener('change', () => {
-            simulateClickThinking = simulateSwitch.checked;
-            GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, simulateClickThinking);
-            showToast(`模拟点击折叠已${simulateClickThinking ? '开启' : '关闭'}（新产生的思考生效）`);
-        });
-
-        // 关闭按钮
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '关闭面板';
-        closeBtn.style.cssText = `
-            width:100%; padding:10px; border:none; border-radius:10px;
-            background:#4f46e5; color:white; font-size:15px; cursor:pointer;
-            transition: background 0.2s;
-        `;
-        closeBtn.onmouseenter = () => closeBtn.style.background = '#6366f1';
-        closeBtn.onmouseleave = () => closeBtn.style.background = '#4f46e5';
-        closeBtn.addEventListener('click', () => overlay.remove());
-
-        panel.appendChild(closeBtn);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
-
         overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
     }
 
-    function createSectionTitle(text) {
-        const el = document.createElement('h3');
-        el.textContent = text;
-        el.style.cssText = 'margin: 24px 0 12px 0; font-size:16px; font-weight:600; border-top: 1px solid rgba(128,128,128,0.2); padding-top: 12px;';
-        return el;
+    // 控件工厂
+
+    function createCard(title, children) {
+        const card = document.createElement('div');
+        card.className = 'ds-panel-card';
+        const hd = document.createElement('div');
+        hd.className = 'ds-panel-card-title';
+        hd.textContent = title;
+        card.appendChild(hd);
+        children.forEach(c => card.appendChild(c));
+        return card;
     }
 
-    function createNumberSetting(labelText, description, currentValue, onChange) {
-        const section = document.createElement('div');
-        section.style.marginBottom = '16px';
-
-        const label = document.createElement('div');
-        label.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;';
-        label.innerHTML = `<span style="font-size:15px; font-weight:500;">${labelText}</span>`;
-
-        const desc = document.createElement('div');
-        desc.textContent = description;
-        desc.style.cssText = 'font-size:13px; opacity:0.7; margin-bottom:8px; line-height:1.4;';
-
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.value = currentValue;
-        input.min = 0;
-        input.step = 1;
-        input.style.cssText = `
-            width:100%; padding:10px 12px; border-radius:8px;
-            border:1px solid rgba(128,128,128,0.3);
-            background: var(--ds-bg-secondary, #2a2a36);
-            color: var(--ds-text-primary, #e2e2e2);
-            font-size:14px; box-sizing:border-box; outline:none;
-            transition: border-color 0.2s;
+    function createNumberSetting(labelText, description, unit, currentValue, onChange) {
+        const wrap = document.createElement('div');
+        wrap.className = 'ds-panel-control';
+        wrap.innerHTML = `
+            <div class="ds-panel-label">${labelText}</div>
+            <div class="ds-panel-desc">${description}</div>
         `;
-        input.onfocus = () => input.style.borderColor = 'rgba(128,128,128,0.6)';
-        input.onblur = () => input.style.borderColor = 'rgba(128,128,128,0.3)';
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; gap:8px; align-items:center;';
+        const input = document.createElement('input');
+        input.type = 'number'; input.value = currentValue; input.min = 0; input.step = 1;
+        input.className = 'ds-panel-input';
+        input.style.flex = '1';
         input.addEventListener('change', () => {
             let val = parseInt(input.value, 10);
             if (isNaN(val) || val < 0) val = 0;
             input.value = val;
             onChange(val);
         });
+        row.appendChild(input);
+        if (unit) {
+            const u = document.createElement('span');
+            u.style.cssText = 'font-size:13px; opacity:0.5; flex-shrink:0;';
+            u.textContent = unit;
+            row.appendChild(u);
+        }
+        wrap.appendChild(row);
+        return wrap;
+    }
 
-        section.appendChild(label);
-        section.appendChild(desc);
-        section.appendChild(input);
-        return section;
+    function createToggle(labelText, description, checked, onToggle) {
+        const wrap = document.createElement('div');
+        wrap.className = 'ds-panel-control';
+        const label = document.createElement('label');
+        label.className = 'ds-toggle';
+        label.style.cssText = 'display:flex; align-items:center; justify-content:space-between;';
+        label.innerHTML = `
+            <div>
+                <div class="ds-panel-label" style="margin-bottom:2px;">${labelText}</div>
+                <div class="ds-panel-desc" style="margin-bottom:0;">${description}</div>
+            </div>
+        `;
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        if (checked) input.checked = true;
+        const track = document.createElement('span');
+        track.className = 'ds-toggle-track';
+        track.style.position = 'relative';
+        track.innerHTML = '<span class="ds-toggle-thumb"></span>';
+        label.appendChild(input);
+        label.appendChild(track);
+        input.addEventListener('change', () => onToggle(input.checked));
+        wrap.appendChild(label);
+        return wrap;
+    }
+
+    function createSelect(labelText, description, options, selectedValue, onChange) {
+        const wrap = document.createElement('div');
+        wrap.className = 'ds-panel-control';
+        wrap.innerHTML = `
+            <div class="ds-panel-label">${labelText}</div>
+            <div class="ds-panel-desc">${description}</div>
+        `;
+        const select = document.createElement('select');
+        select.className = 'ds-panel-input';
+        options.forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            if (opt.value === selectedValue) o.selected = true;
+            select.appendChild(o);
+        });
+        select.addEventListener('change', () => onChange(select.value));
+        wrap.appendChild(select);
+        return wrap;
     }
 
     // 设置变动后的刷新函数
@@ -362,6 +361,69 @@
         .ds-fold-btn .fold-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
+
+        /* 控制面板 — Toggle 开关 */
+        .ds-toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
+        .ds-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .ds-toggle-track {
+            width: 44px; height: 24px; border-radius: 12px;
+            background: rgba(128,128,128,0.3); transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .ds-toggle input:checked + .ds-toggle-track { background: #4f46e5; }
+        .ds-toggle-thumb {
+            position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+            border-radius: 50%; background: white; transition: transform 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .ds-toggle input:checked + .ds-toggle-track .ds-toggle-thumb { transform: translateX(20px); }
+        .ds-toggle input:focus-visible + .ds-toggle-track { outline: 2px solid #4f46e5; outline-offset: 2px; }
+
+        /* 控制面板 — 卡片分区 */
+        .ds-panel-card {
+            background: rgba(128,128,128,0.06); border-radius: 12px;
+            padding: 16px; margin-bottom: 12px;
+        }
+        .ds-panel-card-title {
+            font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
+            text-transform: uppercase; opacity: 0.5; margin-bottom: 12px;
+        }
+        .ds-panel-control {
+            margin-bottom: 14px;
+        }
+        .ds-panel-control:last-child { margin-bottom: 0; }
+        .ds-panel-label {
+            font-size: 14px; font-weight: 500; margin-bottom: 4px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ds-panel-desc {
+            font-size: 12px; opacity: 0.55; margin-bottom: 8px; line-height: 1.5;
+        }
+        .ds-panel-input {
+            width: 100%; padding: 8px 12px; border-radius: 8px;
+            border: 1px solid rgba(128,128,128,0.25);
+            background: rgba(128,128,128,0.08); color: inherit;
+            font-size: 14px; box-sizing: border-box; outline: none;
+            transition: border-color 0.2s;
+        }
+        .ds-panel-input:focus { border-color: #4f46e5; }
+        select.ds-panel-input { cursor: pointer; appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 10px center;
+            padding-right: 28px;
+        }
+        .ds-panel-footer { border-top: 1px solid rgba(128,128,128,0.15); padding-top: 12px; margin-top: 4px; }
+        .ds-panel-btn {
+            width: 100%; padding: 10px; border: none; border-radius: 10px;
+            background: #4f46e5; color: white; font-size: 15px; font-weight: 500;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .ds-panel-btn:hover { background: #6366f1; }
+        .ds-panel-reset {
+            display: block; text-align: center; font-size: 12px; opacity: 0.4;
+            cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
+        }
+        .ds-panel-reset:hover { opacity: 0.7; }
 
         /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */
         .ds-markdown table {
