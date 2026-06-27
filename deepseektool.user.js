@@ -84,7 +84,7 @@
         const panel = document.createElement('div');
         panel.style.cssText = `
             background: #1a1a24; border-radius: 20px;
-            box-shadow: 0 16px 40px rgba(0,0,0,0.35); width: 420px; max-width: 92%;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.35); width: 480px; max-width: 94%;
             font-family: system-ui, -apple-system, sans-serif;
             color: #e4e4e8; max-height: 82vh; overflow-y: auto;
         `;
