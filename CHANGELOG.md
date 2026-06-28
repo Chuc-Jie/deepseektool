@@ -1,5 +1,16 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v4.4.1 (2026-06-28)
+
+### UI
+- **控制面板 HIG 优化**：卡片分区（ds-panel-card）替代 border-top 分割线；复选框升级为 Toggle 开关（44×24px，thumb 滑动动效）；控件工厂化（createCard/createToggle/createSelect/createNumberSetting）；数字输入增加单位后缀；底部新增「恢复默认设置」一键重置
+- **面板宽度** 420px → 480px，背景 rgba(0,0,0,0.45) + backdrop-filter:blur(6px) 微调
+
+### 修复
+- **下拉框深色适配**：弃用原生 `<select>`（选项区 OS 渲染无法控制），改用自定义 div 组件（.ds-custom-select），选项 hover/active 态完全可控
+- 添加 `-webkit-appearance:none` 修复 Chromium 内核下原生箭头残留
+- 修复 toggle CSS 选择器 bug（`~ .ds-toggle-thumb` → `+ .ds-toggle-track .ds-toggle-thumb`）
+
 ## v4.4.0 (2026-06-24)
 
 ### 新增
