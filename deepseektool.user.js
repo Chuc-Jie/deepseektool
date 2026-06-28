@@ -374,7 +374,7 @@
 
     function reapplyThinkingSections() {
         if (autoCollapseThinking) {
-            scheduleThinkingCheck(150);
+            processAllThinkingSections();
         }
     }
 
@@ -1191,23 +1191,6 @@
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
-    function findThinkTitleBar(thinkContent) {
-        // 从 thinkContent 向上查找标题栏（稳定：使用文本"已思考"定位，不依赖哈希类名）
-        let wrapper = thinkContent.parentElement;
-        while (wrapper && wrapper !== document.body) {
-            for (let i = 0; i < wrapper.children.length; i++) {
-                const child = wrapper.children[i];
-                if (child.contains(thinkContent)) continue;
-                if (child.querySelector('pre, code, .ds-think-content')) continue;
-                if (child.textContent && child.textContent.includes('已思考')) {
-                    return child;
-                }
-            }
-            wrapper = wrapper.parentElement;
-        }
-        return null;
-    }
-
     function collapseThinkingSection(container) {
         if (!autoCollapseThinking || container.hasAttribute('data-thinking-collapsed')) return;
         container.setAttribute('data-thinking-collapsed', 'true');
@@ -1227,7 +1210,7 @@
             }
         } else {
             // CSS 直接折叠：隐藏思考内容区域
-            const thinkContent = container.querySelector('.ds-think-content') || findThinkContent(container);
+            const thinkContent = findThinkContent(container);
             if (thinkContent) {
                 thinkContent.dataset.dsScriptCollapsed = 'true';
                 thinkContent.style.display = 'none';
@@ -1235,8 +1218,9 @@
         }
     }
 
-    // 从标题栏向上找到对应的 .ds-think-content 元素
+    // 从标题栏容器向上找到对应的 .ds-think-content 元素
     function findThinkContent(titleBar) {
+        // 向上查找 collapsible 包装器，再找其中的 think content
         let parent = titleBar.parentElement;
         while (parent && parent !== document.body) {
             const tc = parent.querySelector('.ds-think-content');
@@ -1246,44 +1230,40 @@
         return null;
     }
 
-    let _thinkPollTimer = null;
-
     function processAllThinkingSections() {
-        if (!autoCollapseThinking) return true; // return "all done" when disabled
-        let anyUnprocessed = false;
+        if (!autoCollapseThinking) return;
+        // 基于稳定的 .ds-think-content 类名定位思考区域
         document.querySelectorAll('.ds-think-content').forEach(thinkContent => {
+            // 排除代码块内的文本（避免脚本源码中的"已思考"文字误匹配）
             if (thinkContent.closest('pre, .md-code-block')) return;
             if (thinkContent.dataset.dsScriptCollapsed === 'true') return;
 
-            const titleBar = findThinkTitleBar(thinkContent);
-            if (titleBar && titleBar.textContent && titleBar.textContent.includes('已思考')) {
-                // 标题栏已就绪 → 折叠
-                if (simulateClickThinking) {
-                    collapseThinkingSection(titleBar);
-                } else {
-                    if (!titleBar.hasAttribute('data-thinking-collapsed')) {
-                        titleBar.setAttribute('data-thinking-collapsed', 'true');
-                        thinkContent.dataset.dsScriptCollapsed = 'true';
-                        thinkContent.style.display = 'none';
+            // 向上查找包含标题栏的 collapsible 包装器
+            let wrapper = thinkContent.parentElement;
+            while (wrapper && wrapper !== document.body) {
+                const titleBar = wrapper.querySelector('div[class*="_5ab5d64"]');
+                if (titleBar && titleBar.textContent && titleBar.textContent.includes('已思考')) {
+                    if (simulateClickThinking) {
+                        collapseThinkingSection(titleBar);
+                    } else {
+                        // CSS 回退：直接隐藏 think content
+                        if (!titleBar.hasAttribute('data-thinking-collapsed')) {
+                            titleBar.setAttribute('data-thinking-collapsed', 'true');
+                            thinkContent.dataset.dsScriptCollapsed = 'true';
+                            thinkContent.style.display = 'none';
+                        }
                     }
+                    return;
                 }
-            } else {
-                // 标题栏尚未就绪（AI 还在思考中）→ 标记需要继续轮询
-                anyUnprocessed = true;
+                wrapper = wrapper.parentElement;
+            }
+
+            // 未找到标题栏时，CSS 回退模式下直接隐藏
+            if (!simulateClickThinking) {
+                thinkContent.dataset.dsScriptCollapsed = 'true';
+                thinkContent.style.display = 'none';
             }
         });
-        return !anyUnprocessed; // true = 全部处理完毕
-    }
-
-    function scheduleThinkingCheck(delay) {
-        if (!autoCollapseThinking) return;
-        clearTimeout(_thinkPollTimer);
-        _thinkPollTimer = setTimeout(() => {
-            const allDone = processAllThinkingSections();
-            if (!allDone) {
-                scheduleThinkingCheck(500); // 未完成时继续轮询
-            }
-        }, delay || 150);
     }
 
     // ==================== 统一 DOM 监听（合并三个 observer，添加节流） ====================
@@ -1333,7 +1313,7 @@
                 });
             }
             if (hasNewTables) scheduleTableProcess();
-            if (hasNewThinking) scheduleThinkingCheck(150);
+            if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
         });
         _domObserver.observe(document.body, { childList: true, subtree: true });
     }
@@ -1345,7 +1325,7 @@
         deduplicateButtons();
         processAllExistingCodeBlocks();
         processAllTables();
-        if (autoCollapseThinking) scheduleThinkingCheck(150);
+        if (autoCollapseThinking) processAllThinkingSections();
         observeDOM();
 
         // resize 节流处理表格
