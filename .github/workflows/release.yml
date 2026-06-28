@@ -57,14 +57,32 @@ jobs:
           git archive --format=zip --output=deepseektool-v${VERSION}.zip HEAD
           echo "打包完成: deepseektool-v${VERSION}.zip"
 
+      - name: 提取 CHANGELOG 条目
+        id: changelog
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.current }}"
+          # 提取当前版本的 CHANGELOG 条目（从 "## v{VERSION}" 到下一个 "## " 或 EOF）
+          SECTION=$(awk -v ver="v${VERSION}" '
+            $0 ~ "^## " ver "$" { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$SECTION" ]; then
+            SECTION="请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。"
+          fi
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$SECTION" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "提取到 CHANGELOG 条目 (${#SECTION} 字符)"
+
       - name: 创建 Release
         if: steps.check.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.current }}
           name: v${{ steps.version.outputs.current }}
-          body: |
-            ️ 请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。
+          body: ${{ steps.changelog.outputs.body }}
           files: |
             deepseektool.user.js
             deepseektool-v${{ steps.version.outputs.current }}.zip
