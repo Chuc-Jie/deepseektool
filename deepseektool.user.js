@@ -1253,6 +1253,29 @@
         return null;
     }
 
+    let _thinkHideStyle = null;
+
+    // 预隐藏思考内容（CSS 拦截），消除展开→折叠的布局偏移
+    function setupThinkContentHiding() {
+        if (!autoCollapseThinking) return;
+        // 注入 !important 样式使 .ds-think-content 初始不可见
+        if (!_thinkHideStyle) {
+            _thinkHideStyle = document.createElement('style');
+            _thinkHideStyle.id = 'ds-think-hide';
+            _thinkHideStyle.textContent = '.ds-think-content { display: none !important; }';
+            document.head.appendChild(_thinkHideStyle);
+        }
+        // 用户点击箭头时，在 capture 阶段提前移除 CSS，让 DeepSeek 正常创建可视内容
+        document.addEventListener('click', function dsThinkCapture(e) {
+            const clickable = e.target.closest('[class*="_5ab5d64"], [class*="c2b72bb8"]');
+            if (!clickable) return;
+            if (_thinkHideStyle) {
+                _thinkHideStyle.remove();
+                _thinkHideStyle = null;
+            }
+        }, true);
+    }
+
     function processAllThinkingSections() {
         if (!autoCollapseThinking) return;
         // 基于稳定的 .ds-think-content 类名定位思考区域
@@ -1349,7 +1372,10 @@
         deduplicateButtons();
         processAllExistingCodeBlocks();
         processAllTables();
-        if (autoCollapseThinking) processAllThinkingSections();
+        if (autoCollapseThinking) {
+            setupThinkContentHiding();
+            processAllThinkingSections();
+        }
         observeDOM();
 
         // resize 节流处理表格
