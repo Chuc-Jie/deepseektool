@@ -7,7 +7,7 @@
   - PNG 导出保护：clone 显式 `opacity: 1` 防止被带入 iframe
 - **Release workflow**：修复 awk 匹配 `$` 锚点（CHANGELOG 行含日期后缀导致匹配失败），改用 `index` 前缀匹配；改用 `body_path` 文件方案替代多行 `${{ }}` YAML 变量注入
 
-### v4.5.0 (2026-06-29)
+## v4.5.0 (2026-06-29)
 
 ### 新增
 - **宽屏模式**：消息区域从 752px → 1000px，左右留白自动均分；面板 Toggle 开关控制，默认关闭；表格列宽通过 `vc.clientWidth` 联动扩展
