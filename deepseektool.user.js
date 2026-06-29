@@ -509,12 +509,9 @@
         }
         .ds-panel-reset:hover { opacity: 0.7; }
 
-        /* 宽屏模式 */
+        /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分 */
         html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
-            padding-left: 0px !important;
-            padding-right: 100px !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
+            --message-list-max-width: 1000px !important;
         }
 
         /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */
