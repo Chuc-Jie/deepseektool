@@ -525,6 +525,7 @@
         .ds-markdown table {
             opacity: 0;  /* 初始透明，JS 完成处理后再显示，消除闪烁 */
             transition: opacity 0.12s ease-in;
+            table-layout: fixed;
             width: 100% !important; border-collapse: separate !important;
             border-spacing: 0 !important; margin: 1em 0 !important;
             border-radius: 12px !important; overflow: hidden !important;
