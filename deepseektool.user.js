@@ -388,7 +388,14 @@
 
     function reapplyThinkingSections() {
         if (autoCollapseThinking) {
+            setupThinkContentHiding();
             processAllThinkingSections();
+        } else {
+            // 关闭时移除预隐藏样式
+            if (_thinkHideStyle) {
+                _thinkHideStyle.remove();
+                _thinkHideStyle = null;
+            }
         }
     }
 
@@ -1254,6 +1261,7 @@
     }
 
     let _thinkHideStyle = null;
+    let _thinkCaptureAdded = false;
 
     // 预隐藏思考内容（CSS 拦截），消除展开→折叠的布局偏移
     function setupThinkContentHiding() {
@@ -1266,14 +1274,17 @@
             document.head.appendChild(_thinkHideStyle);
         }
         // 用户点击箭头时，在 capture 阶段提前移除 CSS，让 DeepSeek 正常创建可视内容
-        document.addEventListener('click', function dsThinkCapture(e) {
-            const clickable = e.target.closest('[class*="_5ab5d64"], [class*="c2b72bb8"]');
-            if (!clickable) return;
-            if (_thinkHideStyle) {
-                _thinkHideStyle.remove();
-                _thinkHideStyle = null;
-            }
-        }, true);
+        if (!_thinkCaptureAdded) {
+            _thinkCaptureAdded = true;
+            document.addEventListener('click', function dsThinkCapture(e) {
+                const clickable = e.target.closest('[class*="_5ab5d64"], [class*="c2b72bb8"]');
+                if (!clickable) return;
+                if (_thinkHideStyle) {
+                    _thinkHideStyle.remove();
+                    _thinkHideStyle = null;
+                }
+            }, true);
+        }
     }
 
     function processAllThinkingSections() {
