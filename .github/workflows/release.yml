@@ -71,9 +71,7 @@ jobs:
           if [ -z "$SECTION" ]; then
             SECTION="请查看 [CHANGELOG.md](CHANGELOG.md) 了解更新详情。"
           fi
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$SECTION" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "$SECTION" > release_body.md
           echo "提取到 CHANGELOG 条目 (${#SECTION} 字符)"
 
       - name: 创建 Release
@@ -82,7 +80,7 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.current }}
           name: v${{ steps.version.outputs.current }}
-          body: ${{ steps.changelog.outputs.body }}
+          body_path: release_body.md
           files: |
             deepseektool.user.js
             deepseektool-v${{ steps.version.outputs.current }}.zip
