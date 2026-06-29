@@ -523,6 +523,8 @@
 
         /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */
         .ds-markdown table {
+            opacity: 0;  /* 初始透明，JS 完成处理后再显示，消除闪烁 */
+            transition: opacity 0.12s ease-in;
             width: 100% !important; border-collapse: separate !important;
             border-spacing: 0 !important; margin: 1em 0 !important;
             border-radius: 12px !important; overflow: hidden !important;
@@ -934,6 +936,9 @@
             }
             scrollArea.style.overflowX = 'visible';
         }
+
+        // 所有处理完成，显示表格
+        table.style.opacity = '1';
     }
 
     async function exportTableAsPNG(table) {
@@ -942,7 +947,8 @@
         try {
             // 克隆表格（深拷贝，避免污染页面 DOM）
             const clone = table.cloneNode(true);
-            // 移除导出按钮，避免出现在截图中
+            // 移除导出按钮和脚本注入属性，并且恢复 visibility/opacity
+            clone.style.opacity = '1';
             const btns = clone.querySelector('.table-internal-buttons');
             if (btns) btns.remove();
             // 移除脚本注入的自定义属性
