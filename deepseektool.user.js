@@ -31,6 +31,7 @@
     const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
     const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
     const STORAGE_TABLE_WIDTH_MODE = 'deepseek_table_width_mode';
+    const STORAGE_WIDE_SCREEN = 'deepseek_wide_screen';
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -40,6 +41,7 @@
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
     let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
     let tableWidthMode = GM_getValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
+    let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -166,6 +168,16 @@
             }),
         ]));
 
+        // 宽屏模式
+        body.appendChild(createCard('\uD83D\uDDA5\uFE0F 宽屏模式', [
+            createToggle('启用宽屏布局', '消息区域扩展至全宽，减少左右留白', wideScreen, checked => {
+                wideScreen = checked;
+                GM_setValue(STORAGE_WIDE_SCREEN, checked);
+                applyWideScreen(checked);
+                showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
+            }),
+        ]));
+
         panel.appendChild(body);
 
         // 底部
@@ -187,7 +199,9 @@
                 simulateClickThinking = true; GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, true);
                 tableThemeMode = 'auto'; GM_setValue(STORAGE_TABLE_THEME_MODE, 'auto');
                 tableWidthMode = 'equal'; GM_setValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
+                wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
                 applyTableThemeClass('auto');
+                applyWideScreen(false);
                 reapplyFoldToAllCodeBlocks();
                 toggleTableButtons(true);
                 reapplyThinkingSections();
@@ -384,6 +398,10 @@
         html.classList.add(mode === 'auto' ? 'ds-table-auto' : 'ds-table-dual');
     }
 
+    function applyWideScreen(on) {
+        document.documentElement.classList.toggle('ds-wide-screen', on);
+    }
+
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
 
@@ -490,6 +508,14 @@
             cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
         }
         .ds-panel-reset:hover { opacity: 0.7; }
+
+        /* 宽屏模式 */
+        html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
+            padding-left: 0px !important;
+            padding-right: 100px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+        }
 
         /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */
         .ds-markdown table {
@@ -1321,6 +1347,7 @@
     // ==================== 初始化 ====================
     function init() {
         applyTableThemeClass(tableThemeMode);
+        applyWideScreen(wideScreen);
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
