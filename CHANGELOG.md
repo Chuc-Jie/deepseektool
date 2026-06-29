@@ -1,5 +1,22 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v4.5.0 (2026-06-29)
+
+### 新增
+- **宽屏模式**：消息区域从 752px → 1000px，左右留白自动均分；面板 Toggle 开关控制，默认关闭；表格列宽通过 `vc.clientWidth` 联动扩展
+  - 参考 `docs/豆包Deepseek 消息宽屏.js`
+  - 改用 `--message-list-max-width: 1000px !important` 覆盖 CSS 变量，避免暴力改 padding 导致的不对称
+- **思考内容 CSS 预隐藏 + capture 点击释放**：零布局偏移
+  - 注入 `display: none !important` 样式，使 `.ds-think-content` 从创建起即不可见
+  - capture 阶段监听标题栏点击，在 DeepSeek 事件处理前移除 CSS，toggle 正常
+  - 彻底解决旧 simulate-click 方案的"展开→可见→折叠"跳闪
+
+### 修复
+- **Release workflow**：新增 awk 步骤解析 `CHANGELOG.md` 当前版本条目，自动填入 Release body，替代静态文案
+
+### UI
+- **面板新增**：宽屏模式 Toggle 卡片
+
 ## v4.4.1 (2026-06-28)
 
 ### UI
