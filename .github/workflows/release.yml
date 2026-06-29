@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'deepseektool.user.js'
+      - '.github/workflows/release.yml'
 
   workflow_dispatch:  # 手动触发
 
@@ -64,7 +65,7 @@ jobs:
           VERSION="${{ steps.version.outputs.current }}"
           # 提取当前版本的 CHANGELOG 条目（从 "## v{VERSION}" 到下一个 "## " 或 EOF）
           SECTION=$(awk -v ver="v${VERSION}" '
-            $0 ~ "^## " ver "$" { found=1; next }
+            index($0, "## " ver) == 1 { found=1; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md)
