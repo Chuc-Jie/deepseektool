@@ -32,6 +32,9 @@
     const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
     const STORAGE_TABLE_WIDTH_MODE = 'deepseek_table_width_mode';
     const STORAGE_WIDE_SCREEN = 'deepseek_wide_screen';
+    // [新增] 存储键
+    const STORAGE_USER_MSG_FOLD = 'deepseek_user_msg_fold';
+    const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -42,6 +45,9 @@
     let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
     let tableWidthMode = GM_getValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
     let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
+    // [新增] 变量
+    let userMessageFoldEnabled = GM_getValue(STORAGE_USER_MSG_FOLD, false);
+    let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -124,6 +130,26 @@
             }),
         ]));
 
+        // [新增] 聊天设置面板
+        body.appendChild(createCard('\uD83D\uDCAC 聊天增强', [
+            createToggle('用户消息折叠', '长用户消息自动折叠，悬停显示折叠按钮', userMessageFoldEnabled, checked => {
+                userMessageFoldEnabled = checked;
+                GM_setValue(STORAGE_USER_MSG_FOLD, checked);
+                if (checked) {
+                    document.querySelectorAll('.ds-message').forEach(processUserMessage);
+                } else {
+                    // 关闭时还原已折叠的用户消息
+                    document.querySelectorAll('.ds-message').forEach(unfoldUserMessage);
+                }
+                showToast(`用户消息折叠已${checked ? '开启' : '关闭'}`);
+            }),
+            createToggle('快捷键修改', '改为 Ctrl+Enter 发送，原生 Enter 换行', ctrlEnterEnabled, checked => {
+                ctrlEnterEnabled = checked;
+                GM_setValue(STORAGE_CTRL_ENTER, checked);
+                showToast(`发送快捷键已切换`);
+            }),
+        ]));
+
         // 表格优化导出
         body.appendChild(createCard('\uD83D\uDCCA 表格优化导出', [
             createToggle('表格导出按钮', '悬停表格显示 PNG / CSV 导出按钮', tableButtonsEnabled, checked => {
@@ -200,6 +226,11 @@
                 tableThemeMode = 'auto'; GM_setValue(STORAGE_TABLE_THEME_MODE, 'auto');
                 tableWidthMode = 'equal'; GM_setValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
+                // [新增] 重置新增配置
+                userMessageFoldEnabled = false; GM_setValue(STORAGE_USER_MSG_FOLD, false);
+                ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
+                document.querySelectorAll('.ds-message').forEach(unfoldUserMessage); // 还原用户消息折叠
+
                 applyTableThemeClass('auto');
                 applyWideScreen(false);
                 reapplyFoldToAllCodeBlocks();
@@ -425,7 +456,26 @@
         .ds-fold-btn:hover { background: rgba(128,128,128,0.2); opacity: 1; }
         .ds-fold-btn .fold-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
-        .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
+        /* [新增] 折叠预览定位容器 */
+        .ds-fold-preview {
+            position: relative; overflow: hidden;
+        }
+        /* [修改] 折叠预览底部提示改为渐变遮罩 */
+        .ds-fold-preview::after {
+            content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 48px;
+            background: linear-gradient(to bottom, transparent 0%, var(--dsl-code-block-banner-background-color, var(--dsw-alias-markdown-code-block-banner, #f6f8fa)) 100%);
+            pointer-events: none; z-index: 1;
+        }
+        /* [新增] 暗色模式渐变遮罩 */
+        body.dark .ds-fold-preview::after {
+            background: linear-gradient(to bottom, transparent 0%, var(--dsl-code-block-banner-background-color, var(--dsw-alias-markdown-code-block-banner, #1e1e2d)) 100%);
+        }
+        /* [新增] 折叠指示点 */
+        .ds-fold-dots {
+            position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+            font-size: 10px; letter-spacing: 4px; opacity: 0.6; pointer-events: none; color: inherit;
+            z-index: 2;
+        }
 
         /* 控制面板 — Toggle 开关 */
         .ds-toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
@@ -644,6 +694,15 @@
         html.ds-table-dual body.dark .internal-export-btn::after {
             background: #e4e4e8; color: #1a1a22;
         }
+
+        /* [新增] 用户消息折叠按钮样式 */
+        .ds-user-fold-btn {
+            position: absolute; top: 8px; right: 8px;
+            border-radius: 16px; padding: 4px 12px; font-size: 12px;
+            opacity: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10;
+        }
+        .ds-message [class*="fbb737a4"]:hover .ds-user-fold-btn { opacity: 1; }
+        .ds-user-fold-btn svg { width: 14px; height: 14px; }
     `);
 
     // ==================== 代码块折叠逻辑 ====================
@@ -668,10 +727,24 @@
         return getLineCount(preEl) > previewLines;
     }
 
+    // [新增] 创建并显示折叠指示点
+    function ensureFoldDots(wrapper) {
+        let dots = wrapper.querySelector('.ds-fold-dots');
+        if (!dots) {
+            dots = document.createElement('div');
+            dots.className = 'ds-fold-dots';
+            dots.textContent = '● ● ●';
+            wrapper.appendChild(dots);
+        }
+        dots.style.display = 'block';
+        if (getComputedStyle(wrapper).position === 'static') wrapper.style.position = 'relative';
+    }
+
     function collapseBlock(preEl, btn) {
-        if (shouldUsePreviewMode(preEl)) {
+        // [修改] 用户消息折叠强制使用预览模式
+        if (btn.classList.contains('ds-user-fold-btn') || shouldUsePreviewMode(preEl)) {
             const lh = getLineHeight(preEl);
-            const maxH = lh * previewLines;
+            const maxH = (previewLines > 0 ? previewLines : 5) * lh;
             if (!preEl.dataset.origMaxHeight) {
                 preEl.dataset.origMaxHeight = preEl.style.maxHeight || '';
                 preEl.dataset.origOverflow = preEl.style.overflow || '';
@@ -679,6 +752,8 @@
             preEl.style.maxHeight = maxH + 'px';
             preEl.style.overflow = 'hidden';
             preEl.classList.add('ds-fold-preview');
+
+            ensureFoldDots(preEl.parentElement);
         } else {
             if (!preEl.dataset.origDisplay) {
                 preEl.dataset.origDisplay = window.getComputedStyle(preEl).display;
@@ -687,7 +762,8 @@
             preEl.classList.remove('ds-fold-preview');
         }
         const iconDiv = btn.querySelector('.fold-icon');
-        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_UP;
+        // [修改] 折叠状态显示下箭头
+        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_DOWN;
         btn.querySelector('span').textContent = btnTextUnfold;
         btn.setAttribute('aria-label', '展开代码块');
     }
@@ -697,6 +773,10 @@
             preEl.style.maxHeight = preEl.dataset.origMaxHeight || '';
             preEl.style.overflow = preEl.dataset.origOverflow || '';
             preEl.classList.remove('ds-fold-preview');
+
+            // [新增] 隐藏居中图标
+            let dots = preEl.parentElement.querySelector('.ds-fold-dots');
+            if (dots) dots.style.display = 'none';
         }
         if (preEl.dataset.origDisplay !== undefined) {
             preEl.style.display = preEl.dataset.origDisplay || '';
@@ -704,7 +784,8 @@
             preEl.style.display = '';
         }
         const iconDiv = btn.querySelector('.fold-icon');
-        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_DOWN;
+        // [修改] 展开状态显示上箭头
+        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_UP;
         btn.querySelector('span').textContent = btnTextFold;
         btn.setAttribute('aria-label', '折叠代码块');
     }
@@ -727,10 +808,11 @@
         return null;
     }
 
-    function createFoldButton(preEl) {
+    // [修改] 支持传入已折叠状态，供用户消息折叠复用
+    function createFoldButton(preEl, forceFolded) {
         if (!preEl.dataset.origDisplay) preEl.dataset.origDisplay = window.getComputedStyle(preEl).display;
-        const shouldAutoFold = foldThreshold > 0 && getLineCount(preEl) > foldThreshold;
-        let isFolded = false;
+        const shouldAutoFold = !forceFolded && foldThreshold > 0 && getLineCount(preEl) > foldThreshold;
+        let isFolded = forceFolded === true;
         if (shouldAutoFold) {
             if (shouldUsePreviewMode(preEl)) {
                 const lh = getLineHeight(preEl);
@@ -742,6 +824,8 @@
                 preEl.style.maxHeight = maxH + 'px';
                 preEl.style.overflow = 'hidden';
                 preEl.classList.add('ds-fold-preview');
+
+                ensureFoldDots(preEl.parentElement);
             } else {
                 preEl.style.display = 'none';
                 preEl.classList.remove('ds-fold-preview');
@@ -753,7 +837,8 @@
         btn.className = 'ds-fold-btn';
         const iconDiv = document.createElement('div');
         iconDiv.className = 'fold-icon';
-        iconDiv.innerHTML = isFolded ? ICON_CHEVRON_UP : ICON_CHEVRON_DOWN;
+        // [修改] 折叠状态显示下箭头，展开状态显示上箭头
+        iconDiv.innerHTML = isFolded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_UP;
         const textSpan = document.createElement('span');
         textSpan.textContent = isFolded ? btnTextUnfold : btnTextFold;
         btn.appendChild(iconDiv);
@@ -942,30 +1027,36 @@
         table.style.opacity = '1';
     }
 
+    // [新增] 抽取 getCleanTableClone 供 PNG/CSV/MD 复用
+    function getCleanTableClone(table) {
+        // 克隆表格（深拷贝，避免污染页面 DOM）
+        const clone = table.cloneNode(true);
+        // 移除导出按钮和脚本注入属性，并且恢复 visibility/opacity
+        clone.style.opacity = '1';
+        const btns = clone.querySelector('.table-internal-buttons');
+        if (btns) btns.remove();
+        // 移除脚本注入的自定义属性
+        clone.removeAttribute('data-internal-buttons-added');
+        // 清洗 applyTableStyles 注入的内联样式，使导出内容回归 auto 布局
+        clone.style.tableLayout = '';
+        clone.style.width = '';
+        clone.style.maxWidth = '';
+        clone.style.position = '';
+        clone.querySelectorAll('th,td').forEach(cell => {
+            cell.style.width = '';
+            cell.style.whiteSpace = '';
+            cell.style.overflowWrap = '';
+            cell.style.wordBreak = '';
+        });
+        return clone;
+    }
+
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) { alert('html2canvas 未加载'); return; }
         let iframe = null;
         try {
-            // 克隆表格（深拷贝，避免污染页面 DOM）
-            const clone = table.cloneNode(true);
-            // 移除导出按钮和脚本注入属性，并且恢复 visibility/opacity
-            clone.style.opacity = '1';
-            const btns = clone.querySelector('.table-internal-buttons');
-            if (btns) btns.remove();
-            // 移除脚本注入的自定义属性
-            clone.removeAttribute('data-internal-buttons-added');
-
-            // 清洗 applyTableStyles 注入的内联样式，使 iframe 中表格回归 auto 布局
-            clone.style.tableLayout = '';
-            clone.style.width = '';
-            clone.style.maxWidth = '';
-            clone.style.position = '';
-            clone.querySelectorAll('th,td').forEach(cell => {
-                cell.style.width = '';
-                cell.style.whiteSpace = '';
-                cell.style.overflowWrap = '';
-                cell.style.wordBreak = '';
-            });
+            // [修改] 调用复用逻辑
+            const clone = getCleanTableClone(table);
 
             // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）
             const styles = collectTableStyles();
@@ -991,7 +1082,7 @@
             if (!iframeTable) throw new Error('iframe 中未找到表格元素');
 
             const canvas = await html2canvas(iframeTable, {
-                scale: 2,
+                scale: 3, // [修改] 提高 PNG 导出分辨率
                 backgroundColor: '#ffffff',
                 logging: false,
             });
@@ -1058,7 +1149,8 @@
         // 基础表格样式（兜底，根据当前主题模式选择配色）
         const bodyBg = getComputedStyle(document.body).backgroundColor || '#ffffff';
         css += /*css*/`
-            body { background: ${bodyBg}; }
+            /* [修改] 增加字体平滑属性 */
+            body { background: ${bodyBg}; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
             table {
                 width: 100%; border-collapse: separate; border-spacing: 0;
                 margin: 1em 0; border-radius: 12px; overflow: hidden;
@@ -1070,6 +1162,11 @@
                 white-space: normal; word-wrap: break-word;
             }
             th { font-weight: 600; }
+            /* [新增] 内联代码样式 */
+            table code {
+                background: rgba(128,128,128,0.1); padding: 2px 4px;
+                border-radius: 4px; font-family: monospace; font-size: 0.9em;
+            }
             ${mode === 'auto' ? /* 自动透明叠加 */`
                 th, td { border: 1px solid rgba(128,128,128,0.2); }
                 th { background: rgba(128,128,128,0.08); border-bottom: 1px solid rgba(128,128,128,0.2); }
@@ -1089,18 +1186,20 @@
     }
 
     function exportTableAsCSV(table) {
+        // [修改] 调用复用逻辑，以下查询基于克隆副本
+        const clone = getCleanTableClone(table);
         const rows = [];
-        const thead = table.querySelector('thead');
+        const thead = clone.querySelector('thead');
         if (thead) thead.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('th').forEach(th => rd.push(getCellText(th)));
             if (rd.length) rows.push(rd);
         });
-        const tbody = table.querySelector('tbody');
+        const tbody = clone.querySelector('tbody');
         if (tbody) tbody.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('td').forEach(td => rd.push(getCellText(td)));
             if (rd.length) rows.push(rd);
         });
-        else table.querySelectorAll('tr').forEach(tr => {
+        else clone.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('td,th').forEach(c => rd.push(getCellText(c)));
             if (rd.length) rows.push(rd);
         });
@@ -1115,6 +1214,53 @@
         a.download = `table_${Date.now()}.csv`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 100);
+    }
+
+    // [新增] 导出 Markdown 逻辑
+    function exportTableAsMD(table) {
+        const clone = getCleanTableClone(table);
+        const rows = [];
+        const thead = clone.querySelector('thead');
+        if (thead) {
+            thead.querySelectorAll('tr').forEach(tr => {
+                // [修改] 使用解析 Markdown 语法的函数
+                const rd = []; tr.querySelectorAll('th').forEach(th => rd.push(getCellTextForMarkdown(th)));
+                if (rd.length) rows.push(rd);
+            });
+        }
+        if (rows.length > 0) rows.push(rows[0].map(() => '---'));
+        const tbody = clone.querySelector('tbody');
+        if (tbody) {
+            tbody.querySelectorAll('tr').forEach(tr => {
+                const rd = []; tr.querySelectorAll('td').forEach(td => rd.push(getCellTextForMarkdown(td)));
+                if (rd.length) rows.push(rd);
+            });
+        } else {
+            clone.querySelectorAll('tr').forEach((tr, idx) => {
+                const rd = []; tr.querySelectorAll('td,th').forEach(c => rd.push(getCellTextForMarkdown(c)));
+                if (rd.length) rows.push(rd);
+                if (idx === 0 && rows.length === 1) rows.push(rows[0].map(() => '---'));
+            });
+        }
+        if (!rows.length) { alert('无数据'); return; }
+        const md = rows.map(r => '| ' + r.join(' | ') + ' |').join('\n');
+        navigator.clipboard.writeText(md).then(() => showToast('表格已复制为 Markdown')).catch(() => alert('导出失败'));
+    }
+
+    // [新增] 支持 Markdown 语法的单元格文本提取
+    function getCellTextForMarkdown(cell) {
+        let text = '';
+        cell.childNodes.forEach(n => {
+            if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
+            else if (n.nodeName === 'BR') text += '<br>';
+            else if (n.nodeType === Node.ELEMENT_NODE) {
+                if (n.tagName === 'CODE') text += '`' + n.textContent + '`';
+                else if (n.tagName === 'STRONG' || n.tagName === 'B') text += '**' + n.textContent + '**';
+                else if (n.tagName === 'EM' || n.tagName === 'I') text += '*' + n.textContent + '*';
+                else text += getCellTextForMarkdown(n);
+            }
+        });
+        return text.trim().replace(/\|/g, '\\|').replace(/\n/g, '<br>');
     }
 
     function getCellText(cell) {
@@ -1145,7 +1291,13 @@
         csvBtn.setAttribute('data-tooltip', '导出为 CSV');
         csvBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsCSV(table); });
 
-        bc.appendChild(pngBtn); bc.appendChild(csvBtn);
+        // [新增] 导出 MD 按钮
+        const mdBtn = document.createElement('button');
+        mdBtn.className = 'internal-export-btn'; mdBtn.innerHTML = '📝';
+        mdBtn.setAttribute('data-tooltip', '导出为 Markdown');
+        mdBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsMD(table); });
+
+        bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
         table.appendChild(bc);
     }
 
@@ -1330,6 +1482,84 @@
         });
     }
 
+    // [新增] 检查并折叠长文本
+    function checkAndFold(textContainer) {
+        if (textContainer.dataset.foldSetup === 'true') return;
+        const lh = getLineHeight(textContainer);
+        const thresholdPx = foldThreshold * lh;
+        if (textContainer.scrollHeight <= thresholdPx) return;
+
+        // 初始化折叠状态（与代码块折叠逻辑一致）
+        textContainer.dataset.foldSetup = 'true';
+        if (!textContainer.dataset.origMaxHeight) {
+            textContainer.dataset.origMaxHeight = textContainer.style.maxHeight || '';
+            textContainer.dataset.origOverflow = textContainer.style.overflow || '';
+        }
+        const maxH = (previewLines > 0 ? previewLines : 5) * lh;
+        textContainer.style.maxHeight = maxH + 'px';
+        textContainer.style.overflow = 'hidden';
+        textContainer.classList.add('ds-fold-preview');
+        ensureFoldDots(textContainer);
+
+        // 复用代码块折叠按钮
+        const btn = createFoldButton(textContainer, true);
+        btn.classList.add('ds-user-fold-btn');
+        textContainer.appendChild(btn);
+    }
+
+    // [新增] 还原用户消息折叠
+    function unfoldUserMessage(msgEl) {
+        const textContainer = msgEl.querySelector('[class*="fbb737a4"]');
+        if (!textContainer) return;
+        textContainer.classList.remove('ds-fold-preview');
+        textContainer.style.maxHeight = '';
+        textContainer.style.overflow = '';
+        delete textContainer.dataset.foldSetup;
+        delete textContainer.dataset.origMaxHeight;
+        delete textContainer.dataset.origOverflow;
+        const dots = textContainer.querySelector('.ds-fold-dots');
+        if (dots) dots.remove();
+        const btn = textContainer.querySelector('.ds-user-fold-btn');
+        if (btn) btn.remove();
+        msgEl.removeAttribute('data-user-fold-processed');
+    }
+
+    // [新增] 用户消息折叠逻辑
+    function processUserMessage(msgEl) {
+        if (!userMessageFoldEnabled || foldThreshold === 0) return;
+        if (msgEl.hasAttribute('data-user-fold-processed')) return;
+        if (msgEl.querySelector('.ds-markdown, .ds-think-content')) return;
+
+        const textContainer = msgEl.querySelector('[class*="fbb737a4"]');
+        if (!textContainer) return;
+
+        msgEl.setAttribute('data-user-fold-processed', 'true');
+
+        // 初始检查
+        checkAndFold(textContainer);
+        // 尺寸变化时重新检查，检查后断开监听
+        const ro = new ResizeObserver(() => {
+            checkAndFold(textContainer);
+            ro.disconnect();
+        });
+        ro.observe(textContainer);
+    }
+
+    // [新增] 发送快捷键修改逻辑
+    let _ignoreNextEnter = false;
+    document.addEventListener('keydown', (e) => {
+        if (!ctrlEnterEnabled || e.target.tagName !== 'TEXTAREA') return;
+        if (e.key === 'Enter') {
+            if (_ignoreNextEnter) { _ignoreNextEnter = false; return; }
+            if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                e.stopPropagation();
+            } else if (e.ctrlKey || e.metaKey) {
+                e.preventDefault(); e.stopPropagation(); _ignoreNextEnter = true;
+                e.target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true, ctrlKey: false, shiftKey: false, metaKey: false }));
+            }
+        }
+    }, { capture: true });
+
     // ==================== 统一 DOM 监听（合并三个 observer，添加节流） ====================
     let _domObserver = null;
     function observeDOM() {
@@ -1338,6 +1568,7 @@
             let hasNewCodeBlocks = false;
             let hasNewTables = false;
             let hasNewThinking = false;
+            let hasNewUserMsg = false; // [新增]
 
             for (const m of mutations) {
                 if (m.type !== 'childList' || !m.addedNodes.length) continue;
@@ -1368,6 +1599,12 @@
                             hasNewThinking = true;
                         }
                     }
+
+                    // [新增] 用户消息检测
+                    if (!hasNewUserMsg && userMessageFoldEnabled) {
+                        if (node.closest && node.closest('.ds-message')) hasNewUserMsg = true;
+                        else if (node.querySelectorAll && node.querySelector('.ds-message')) hasNewUserMsg = true;
+                    }
                 }
             }
 
@@ -1378,6 +1615,7 @@
             }
             if (hasNewTables) scheduleTableProcess();
             if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
+            if (hasNewUserMsg) document.querySelectorAll('.ds-message').forEach(processUserMessage); // [新增]
         });
         _domObserver.observe(document.body, { childList: true, subtree: true });
     }
@@ -1393,6 +1631,9 @@
         if (autoCollapseThinking) {
             setupThinkContentHiding();
             processAllThinkingSections();
+        }
+        if (userMessageFoldEnabled) { // [新增]
+            document.querySelectorAll('.ds-message').forEach(processUserMessage);
         }
         observeDOM();
 
