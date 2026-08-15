@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>滚动导航面板 · DeepSeek 右侧边栏复刻 Demo</title>
+<style>
+  /* ============================================================
+     复刻目标：DeepSeek 聊天页右侧「滚动导航」面板
+     2026-08-15 实测还原：通过 Chrome DevTools 直连真实页面
+     （chat.deepseek.com 长会话）逐项提取 CSS 规则与交互行为
+
+     真实类名对照：
+       容器     _189b4a0   竖条   _6ffc3c9
+       面板     _4ce999d   展开态 _7ae8ea4（JS 切换类，非纯 CSS :hover）
+       导航项   _81e7b5e   当前项 _19d617c
+       文本     _72b6158   徽标   _942b85d（收起）/_39e8443（展开）
+       指示器   .ef46fbc6 > .fae5876e
+       滚动条   ds-scroll-area（gutters 容器 opacity 控制显隐）
+
+     ★ 显示/隐藏状态机（实测）：
+       1. 收起态（默认）：面板 240px 宽但透明，文本/徽标 opacity:0，
+          只露出右侧一列指示器灰点；面板 pointer-events:none 不遮挡对话
+       2. 鼠标进入容器区域（JS mouseover → 加 _7ae8ea4 类）：
+          白底 #fff + 三层阴影 + 文本 opacity:1 + pointer-events:auto
+          + 上下 32px 渐变遮罩（卡片浮现）
+       3. 移开：恢复收起态（transition .2s）
+     ============================================================ */
+
+  :root {
+    --nav-h: 60px;
+    --input-h: 74px;
+    --sn-label-tertiary: #81858c;      /* 项默认文字色（--dsw-alias-label-tertiary） */
+    --sn-label-primary: #0f1115;       /* 项 hover 文字/指示器色（--dsw-alias-label-primary） */
+    --sn-brand: #3964fe;               /* 当前项色（--dsw-alias-brand-text） */
+    --sn-border-l4: rgba(0, 0, 0, 0.16); /* 指示器默认灰（--dsw-alias-border-l4） */
+    --sn-bg-layer1: #ffffff;           /* hover 面板背景（--dsw-alias-bg-layer-1） */
+    --sn-shadow-lv3: 0 0 1px 0 rgba(0, 0, 0, 0.2),
+                     0 0 4px 0 rgba(0, 0, 0, 0.02),
+                     0 12px 32px 0 rgba(0, 0, 0, 0.08); /* 实测三层阴影 */
+    --sn-scrollbar-bg: #e5e5e5;        /* 滚动条（--dsl-scroll-area-scrollbar-bg） */
+    --sn-scrollbar-hover: #d4d4d4;     /* 滚动条 hover */
+    --sn-markdown-tag: #f2f3f5;        /* 徽标背景近似（--dsw-alias-markdown-tag） */
+    --sn-label-caption: #adb2b8;       /* 徽标文字（--dsw-alias-label-caption） */
+    --text-main: #1f2329;
+    --border: #e5e6eb;
+    --user-msg-bg: #eef4ff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text-main);
+    background: #f7f7f8;
+    overflow: hidden;
+  }
+
+  /* ---------- 整体布局 ---------- */
+  .app { height: 100%; display: flex; flex-direction: column; }
+
+  .topbar {
+    height: var(--nav-h);
+    flex: none;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 20px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .logo { font-weight: 600; font-size: 15px; }
+  .topbar .badge {
+    font-size: 12px; color: var(--sn-brand);
+    background: #eef0ff; border-radius: 6px; padding: 2px 8px;
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar .fake-btn {
+    font-size: 13px; color: var(--sn-label-tertiary);
+    padding: 5px 12px; border: 1px solid var(--border); border-radius: 8px;
+    cursor: pointer; background: #fff; user-select: none;
+  }
+  .topbar .fake-btn:hover { background: #f5f6f8; }
+
+  .main {
+    position: relative;
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ---------- 对话流 ----------
+     ★ 滚动条定位关键：滚动条必须放在滚动容器【外面】（wrap 内、chat 外），
+       absolute 相对 wrap 定位 —— 若放在滚动容器内部（无论 sticky 还是 absolute），
+       它属于滚动内容，滚动时会跟随滚出视口导致滚动条“消失” */
+  .chat-wrap {
+    position: relative;              /* 滚动条的定位上下文（不随滚动） */
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .chat {
+    height: 100%;
+    overflow-y: auto;
+    padding: 24px 32px 40px;
+    scrollbar-width: none;           /* ★ 禁用原生滚动条（官方同款） */
+  }
+  .chat::-webkit-scrollbar { display: none; }
+
+  /* 对话区自定义滚动条（仿官方 ds-scroll-area：hover 显示，thumb 8px） */
+  .chat-scrollbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0;
+    transition: opacity 0.1s ease-out;
+    transition-delay: 0s;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .chat-wrap:hover .chat-scrollbar { opacity: 1; transition-delay: 0s; }
+  .chat-scrollbar-v {
+    position: absolute;
+    right: 2px;
+    top: 8px;
+    bottom: 8px;                     /* 轨道高 = wrap 高 - 16 */
+    width: 8px;                      /* 官方对话区 thumb 8px */
+  }
+  .chat-scrollbar-thumb {
+    position: relative;
+    cursor: initial;
+    background: transparent;
+    pointer-events: auto;
+  }
+  .chat-scrollbar-thumb::after {
+    content: "";
+    position: absolute;
+    background: var(--sn-scrollbar-bg);
+    border-radius: 100px;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    right: 0;
+    transition: background-color 0.1s ease-out, width 0.1s ease-out;
+  }
+  .chat-scrollbar-thumb:hover::after,
+  .chat-scrollbar-thumb:active::after {
+    background: var(--sn-scrollbar-hover);
+    width: calc(100% + 2px);
+  }
+  .chat-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  .msg { display: flex; flex-direction: column; gap: 6px; }
+  .msg.user { align-items: flex-end; }
+  .msg.assistant { align-items: flex-start; }
+  .msg .meta { font-size: 12px; color: var(--sn-label-tertiary); padding: 0 4px; }
+  .msg .bubble {
+    max-width: 100%;
+    padding: 12px 16px;
+    font-size: 14px; line-height: 1.7;
+    border-radius: 12px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.user .bubble { background: var(--user-msg-bg); border-top-right-radius: 4px; }
+  .msg.assistant .bubble { background: #fff; border: 1px solid var(--border); border-top-left-radius: 4px; }
+  .divider { text-align: center; font-size: 12px; color: #c9cdd4; margin: 8px 0; user-select: none; }
+
+  /* ---------- 底部输入区 ---------- */
+  .inputbar {
+    height: var(--input-h);
+    flex: none;
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px;
+    background: #fff; border-top: 1px solid var(--border);
+  }
+  .inputbar .box {
+    width: min(680px, 80%); height: 42px;
+    display: flex; align-items: center;
+    padding: 0 14px;
+    border: 1px solid var(--border); border-radius: 12px;
+    font-size: 14px; color: #b0b3b8; user-select: none;
+  }
+  .inputbar .send {
+    width: 42px; height: 42px; flex: none;
+    border-radius: 12px; background: #f2f3f5;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #8a8f99; cursor: pointer; user-select: none;
+  }
+  .inputbar .send:hover { background: #e8eaed; }
+
+  /* ============================================================
+     右侧「滚动导航」—— 实测 CSS 规则逐条还原
+     ============================================================ */
+
+  /* 容器 _189b4a0：fixed 右 16px 垂直居中，34×300，z-index 5 */
+  .sn-wrap {
+    position: fixed;
+    top: 50%;
+    bottom: 50%;
+    right: 16px;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 300px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    border-radius: 8px;
+    user-select: none;
+    transition: all 0.2s;
+    --scroll-nav-page-padding: 15px 0 15px 24px;  /* 实测：列表内边距 */
+  }
+
+  /* 竖条 _6ffc3c9：白 0.8 + 毛玻璃，圆角胶囊，max-height calc(100%-8px) */
+  .sn-bar {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    width: 34px;
+    height: calc(100% - 8px);
+    max-height: calc(100% - 8px);
+    border-radius: 16px;
+    background-color: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: -1;
+  }
+
+  /* 面板 _4ce999d：默认收起态（透明 + 文本隐藏 + 不拦截点击）
+     实测规则：width:fit-content + _490b7a1{width:240px}，border 1px transparent
+     ★ 对齐官网：宽度默认 fit-content（≤8 条消息时面板随内容收缩），
+       >8 条时由 JS 加 .sn-max 类强制 240px（对应官网 `_490b7a1` useMaxWidth） */
+  .sn-panel {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: fit-content;
+    min-width: 34px;
+    max-width: 240px;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    border: 1px solid transparent;
+    border-radius: 16px;
+    overflow: hidden;
+    pointer-events: none;                  /* ★ 收起态不遮挡对话 */
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  /* >8 条消息：面板固定 240px（对应官网 `._4ce999d._490b7a1 { width: 240px }`） */
+  .sn-panel.sn-max { width: 240px; }
+
+  /* ★ 展开态（真实 _4ce999d._7ae8ea4）：
+     pointer-events:auto; background:#fff; box-shadow:三层; border 1px */
+  .sn-wrap:hover .sn-panel {
+    pointer-events: auto;
+    background: var(--sn-bg-layer1);
+    box-shadow: var(--sn-shadow-lv3);
+  }
+
+  /* 上下 32px 渐变遮罩（实测 ::before top:0 / ::after bottom:0 + rotate(180deg)） */
+  .sn-panel::before,
+  .sn-panel::after {
+    content: "";
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(#fff 20.19%, rgba(255, 255, 255, 0) 100%);
+    width: 100%;
+    height: 32px;
+    transition: opacity 0.2s;
+    position: absolute;
+    left: 0;
+  }
+  .sn-wrap:hover .sn-panel::before,
+  .sn-wrap:hover .sn-panel::after { opacity: 1; transition: none; }
+  .sn-panel::before { top: 0; }
+  .sn-panel::after { bottom: 0; transform: rotate(180deg); }
+
+  /* 滚动区外壳：滚动条的定位上下文（不随滚动，absolute 相对它定位）
+     ★ 滚动条绝不能放在 .sn-list 内部（属于滚动内容，会随滚动滚出视口） */
+  .sn-scroll-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* 滚动容器（虚拟列表）—— 原生滚动条禁用（ds-scroll-area 同款） */
+  .sn-list {
+    position: relative;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: var(--scroll-nav-page-padding);
+    scrollbar-width: none;                 /* ★ 禁用原生滚动条 */
+  }
+  .sn-list::-webkit-scrollbar { display: none; }
+
+  /* 滚动条轨道层：覆盖整个滚动区域，默认隐藏
+     ★ 实测机制（真实 ds-scroll-area）：只有 hover 滚动区域/滚动条时才显示，
+       移开立即消失（--dsl-scroll-area-gutters-disappear-delay: 0） */
+  .sn-scrollbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0;                            /* ★ 默认隐藏 */
+    transition: opacity 0.1s ease-out;
+    transition-delay: 0s;                  /* ★ 移开立即消失 */
+    pointer-events: none;
+    z-index: 3;
+  }
+  /* ★ 滚动条显示条件（实测）：hover .sn-scroll-wrap（滚动区域）/滚动条本身
+     注意：不是 hover 面板即显示 —— 鼠标停在竖条/空白处时滚动条隐藏 */
+  .sn-scroll-wrap:hover > .sn-scrollbar,
+  .sn-scrollbar:hover,
+  .sn-scrollbar:active {
+    opacity: 1;
+    transition-delay: 0s;                  /* 显示立即生效 */
+  }
+
+  .sn-scrollbar-v {
+    position: absolute;
+    right: 2px;
+    top: 8px;
+    bottom: 8px;                           /* 轨道高 = wrap 高 - 16 */
+    width: 6px;                            /* 实测导航 thumb 6px */
+  }
+  .sn-scrollbar-h {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: calc(100% - 8px);
+    height: 6px;
+  }
+  .sn-scrollbar-h .sn-scrollbar-thumb { display: none; }   /* 无横向溢出 */
+
+  /* thumb：本身透明，::after 画可见条（圆角 100px），实测支持拖拽 */
+  .sn-scrollbar-thumb {
+    position: relative;
+    cursor: initial;
+    background: transparent;
+    pointer-events: auto;
+  }
+  .sn-scrollbar-thumb::after {
+    content: "";
+    position: absolute;
+    background: var(--sn-scrollbar-bg);    /* 实测 #e5e5e5 */
+    border-radius: 100px;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    right: 0;
+    transition: background-color 0.1s ease-out, width 0.1s ease-out;
+  }
+  .sn-scrollbar-thumb:hover::after,
+  .sn-scrollbar-thumb:active::after {
+    background: var(--sn-scrollbar-hover); /* 实测 #d4d4d4 */
+    width: calc(100% + 2px);
+  }
+
+  .sn-vlist { position: relative; }
+  .sn-vlist-visible { position: relative; }
+
+  /* 消息项 _81e7b5e：30px 高，整体右对齐（指示器靠右缘）
+     实测：width:calc(100% - 6px); margin-right:8px; line-height:20px */
+  .sn-item {
+    position: absolute;
+    top: 0;
+    cursor: pointer;
+    height: 30px;
+    color: var(--sn-label-tertiary);
+    justify-content: flex-end;             /* ★ 右对齐 */
+    align-items: center;
+    width: calc(100% - 6px);
+    margin-right: 8px;
+    line-height: 20px;
+    display: flex;
+    outline: none;
+  }
+  .sn-item:hover { color: var(--sn-label-primary); }
+  .sn-item:focus-visible { background: rgba(0, 0, 0, 0.03); }
+
+  /* 分支徽标 _942b85d（收起）/ _39e8443（展开）：
+     实测 9px/500、padding 1.5px 4px、radius 8、margin-right 4px、flex 居中
+     DOM 顺序在文本之前；opacity 0 → 1 */
+  .sn-item-badge {
+    background: var(--sn-markdown-tag);
+    color: var(--sn-label-caption);
+    white-space: nowrap;
+    opacity: 0;                            /* ★ 收起态隐藏 */
+    border-radius: 8px;
+    flex-shrink: 0;
+    justify-content: center;
+    align-items: center;
+    margin-right: 4px;
+    padding: 1.5px 4px;
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 10px;
+    transition: opacity 0.1s, background-color 0.2s, color 0.2s;
+    display: flex;
+  }
+  .sn-wrap:hover .sn-item-badge { opacity: 1; }   /* ★ hover 显示徽标 */
+
+  /* 文本 _72b6158：默认隐藏（opacity 0），hover 面板时显示
+     实测：font 13px、ellipsis、nowrap、margin-right:12px、
+           transition opacity .1s,color .2s */
+  .sn-item-text {
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;                            /* ★ 收起态隐藏 */
+    margin-right: 12px;
+    transition: opacity 0.1s, color 0.2s;
+    overflow: hidden;
+  }
+  .sn-wrap:hover .sn-item-text { opacity: 1; }   /* ★ hover 显示文本 */
+  .sn-item:hover .sn-item-text { color: var(--sn-label-primary); }
+
+  /* 指示器容器 .ef46fbc6：16×20，右缘 */
+  .sn-item-icon {
+    flex-shrink: 0;
+    justify-content: center;
+    align-items: center;
+    width: 16px;
+    height: 20px;
+    display: flex;
+  }
+  /* 指示器圆点 .fae5876e：8×2 灰色短线，圆角 4 */
+  .sn-item-icon::before {
+    content: "";
+    background-color: var(--sn-border-l4);  /* 实测 rgba(0,0,0,0.16) */
+    border-radius: 4px;
+    flex-shrink: 0;
+    width: 8px;
+    height: 2px;
+    transition: background-color 0.2s;
+  }
+  .sn-item:hover .sn-item-icon::before { background-color: var(--sn-label-primary); }
+
+  /* 当前项 _19d617c：蓝字 500 + 指示器放大 1.5 倍（实测 transform scale） */
+  .sn-item.sn-current .sn-item-text { color: var(--sn-brand); font-weight: 500; }
+  .sn-item.sn-current .sn-item-icon::before {
+    background-color: var(--sn-brand);
+    transform-origin: 50%;
+    transform: scale(1.5);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <span class="logo">DeepSeek 复刻</span>
+    <span class="badge">滚动导航 Demo · 实测还原</span>
+    <span class="spacer"></span>
+    <span class="fake-btn" id="btnMore">生成更多消息</span>
+    <span class="fake-btn" id="btnFew">少量消息演示</span>
+    <span class="fake-btn" id="btnInfo">ℹ 说明</span>
+  </header>
+
+  <main class="main">
+    <!-- 对话区：wrap 包裹，滚动条在 chat 外（absolute 相对 wrap，不随滚动） -->
+    <div class="chat-wrap">
+      <div class="chat" id="chat">
+        <div class="chat-inner" id="chatInner"></div>
+      </div>
+      <!-- 对话区自定义滚动条（仿官方，hover 显示，可拖拽） -->
+      <div class="chat-scrollbar">
+        <div class="chat-scrollbar-v">
+          <div class="chat-scrollbar-thumb" id="chatThumb"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 右侧滚动导航 ============ -->
+    <div class="sn-wrap" id="scrollNav">
+      <div class="sn-bar"></div>
+      <div class="sn-panel">
+        <div class="sn-scroll-wrap">
+          <div class="sn-list" id="snScroll">
+            <div class="sn-vlist" id="snList">
+              <div class="sn-vlist-visible" id="snVisible"></div>
+            </div>
+          </div>
+          <!-- 自定义滚动条（实测 ds-scroll-area：默认隐藏，hover 滚动区域显示，可拖拽） -->
+          <div class="sn-scrollbar">
+            <div class="sn-scrollbar-v">
+              <div class="sn-scrollbar-thumb" id="snThumb"></div>
+            </div>
+            <div class="sn-scrollbar-h">
+              <div class="sn-scrollbar-thumb"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="inputbar">
+    <div class="box">给 DeepSeek 复刻 Demo 发送消息</div>
+    <div class="send">➤</div>
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   数据：模拟多轮对话（部分消息带分支徽标，对应真实 _942b85d）
+   ============================================================ */
+const ASSISTANT_REPLIES = [
+  '好的，我理解你的需求了。让我从几个维度来分析这个问题，并结合当前市场实践给出可落地的方案。',
+  '这是一个很好的切入点。基于上面的分析，我建议把方案拆成 V1 → V2 → V3 三个阶段来推进，每个阶段都有明确的交付物和验证指标。',
+  '关于这个部分，我补充一些细节。关键技术选型上要注意三点：一是数据结构的可扩展性，二是渲染性能，三是容错处理。',
+  '我帮你梳理一下：核心逻辑是先用精准内容吸引精准用户，再用解决方案完成转化。具体到执行层面，可以从选品、包装、分发三个环节入手。',
+  '这个思路完全可行。我建议先做一个小范围的验证，比如先内置 5 个精选模板，观察用户行为数据后再决定是否加大投入。',
+  '需要提醒的是，这里有一个常见的坑：功能做太多反而稀释了核心价值。建议聚焦在单一主路径上做到极致，再逐步扩展。',
+  '好的，我把刚才讨论的内容整理成一份可执行的落地蓝图，包含里程碑、依赖关系以及风险预案。',
+  '关于性能优化，虚拟列表是最有效的方案。当数据量达到千级时，只渲染视口内的元素，滚动依然能保持 60fps 的流畅度。',
+  '这里我给你一个建议：在交互设计上，右侧的滚动导航能大幅提升长对话中的定位效率，用户不必反复滚屏找上下文。',
+  '补充一点：除了功能本身，运营侧也要跟上，比如配套的素材包、分享文案模板，这些都能直接提升转化率。',
+];
+const TOPICS = [
+  '网盘推广的个性化产品策略',
+  '如何实现高效大量的转化',
+  '轻量级模板市场的 V1 蓝图',
+  '模板缩略图与内置精选设计',
+  '社区上传与点赞的 V2 规划',
+  '任务系统与裂变海报的 V3 规划',
+];
+/* 分支徽标：第 4/9/14... 轮的用户消息标记为分支 2（模拟真实分支标签） */
+function isBranchRound(i) { return i >= 3 && (i - 3) % 5 === 0; }
+
+function buildMessages(rounds) {
+  const msgs = [];
+  for (let i = 0; i < rounds; i++) {
+    const topic = TOPICS[i % TOPICS.length];
+    msgs.push({
+      role: 'user',
+      text: `第 ${i + 1} 个问题：关于「${topic}」，你有哪些具体的建议和实施步骤？需要结合实际情况给出可执行方案，最好附带代码示例。`,
+      branch: isBranchRound(i) ? '22' : null,
+    });
+    msgs.push({
+      role: 'assistant',
+      text: ASSISTANT_REPLIES[i % ASSISTANT_REPLIES.length] +
+        `\n\n这是第 ${i + 1} 轮回复的补充说明：为了避免方案流于空谈，我会先明确目标用户、核心场景与关键指标，再逐层展开到功能拆解与代码落地，最后给出验证方式和迭代计划。`,
+    });
+  }
+  return msgs;
+}
+
+/* ============================================================
+   渲染对话流
+   ============================================================ */
+const chat = document.getElementById('chat');
+const chatInner = document.getElementById('chatInner');
+const userMsgs = [];
+
+function renderChat(rounds) {
+  const msgs = buildMessages(rounds);
+  chatInner.innerHTML = '';
+  userMsgs.length = 0;
+
+  msgs.forEach((m, idx) => {
+    if (idx > 0 && m.role === 'assistant') {
+      const div = document.createElement('div');
+      div.className = 'divider';
+      div.textContent = '—— 以上为第 ' + (idx / 2) + ' 轮 ——';
+      chatInner.appendChild(div);
+    }
+    const msg = document.createElement('div');
+    msg.className = 'msg ' + m.role;
+    msg.dataset.role = m.role;
+    if (m.role === 'user') {
+      msg.id = 'um-' + userMsgs.length;
+      userMsgs.push(msg);
+      if (m.branch) msg.dataset.branch = m.branch;   /* 分支徽标标记 */
+    }
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = m.role === 'user' ? '我' : 'DeepSeek';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = m.text;
+    msg.appendChild(meta);
+    msg.appendChild(bubble);
+    chatInner.appendChild(msg);
+  });
+}
+
+/* ============================================================
+   右侧滚动导航 —— 虚拟列表（项高 30px，实测）
+   ============================================================ */
+const ITEM_H = 30;
+const BUFFER = 8;
+const PANEL_PAD_V = 30;
+const MAX_PANEL_H = 300;
+
+const snScroll = document.getElementById('snScroll');
+const snVisible = document.getElementById('snVisible');
+const snList = document.getElementById('snList');
+const snPanel = document.querySelector('.sn-panel');
+const snWrap = document.getElementById('scrollNav');
+const snThumb = document.getElementById('snThumb');
+const chatThumb = document.getElementById('chatThumb');
+
+/* 对话区自定义滚动条 thumb 位置/大小（官方对话区 thumb 8px，gutter 8px）
+   ★ thumb 是 relative，.chat-scrollbar-v 已从 top:8px 开始，这里只加滚动比例偏移 */
+function updateChatScrollbar() {
+  const max = chat.scrollHeight - chat.clientHeight;
+  const track = chat.clientHeight - 16;
+  const ratio = max > 0 ? chat.scrollTop / max : 0;
+  const thumbH = Math.max(20, track * (chat.clientHeight / chat.scrollHeight));
+  chatThumb.style.top = (ratio * (track - thumbH)) + 'px';
+  chatThumb.style.height = thumbH + 'px';
+}
+
+/* 自定义滚动条 thumb 位置/大小（实测公式：gutter 8px，thumb 6px） */
+function updateScrollbar() {
+  const max = snScroll.scrollHeight - snScroll.clientHeight;
+  const track = snScroll.clientHeight - 16;
+  const ratio = max > 0 ? snScroll.scrollTop / max : 0;
+  const thumbH = Math.max(20, track * (snScroll.clientHeight / snScroll.scrollHeight));
+  // thumb 是 relative，.sn-scrollbar-v 已从 top:8px 开始，这里只加滚动比例偏移
+  snThumb.style.top = (ratio * (track - thumbH)) + 'px';
+  snThumb.style.height = thumbH + 'px';
+}
+
+const state = {
+  items: [],
+  totalH: 0,
+  start: 0,
+  count: 0,
+  current: -1,
+  renderedCurrent: -1,
+};
+
+/* 测量 13px 单行文本宽度（对齐官网 ≤8 条时面板宽度自适应用） */
+let _textWSpan = null;
+function textWidth(t) {
+  if (!_textWSpan) {
+    _textWSpan = document.createElement('span');
+    _textWSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:13px;font-family:inherit;';
+    document.body.appendChild(_textWSpan);
+  }
+  _textWSpan.textContent = t;
+  return _textWSpan.offsetWidth;
+}
+
+/* ★ 锚点线：已对齐官网（视口底-输入区高 + 少量消息比例映射），见 anchorLineOffset()。
+   不再使用固定比例常量（旧 ANCHOR_RATIO=0.3 已移除）。 */
+
+function rebuildNav() {
+  state.items = userMsgs.map((el) => ({
+    text: el.querySelector('.bubble').textContent,
+    branch: el.dataset.branch || null,
+  }));
+  state.totalH = state.items.length * ITEM_H;
+  snList.style.height = state.totalH + 'px';
+
+  // 面板高度自适应：≤10 条贴合内容，超过固定 300px（最多显示 10 条，超出滚动）
+  const panelH = Math.min(PANEL_PAD_V + state.items.length * ITEM_H, MAX_PANEL_H);
+  snPanel.style.height = panelH + 'px';
+  // ★ 容器高度同步收缩（真实页面 max 300px 随内容收缩）：
+  //   竖条 calc(100% - 8px) / 面板 max-height 100% 都以容器为基准，
+  //   不同步会导致少量消息时竖条(292px) 远长于面板(150px) 的不对齐
+  snWrap.style.height = panelH + 'px';
+
+  // ★ 对齐官网：>8 条消息面板固定 240px（useMaxWidth），≤8 条宽度按内容自适应
+  if (state.items.length > 8) {
+    snPanel.classList.add('sn-max');
+    snPanel.style.width = '';
+  } else {
+    // 官网 fit-content：面板宽 ≈ 最长文本宽 + 边距（封顶 240）
+    // （demo 导航项为 absolute 定位，无法用 CSS fit-content 撑开，故 JS 测量）
+    snPanel.classList.remove('sn-max');
+    let maxW = 34;
+    for (const it of state.items) maxW = Math.max(maxW, textWidth(it.text));
+    snPanel.style.width = Math.min(240, maxW + 66) + 'px';
+  }
+
+  // ★ 对齐官网：显示条件 = 用户消息 < 2 条时不渲染导航（官网 `r.length < 2 ? null`）
+  snWrap.style.display = state.items.length >= 2 ? 'flex' : 'none';
+
+  state.current = -1;
+  state.renderedCurrent = -1;
+  updateVisible();
+  syncCurrent();
+  updateScrollbar();       // 更新导航自定义滚动条
+  updateChatScrollbar();   // 更新对话区自定义滚动条
+}
+
+/* 根据滚动位置计算可见区间并渲染
+   ★ 增量更新（与官方虚拟列表一致）：复用 DOM 元素，只改 top/文本/高亮，
+     不重建 innerHTML —— 保持 DOM 稳定，避免滚动时 :hover 丢失导致滚动条闪烁消失 */
+function updateVisible() {
+  const scrollTop = snScroll.scrollTop;
+  const viewH = snScroll.clientHeight;
+  const first = Math.max(0, Math.floor(scrollTop / ITEM_H) - BUFFER);
+  const last = Math.min(state.items.length, Math.ceil((scrollTop + viewH) / ITEM_H) + BUFFER);
+  if (first === state.start && last === state.start + state.count && state.renderedCurrent === state.current) return; // 无变化
+  state.start = first;
+  state.count = last - first;
+  state.renderedCurrent = state.current;
+
+  // 1) 调整子元素数量（复用已有元素，不重建 DOM）
+  while (snVisible.children.length < state.count) {
+    const div = document.createElement('div');
+    div.className = 'sn-item';
+    div.tabIndex = 0;
+    div.innerHTML = '<div class="sn-item-badge"></div><div class="sn-item-text"></div><div class="sn-item-icon"></div>';
+    snVisible.appendChild(div);
+  }
+  while (snVisible.children.length > state.count) {
+    snVisible.lastChild.remove();
+  }
+
+  // 2) 增量更新每个可见项（textContent 赋值，不破坏 DOM 结构）
+  for (let i = 0; i < state.count; i++) {
+    const idx = first + i;
+    const el = snVisible.children[i];
+    el.dataset.i = idx;
+    el.style.top = (idx * ITEM_H) + 'px';
+    el.classList.toggle('sn-current', idx === state.current);
+    const badge = el.querySelector('.sn-item-badge');
+    if (state.items[idx].branch) {
+      badge.textContent = state.items[idx].branch;
+      badge.style.display = 'flex';
+    } else {
+      badge.textContent = '';
+      badge.style.display = 'none';
+    }
+    el.querySelector('.sn-item-text').textContent = state.items[idx].text;
+  }
+}
+
+/* ★ 点击跳转锁定：jumpTo 后高亮保持【被点击的项】，直到用户手动滚动 chat 才恢复联动。
+   对齐官网 clickRef 机制（点击打点 → 联动回调跳过 → 高亮保持点击项）。 */
+let lockedIdx = -1;
+
+function jumpTo(i) {
+  const el = userMsgs[i];
+  if (!el) return;
+  lockedIdx = i;   // ★ 锁定高亮 = 点击项
+  // ★ 对齐官网：目标 = 消息顶部对齐【视口顶部 y=0】（官网 scrollTo({key}) 实测 msgViewY=0），
+  //   滚动 behavior: "instant"（官网同款，无 smooth 过渡期干扰联动）；
+  //   clamp 到合法范围（越界时消息贴底，靠锁定保证高亮仍正确）
+  const max = chat.scrollHeight - chat.clientHeight;
+  const target = el.offsetTop - chat.offsetTop;
+  chat.scrollTo({ top: Math.min(Math.max(target, 0), max), behavior: 'instant' });
+  highlight(i);
+}
+
+function highlight(i) {
+  if (i === state.current) return;
+  state.current = i;
+  updateVisible();
+  const targetTop = i * ITEM_H;
+  if (targetTop < snScroll.scrollTop || targetTop > snScroll.scrollTop + snScroll.clientHeight - ITEM_H) {
+    snScroll.scrollTo({ top: targetTop - 40, behavior: 'smooth' });
+  }
+}
+
+/* 滚动联动：chat 滚动时按「锚点线」切换当前项（对齐官网 Cy 组件 C_ 函数）
+   ★ 锚点线 = 视口底部向上「底部输入区高」处（官网：容器底 - 输入框高，实测 783-219）；
+   ★ 少量消息（可滚范围 < 视口-输入区高）时锚点线按 scrollTop 比例映射
+     （官网 C_ 的 `a < o` 分支：l + scrollTop/maxScroll * (clientHeight - inputH)）；
+   ★ 选中规则：锚点线穿过 → 选中；无穿过时——顶部选第一条、底部选最后一条、
+     中间取「锚点线上方最近的用户消息」（锚点线常落在助手消息/间隙上） */
+const INPUT_BAR_H = 74;   // demo 底部输入区高度（--input-h）
+function anchorLineOffset() {
+  const max = chat.scrollHeight - chat.clientHeight;
+  const span = chat.clientHeight - INPUT_BAR_H;
+  if (max < span) {
+    // 少量消息：内容不足以滚满视口 → 锚点线按比例映射
+    return max > 0 ? chat.scrollTop / max * span : 0;
+  }
+  return span;   // 正常：视口底 - 输入区高
+}
+function syncCurrent() {
+  const cr = chat.getBoundingClientRect();
+  const anchorY = cr.top + anchorLineOffset();
+  const max = chat.scrollHeight - chat.clientHeight;
+  let best = -1;
+  for (let i = 0; i < userMsgs.length; i++) {
+    const r = userMsgs[i].getBoundingClientRect();
+    if (r.top <= anchorY && anchorY <= r.bottom) { best = i; break; }   // 锚点线穿过
+  }
+  if (best < 0) {
+    if (chat.scrollTop <= 1) {
+      best = 0;                                   // 顶部 → 第一条
+    } else if (max > 0 && chat.scrollTop >= max - 1) {
+      best = userMsgs.length - 1;                 // 底部 → 最后一条
+    } else {
+      let aboveBest = -1, aboveMax = -Infinity;   // 中间 → 锚点线上方最近用户消息
+      for (let i = 0; i < userMsgs.length; i++) {
+        const r = userMsgs[i].getBoundingClientRect();
+        if (r.bottom <= anchorY && r.bottom > aboveMax) { aboveMax = r.bottom; aboveBest = i; }
+      }
+      best = aboveBest;
+    }
+  }
+  if (best >= 0) highlight(best);
+}
+chat.addEventListener('scroll', () => requestAnimationFrame(() => { if (lockedIdx < 0) syncCurrent(); updateChatScrollbar(); }), { passive: true });
+// ★ 用户手动滚动（滚轮/触摸/键盘）→ 解除锁定，恢复滚动联动
+['wheel', 'touchstart', 'keydown'].forEach((evt) =>
+  chat.addEventListener(evt, () => { lockedIdx = -1; }, { passive: true })
+);
+snScroll.addEventListener('scroll', () => { updateVisible(); updateScrollbar(); }, { passive: true });
+
+/* 点击 / 键盘导航（一次性委托，虚拟列表增量更新不复绑）
+   方向键 ↑/↓ 移动选中项，Enter/空格 跳转 —— 实测 ds-virtual-list tabindex=0 支持键盘 */
+let focusIdx = -1;
+function focusNavItem(i) {
+  if (i < 0 || i >= state.items.length) return;
+  focusIdx = i;
+  highlight(i);
+  const el = snVisible.querySelector(`.sn-item[data-i="${i}"]`);
+  if (el) el.focus();
+}
+snVisible.addEventListener('click', (e) => {
+  const item = e.target.closest('.sn-item');
+  if (item) jumpTo(+item.dataset.i);
+});
+snVisible.addEventListener('keydown', (e) => {
+  const item = e.target.closest('.sn-item');
+  if (!item) return;
+  const i = +item.dataset.i;
+  if (e.key === 'ArrowDown') { e.preventDefault(); focusNavItem(Math.min(i + 1, state.items.length - 1)); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); focusNavItem(Math.max(i - 1, 0)); }
+  else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jumpTo(i); }
+});
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ============================================================
+   滚动条 thumb 拖拽（实测 ds-scroll-area 支持拖拽滚动）
+   ============================================================ */
+function makeDraggable(thumb, scroller, updateFn, onStart) {
+  let dragging = false, startY = 0, startTop = 0, track = 0, max = 0;
+  thumb.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    if (onStart) onStart();          // ★ 拖拽滚动条 = 用户手动滚动，解除点击锁定
+    dragging = true;
+    startY = e.clientY;
+    startTop = scroller.scrollTop;
+    max = scroller.scrollHeight - scroller.clientHeight;
+    track = scroller.clientHeight - 16;
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp, { once: true });
+  });
+  function onMove(e) {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    const thumbH = Math.max(20, track * (scroller.clientHeight / scroller.scrollHeight));
+    const ratio = max > 0 ? dy / (track - thumbH) : 0;
+    scroller.scrollTop = startTop + ratio * max;
+    updateFn && updateFn();
+  }
+  function onUp() {
+    dragging = false;
+    document.body.style.userSelect = '';
+    window.removeEventListener('mousemove', onMove);
+  }
+}
+makeDraggable(snThumb, snScroll, () => { updateVisible(); updateScrollbar(); });
+makeDraggable(chatThumb, chat, () => { if (lockedIdx < 0) syncCurrent(); updateChatScrollbar(); }, () => { lockedIdx = -1; });
+
+/* ---------- 顶部按钮 ---------- */
+document.getElementById('btnMore').addEventListener('click', () => {
+  renderChat(userMsgs.length + 8);
+  rebuildNav();
+});
+document.getElementById('btnFew').addEventListener('click', () => {
+  renderChat(4);
+  rebuildNav();
+});
+document.getElementById('btnInfo').addEventListener('click', () => {
+  alert('复刻说明（2026-08-15 实测还原，基于真实页面 CSS 规则）\n\n【显示/隐藏状态机】\n1. 收起态（默认）：面板透明、文本/徽标隐藏，只露出右侧一列指示器灰点，不遮挡对话\n2. hover 竖条/面板：白色卡片浮现（背景+三层阴影+文本显示+可点击）\n3. 移开鼠标：恢复收起态（transition .2s）\n\n【样式细节（实测）】\n· 竖条：白底 0.8 + 毛玻璃 blur(5px) + 圆角胶囊\n· 消息项：30px 高、右对齐（指示器靠右缘）、完整文本单行 ellipsis 截断\n· 分支徽标：9px 小标签（真实 _942b85d），部分消息带分支号\n· 当前项：蓝字 #3964FE(500) + 指示器 scale(1.5)\n· 上下 32px 渐变遮罩（hover 显示）\n· 滚动条：仅 hover 滚动区域显示、可拖拽（ds-scroll-area 同款）\n· 面板最多显示 10 条，超出面板内滚动（虚拟列表）\n· 键盘：↑/↓ 移动选中项，Enter/空格 跳转');
+});
+
+renderChat(64);
+rebuildNav();
+</script>
+</body>
+</html>
