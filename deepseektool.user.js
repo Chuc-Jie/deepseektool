@@ -1602,7 +1602,9 @@
                         const cr = document.createElement('div');
                         cr.className = 'dsConvRow' + (on ? ' on' : '');
                         cr.innerHTML = `<span class="dsConvTitle"></span>`;
-                        cr.querySelector('.dsConvTitle').textContent = titleOf(native);
+                        const cvT = cr.querySelector('.dsConvTitle');
+                        cvT.textContent = titleOf(native);
+                        cvT.title = cvT.textContent;   // 悬停显示完整标题（防 ellipsis 截断时看不到全名）
                         cr.addEventListener('click', () => {
                             if (currentOn.has(sid)) return; // 已是当前会话：避免触发原生重载/回滚
                             const n = nativeNodeFor(sid);
