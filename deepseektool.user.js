@@ -1459,8 +1459,6 @@
         #dsFolderPanel .dsConvRow:hover{background:var(--ds-hover);}
         #dsFolderPanel .dsConvRow.on{color:var(--ds-accent);}
         #dsFolderPanel .dsConvTitle{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-        #dsFolderPanel .dsConvId{flex:0 0 auto; opacity:.35; font-size:10px; font-family:monospace;
-            max-width:70px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
         #dsFolderPanel .dsOut{background:none; border:1px solid var(--ds-divider); color:var(--ds-sub);
             border-radius:7px; padding:2px 9px; cursor:pointer; font-size:12px; flex:0 0 auto;}
         #dsFolderPanel .dsOut:hover{color:#ff8585; border-color:#ff8585;}
@@ -1603,7 +1601,7 @@
                         const on = currentOn.has(sid);
                         const cr = document.createElement('div');
                         cr.className = 'dsConvRow' + (on ? ' on' : '');
-                        cr.innerHTML = `<span class="dsConvTitle"></span><span class="dsConvId">${sid}</span>`;
+                        cr.innerHTML = `<span class="dsConvTitle"></span>`;
                         cr.querySelector('.dsConvTitle').textContent = titleOf(native);
                         cr.addEventListener('click', () => {
                             if (currentOn.has(sid)) return; // 已是当前会话：避免触发原生重载/回滚
