@@ -1463,6 +1463,11 @@
             border-radius:7px; padding:2px 9px; cursor:pointer; font-size:12px; flex:0 0 auto;}
         #dsFolderPanel .dsOut:hover{color:#ff8585; border-color:#ff8585;}
 
+        /* 自绘标题 tooltip：配色/圆角/字号/内边距对齐官网 .ds-tooltip（实测 rgb(44,44,46) / #fff / 12px / 4px 8px / radius 10px） */
+        .dsFolderTip{position:fixed; z-index:3000; background:#2c2c2e; color:#fff;
+            font-size:12px; line-height:1.5; padding:4px 8px; border-radius:10px;
+            max-width:560px; pointer-events:none; word-break:break-all;}
+
         .dsTag{display:inline-block; margin-left:6px; font-size:11px; font-weight:600;
             padding:1px 6px; border-radius:5px; vertical-align:middle; line-height:1.4;}
 
@@ -1595,6 +1600,7 @@
                 if (sids.length && isExpanded(f.id)) {
                     const wrap = document.createElement('div');
                     wrap.className = 'dsFoldBody';
+                    wrap.dataset.folder = f.id;
                     for (const sid of sids) {
                         const native = nativeNodeFor(sid);
                         if (!native) continue;
@@ -1604,8 +1610,8 @@
                         cr.innerHTML = `<span class="dsConvTitle"></span>`;
                         const cvT = cr.querySelector('.dsConvTitle');
                         cvT.textContent = titleOf(native);
-                        cvT.title = cvT.textContent;   // 悬停显示完整标题（防 ellipsis 截断时看不到全名）
-                        cr.addEventListener('click', () => {
+                        bindTitleTip(cvT, titleOf(native));   // 自绘 tooltip（官方质感），仅标题溢出时触发
+                        cr.addEventListener('click', (e) => {
                             if (currentOn.has(sid)) return; // 已是当前会话：避免触发原生重载/回滚
                             const n = nativeNodeFor(sid);
                             if (n) n.click();
@@ -1631,6 +1637,42 @@
                 e.textContent = '还没有文件夹，点「+ 新建」';
                 list.appendChild(e);
             }
+        }
+
+        /* ---------- 自绘标题 tooltip（对齐官网 .ds-tooltip：bg #2c2c2e / #fff / 12px / 4px 8px / radius 10px；仅标题溢出时触发） ---------- */
+        let _dsConvTip = null;
+        function ensureConvTip() {
+            if (_dsConvTip && _dsConvTip.isConnected) return _dsConvTip;
+            _dsConvTip = document.createElement('div');
+            _dsConvTip.className = 'dsFolderTip';
+            document.body.appendChild(_dsConvTip);
+            return _dsConvTip;
+        }
+        function hideConvTip() { if (_dsConvTip) _dsConvTip.style.display = 'none'; }
+        function positionConvTip(anchor) {
+            const t = ensureConvTip();
+            const a = anchor.getBoundingClientRect();
+            t.style.display = 'block';
+            t.style.left = '0px'; t.style.top = '0px';
+            const tw = t.offsetWidth, th = t.offsetHeight;
+            let left = a.left + 8;
+            if (left + tw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - tw - 12);
+            let top = a.bottom + 6;
+            if (top + th > window.innerHeight - 8) top = a.top - th - 6;
+            t.style.left = left + 'px';
+            t.style.top = top + 'px';
+        }
+        function bindTitleTip(el, fullText) {
+            el.addEventListener('mouseenter', () => {
+                const s = getComputedStyle(el);
+                // 官网会话 tooltip 也仅当标题溢出（被省略号截断）时显示
+                if (s.scrollWidth > s.clientWidth || s.textOverflow === 'ellipsis') {
+                    ensureConvTip().textContent = fullText;
+                    positionConvTip(el);
+                }
+            });
+            el.addEventListener('mousemove', () => { if (_dsConvTip && _dsConvTip.style.display !== 'none') positionConvTip(el); });
+            el.addEventListener('mouseleave', hideConvTip);
         }
 
         /* ---- 树形与标签同步（共用）：数据改动后的重建入口 ---- */
@@ -1847,6 +1889,7 @@
             cancelSchedule();
             fCurrentMenuSid = null;
             closeFolderPopup();
+            if (_dsConvTip) { _dsConvTip.remove(); _dsConvTip = null; }   // 清掉自绘 tooltip 残留节点
             // 复位归档隐藏：把 syncArchiveVisibility 藏起来的官方会话行全部还原（不越权动原生结构）
             document.querySelectorAll('a[href^="/a/chat/s/"]').forEach((a) => { a.style.display = ''; });
             document.querySelectorAll('[data-ds-move]').forEach((el) => el.remove());
