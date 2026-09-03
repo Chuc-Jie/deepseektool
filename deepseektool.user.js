@@ -1493,6 +1493,9 @@
 
         /* ---------- 状态（v0.9.x 树形模型：无全局筛选/抽屉；展开态持久化于 data.expanded） ---------- */
         let fCurrentMenuSid = null;   // 当前打开三点菜单所属的会话
+        let lastMenuOpenAt = 0;       // 最近一次点击打开官方 ⋯ 菜单的时刻（capture click 记录）
+        let lastRealMoveAt = 0;       // 最近一次真实指针位移时刻（捕获阶段记录）
+        document.addEventListener('pointermove', () => { lastRealMoveAt = Date.now(); }, { capture: true, passive: true });
         const isExpanded = (id) => data.expanded[id] !== false;   // 默认展开
         const toggleExpanded = (id) => { data.expanded[id] = !isExpanded(id); };
 
@@ -1736,7 +1739,14 @@
         function escapeHtml(s) {
             return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
-        // 记录当前打开菜单所属会话（关闭时不记录）
+        // 记录当前打开菜单所属会话（关闭时不记录）。按下/点击三点按钮即视为打开官方菜单：
+        // React portal 可复用浮层容器会在重现菜单时，若该项恰在指针正下方而指针没动，也会合成 mouseenter。
+        // 这里分别记住「按下时刻」与「最近一次真实指针位移」，供 openOnHover 判定是否为“伪悬停”。
+        document.addEventListener('pointerdown', (e) => {
+            if (!folderManagerEnabled) return;
+            if (e.target.closest('#dsFolderPop, [data-ds-move]')) return;   // 我们自己的浮层/项不算打开官方菜单
+            lastMenuOpenAt = Date.now();
+        }, true);
         document.addEventListener('click', (e) => {
             if (!folderManagerEnabled) return;
             const btn = e.target.closest('[class*="ds-button"]');
@@ -1773,6 +1783,11 @@
             // 悬停即展开次级菜单（仿 Windows 右键二级菜单）
             const openOnHover = () => {
                 if (document.getElementById('dsFolderPop')) return;
+                // 防「伪悬停」误展开：点击三点按钮重现当前菜单时，若该项恰在指针正下方而指针没动，
+                // 浏览器仍会合成一个 mouseenter。判定——菜单刚被打开(pointerdown 距今 <300ms)且
+                // 自该打开后没有任何真实指针位移(lastRealMoveAt 停在更早) —— 视为伪事件，先不展开，
+                // 等用户真正把光标移入该项才 `mouseenter`/`pointerenter`（届时已有新位移）自然打开。v4.6.1
+                if (Date.now() - lastMenuOpenAt < 300 && lastRealMoveAt < lastMenuOpenAt) return;
                 cancelClosePopup();
                 if (fCurrentMenuSid) openFolderPopup(fCurrentMenuSid, item);
             };
