@@ -1353,13 +1353,16 @@
     // 启停/持续扫描由外层统一开关与 observeDOM 驱动（见 init / observeDOM / openControlPanel）。
     const folderUnit = (() => {
 
-        /* ---------- 存储（并入主脚本用全新独立键，保留旧逻辑，不与独立脚本互相干扰） ---------- */
+        /* ==================== 存储（沿用主脚本独立键 v2；v0.9.2 起数据结构含 expanded 展开态） ==================== */
         function loadData() {
             try {
                 const d = JSON.parse(GM_getValue(STORAGE_FOLDER_DATA, 'null'));
-                if (d && Array.isArray(d.folders) && d.links) return d;
+                if (d && Array.isArray(d.folders) && d.links) {
+                    if (!d.expanded || typeof d.expanded !== 'object') d.expanded = {};
+                    return d;
+                }
             } catch (e) { /* ignore */ }
-            return { folders: [], links: {} };
+            return { folders: [], links: {}, expanded: {} };
         }
         let data = loadData();
         function saveData() { GM_setValue(STORAGE_FOLDER_DATA, JSON.stringify(data)); }
@@ -1389,7 +1392,7 @@
             return m ? { r: +m[1], g: +m[2], b: +m[3] } : null;
         }
 
-        /* ---------- 主题（保留原创逻辑：随官网深/浅色） ---------- */
+        /* ---------- 主题（保留原脚本逻辑：随官网深/浅色） ---------- */
         function isDark() {
             const m = document.documentElement.getAttribute('data-mode');
             if (m !== null && m !== '') return m !== 'light';
@@ -1417,10 +1420,10 @@
             for (const k in v) r.setProperty(k, v[k]);
         }
 
-        /* ---------- 动态样式（on 注入 / off 移除） ---------- */
+        /* ---------- 动态样式（v0.9.2 树形样式；on 注入 / off 移除） ---------- */
         const FOLDER_CSS_ID = 'ds-folder-css';
         const FOLDER_CSS = `
-        #dsFolderPanel, #dsFolderDrawer{
+        #dsFolderPanel{
             font-size:14px; color:var(--ds-text); font-family:inherit;
             margin:2px 0 4px; padding:6px 8px 8px 0;
             background:transparent; border:none; box-shadow:none; border-radius:0;
@@ -1446,23 +1449,21 @@
         #dsFolderPanel .dsOps button:hover{background:var(--ds-hover); color:var(--ds-text);}
         #dsFolderPanel .dsEmpty{opacity:.5; font-size:12.5px; padding:6px 10px;}
 
-        #dsFolderDrawer{margin-top:0;}
-        #dsFolderDrawer .dsdvHead{display:flex; align-items:center; gap:8px; padding:4px 0 8px; margin-bottom:4px;
-            border-bottom:1px solid var(--ds-divider);}
-        #dsFolderDrawer .dsdvDot{width:10px; height:10px; border-radius:3px; flex:0 0 auto;}
-        #dsFolderDrawer .dsdvName{font-weight:600; font-size:13.5px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-        #dsFolderDrawer .dsdvCount{font-size:12px; color:var(--ds-sub); font-weight:600;}
-        #dsFolderDrawer .dsdvBack{background:none; border:none; color:var(--ds-accent); cursor:pointer; font-size:12.5px; font-weight:600; padding:0;}
-        #dsFolderDrawer .dsdvList{display:flex; flex-direction:column; gap:2px; max-height:320px; overflow:auto;}
-        #dsFolderDrawer .dsfvItem{display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px;
-            min-height:35px; box-sizing:border-box;
-            cursor:pointer; color:var(--ds-text); font-size:13.5px;}
-        #dsFolderDrawer .dsfvItem:hover{background:var(--ds-hover);}
-        #dsFolderDrawer .dsfvTitle{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-        #dsFolderDrawer .dsfvOut{background:none; border:1px solid var(--ds-divider); color:var(--ds-sub);
-            border-radius:7px; padding:3px 9px; cursor:pointer; font-size:12px;}
-        #dsFolderDrawer .dsfvOut:hover{color:#ff8585; border-color:#ff8585;}
-        #dsFolderDrawer .dsdvEmpty{opacity:.5; font-size:12.5px; padding:8px 10px;}
+        /* v0.9.0+ 树形文件夹：箭头 / 会话内嵌行 */
+        #dsFolderPanel .dsCaret{width:20px; height:20px; flex:0 0 auto; background:none; border:none;
+            padding:0; margin:0; cursor:pointer; color:var(--ds-sub); border-radius:5px; display:flex; align-items:center; justify-content:center;}
+        #dsFolderPanel .dsCaret:hover{background:var(--ds-hover); color:var(--ds-text);}
+        #dsFolderPanel .dsFoldBody{display:flex; flex-direction:column;}
+        #dsFolderPanel .dsConvRow{display:flex; align-items:center; gap:8px; padding:7px 10px 7px 30px; border-radius:8px;
+            min-height:32px; box-sizing:border-box; cursor:pointer; color:var(--ds-text); font-size:13px;}
+        #dsFolderPanel .dsConvRow:hover{background:var(--ds-hover);}
+        #dsFolderPanel .dsConvRow.on{color:var(--ds-accent);}
+        #dsFolderPanel .dsConvTitle{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+        #dsFolderPanel .dsConvId{flex:0 0 auto; opacity:.35; font-size:10px; font-family:monospace;
+            max-width:70px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+        #dsFolderPanel .dsOut{background:none; border:1px solid var(--ds-divider); color:var(--ds-sub);
+            border-radius:7px; padding:2px 9px; cursor:pointer; font-size:12px; flex:0 0 auto;}
+        #dsFolderPanel .dsOut:hover{color:#ff8585; border-color:#ff8585;}
 
         .dsTag{display:inline-block; margin-left:6px; font-size:11px; font-weight:600;
             padding:1px 6px; border-radius:5px; vertical-align:middle; line-height:1.4;}
@@ -1486,11 +1487,12 @@
         }
         function removeCss() { const st = document.getElementById(FOLDER_CSS_ID); if (st) st.remove(); }
 
-        /* ---------- 状态 ---------- */
-        let fActive = '__all__';   // 当前选中的文件夹（或 __all__）
-        let fCurrentMenuSid = null;
+        /* ---------- 状态（v0.9.x 树形模型：无全局筛选/抽屉；展开态持久化于 data.expanded） ---------- */
+        let fCurrentMenuSid = null;   // 当前打开三点菜单所属的会话
+        const isExpanded = (id) => data.expanded[id] !== false;   // 默认展开
+        const toggleExpanded = (id) => { data.expanded[id] = !isExpanded(id); };
 
-        /* ---------- 面板定位 ---------- */
+        /* ---------- 面板定位（挂点沿用 v0.8.1/v0.9.x 稳定方案） ---------- */
         function findNewChatBtn() {
             const texts = ['开启新对话', '新对话', '开始新对话'];
             const span = [...document.querySelectorAll('span')].find((x) => texts.includes(x.textContent.trim()));
@@ -1508,18 +1510,15 @@
             }
             return null;
         }
-
         function ensurePanel() {
             applyTheme();
             if (document.getElementById('dsFolderPanel')) return;
             const panel = document.createElement('div');
             panel.id = 'dsFolderPanel';
             panel.innerHTML = `
-                <div class="dsfh"><b>文件夹</b><button class="dsNew" title="新建文件夹">+ 新建</button></div>
+                <div class="dsfh"><b>文件夹</b><button class="dsNew" title="新建文件夹">＋ 新建</button></div>
                 <div class="dsList"></div>`;
             panel.querySelector('.dsNew').addEventListener('click', onCreateFolder);
-            // 挂点取原 v0.8.1 稳定方案：第一个会话分组(置顶组)内、sticky 标题行后的内容块，
-            // 随分组一起滚动，不与官方 hover「多选」冲突（顶部让出标题行高度）。
             const sc = findScrollContainer();
             if (sc) {
                 const titleRow = [...sc.querySelectorAll('div')].find((d) => {
@@ -1539,15 +1538,92 @@
             renderFolders();
         }
 
+        /* ---- 归档可见性：已收进文件夹的会话从原生历史列表隐藏（避免点它时官方滚回原位） ---- */
+        const archivedIds = () => Object.keys(data.links);
+        function syncArchiveVisibility() {
+            const all = document.querySelectorAll('a[href^="/a/chat/s/"]');
+            const set = new Set(archivedIds());
+            all.forEach((a) => {
+                const sid = sessionIdOf(a);
+                if (sid && set.has(sid)) {
+                    if (a.style.display !== 'none') a.style.display = 'none';
+                } else if (a.style.display === 'none') {
+                    a.style.display = '';
+                }
+            });
+        }
+
+        /* ---------- 树形渲染 ---------- */
         function renderFolders() {
             const list = document.querySelector('#dsFolderPanel .dsList');
             if (!list) return;
+            syncArchiveVisibility();
             list.innerHTML = '';
-            const all = document.createElement('div');
-            all.className = 'dsItem' + (fActive === '__all__' ? ' active' : '');
-            all.innerHTML = `<span class="dsName">全部对话</span><span class="dsCount">${Object.keys(data.links).length}</span>`;
-            all.addEventListener('click', () => { fActive = '__all__'; renderFolders(); applyView(); });
-            list.appendChild(all);
+
+            // 树形：生成当前会话 on 状态快照
+            const currentOn = new Set();
+            { const h = location.pathname.match(/\/s\/([^/]+)/); if (h) currentOn.add(h[1]); }
+
+            data.folders.forEach((f) => {
+                const sids = Object.keys(data.links).filter((k) => data.links[k] === f.id);
+
+                // 文件夹树行
+                const row = document.createElement('div');
+                row.className = 'dsItem';
+                row.innerHTML = `
+                    <button class="dsCaret" title="${isExpanded(f.id) ? '收起' : '展开'}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3.2 6.2A1.7 1.7 0 0 1 4.9 4.5h4.6l2 2.2h7.6a1.7 1.7 0 0 1 1.7 1.7v9.6a1.7 1.7 0 0 1-1.7 1.7H4.9a1.7 1.7 0 0 1-1.7-1.7V6.2Z"/></svg></button>
+                    <span class="dsName"></span>
+                    <span class="dsCount">${sids.length}</span>
+                    <span class="dsOps">
+                        <button data-act="rename">改名</button>
+                        <button data-act="del">删除</button>
+                    </span>`;
+                row.querySelector('.dsName').textContent = f.name;
+                row.querySelector('.dsCaret').addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    toggleExpanded(f.id); saveData(); renderFolders();
+                });
+                // 点文件夹行（排除箭头与操作钮）：切换展开/折叠
+                row.addEventListener('click', (ev) => {
+                    if (ev.target.dataset.act) return;
+                    if (ev.target.classList.contains('dsCaret')) return;
+                    toggleExpanded(f.id); saveData(); renderFolders();
+                });
+                row.querySelector('[data-act="rename"]').addEventListener('click', (ev) => { ev.stopPropagation(); onRenameFolder(f); });
+                row.querySelector('[data-act="del"]').addEventListener('click', (ev) => { ev.stopPropagation(); onDeleteFolder(f); });
+                list.appendChild(row);
+
+                // 展开时：内嵌该文件夹内会话行
+                if (sids.length && isExpanded(f.id)) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'dsFoldBody';
+                    for (const sid of sids) {
+                        const native = nativeNodeFor(sid);
+                        if (!native) continue;
+                        const on = currentOn.has(sid);
+                        const cr = document.createElement('div');
+                        cr.className = 'dsConvRow' + (on ? ' on' : '');
+                        cr.innerHTML = `<span class="dsConvTitle"></span><span class="dsConvId">${sid}</span>`;
+                        cr.querySelector('.dsConvTitle').textContent = titleOf(native);
+                        cr.addEventListener('click', () => {
+                            if (currentOn.has(sid)) return; // 已是当前会话：避免触发原生重载/回滚
+                            const n = nativeNodeFor(sid);
+                            if (n) n.click();
+                        });
+                        const out = document.createElement('button');
+                        out.className = 'dsOut';
+                        out.textContent = '移出';
+                        out.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            delete data.links[sid];
+                            saveData(); renderFolders();
+                        });
+                        cr.appendChild(out);
+                        wrap.appendChild(cr);
+                    }
+                    list.appendChild(wrap);
+                }
+            });
 
             if (data.folders.length === 0) {
                 const e = document.createElement('div');
@@ -1555,27 +1631,10 @@
                 e.textContent = '还没有文件夹，点「+ 新建」';
                 list.appendChild(e);
             }
-            for (const f of data.folders) {
-                const count = Object.values(data.links).filter((v) => v === f.id).length;
-                const item = document.createElement('div');
-                item.className = 'dsItem' + (fActive === f.id ? ' active' : '');
-                item.innerHTML = `
-                    <span class="dsName"></span>
-                    <span class="dsCount">${count}</span>
-                    <span class="dsOps">
-                        <button data-act="rename">改名</button>
-                        <button data-act="del">删除</button>
-                    </span>`;
-                item.querySelector('.dsName').textContent = f.name;
-                item.addEventListener('click', (ev) => {
-                    if (ev.target.dataset.act) return;
-                    fActive = f.id; renderFolders(); applyView();
-                });
-                item.querySelector('[data-act="rename"]').addEventListener('click', (ev) => { ev.stopPropagation(); onRenameFolder(f); });
-                item.querySelector('[data-act="del"]').addEventListener('click', (ev) => { ev.stopPropagation(); onDeleteFolder(f); });
-                list.appendChild(item);
-            }
         }
+
+        /* ---- 树形与标签同步（共用）：数据改动后的重建入口 ---- */
+        function resyncFolders() { refreshTags(); renderFolders(); }
 
         /* ---------- 文件夹操作 ---------- */
         function onCreateFolder() {
@@ -1583,52 +1642,23 @@
             if (name === null) return;
             const t = name.trim(); if (!t) return;
             data.folders.push({ id: genId(), name: t });
-            saveData(); renderFolders(); applyView();
+            saveData(); renderFolders();
         }
         function onRenameFolder(f) {
             const name = prompt('重命名文件夹：', f.name);
             if (name === null) return;
             const t = name.trim(); if (!t) return;
-            f.name = t; saveData(); renderFolders(); applyView();
+            f.name = t; saveData(); renderFolders();
         }
         function onDeleteFolder(f) {
             if (!confirm(`删除文件夹「${f.name}」？其中的对话会回到「全部对话」。`)) return;
             data.folders = data.folders.filter((x) => x.id !== f.id);
             for (const k of Object.keys(data.links)) if (data.links[k] === f.id) delete data.links[k];
-            if (fActive === f.id) fActive = '__all__';
-            saveData(); renderFolders(); applyView();
+            delete data.expanded[f.id];
+            saveData(); refreshTags(); renderFolders();
         }
 
-        /* ---------- 收尾区定位（分组标题所在） ---------- */
-        function groupWrapperOf(a) {
-            let el = a.parentElement;
-            while (el) {
-                const hasTitleChild = [...el.children].some(
-                    (c) => !c.matches('a[href^="/a/chat/s/"]') && c.querySelector('a[href^="/a/chat/s/"]') === null
-                );
-                if (hasTitleChild) return el;
-                el = el.parentElement;
-            }
-            return a.parentElement;
-        }
-        function applyHiding() {
-            const all = fActive === '__all__';
-            const links = [...document.querySelectorAll('a[href^="/a/chat/s/"]')];
-            const wrappers = new Map();
-            links.forEach((a) => {
-                const sid = sessionIdOf(a);
-                const f = data.links[sid] || null;
-                const inFolder = !all && f === fActive;
-                a.style.display = inFolder ? 'none' : '';
-                if (!inFolder) {
-                    const w = groupWrapperOf(a);
-                    wrappers.set(w, (wrappers.get(w) || 0) + 1);
-                }
-            });
-            wrappers.forEach((cnt, w) => { if (w) w.style.display = cnt > 0 ? '' : 'none'; });
-        }
-
-        /* ---------- 标签 ---------- */
+        /* ---------- 标签 / 标题 ---------- */
         function titleOf(a) {
             const t = a.querySelector('div.c08e6e93');
             return ((t ? t.textContent : a.textContent) || '').trim() || '未命名对话';
@@ -1659,73 +1689,13 @@
             });
         }
 
-        /* ---------- 抽屉 ---------- */
-        function ensureDrawer() {
-            let d = document.getElementById('dsFolderDrawer');
-            if (!d) {
-                // 面板尚未就绪时先创建面板作为抽屉挂点（正常流程 ensurePanel 已先行，此处为兜底）
-                if (!document.getElementById('dsFolderPanel')) ensurePanel();
-                d = document.createElement('div');
-                d.id = 'dsFolderDrawer';
-                const panel = document.getElementById('dsFolderPanel');
-                if (panel) panel.insertAdjacentElement('afterend', d);
-            }
-            return d;
-        }
-        function showDrawer(folderId) {
-            const f = data.folders.find((x) => x.id === folderId);
-            if (!f) return;
-            const d = ensureDrawer();
-            d.style.display = '';
-            const ids = Object.keys(data.links).filter((k) => data.links[k] === folderId);
-            d.innerHTML = `
-                <div class="dsdvHead">
-                    <span class="dsdvDot" style="background:${folderColor(folderId)}"></span>
-                    <span class="dsdvName"></span>
-                    <span class="dsdvCount">${ids.length} 条</span>
-                    <button class="dsdvBack">← 全部对话</button>
-                </div>
-                <div class="dsdvList"></div>`;
-            d.querySelector('.dsdvName').textContent = f.name;
-            d.querySelector('.dsdvBack').addEventListener('click', () => { fActive = '__all__'; renderFolders(); applyView(); });
-            const listEl = d.querySelector('.dsdvList');
-            if (ids.length === 0) {
-                const e = document.createElement('div');
-                e.className = 'dsdvEmpty';
-                e.textContent = '该文件夹还没有对话，在「全部对话」里点会话右侧 ⋯ 菜单 →「移动到文件夹」即可加入。';
-                listEl.appendChild(e); return;
-            }
-            for (const sid of ids) {
-                const native = nativeNodeFor(sid);
-                const title = native ? titleOf(native) : sid;
-                const row = document.createElement('div');
-                row.className = 'dsfvItem';
-                row.innerHTML = `<span class="dsfvTitle"></span><button class="dsfvOut">移出</button>`;
-                row.querySelector('.dsfvTitle').textContent = title;
-                row.addEventListener('click', () => { const n = nativeNodeFor(sid); if (n) n.click(); });
-                row.querySelector('.dsfvOut').addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    delete data.links[sid];
-                    saveData(); renderFolders(); applyView();
-                });
-                listEl.appendChild(row);
-            }
-        }
-        function hideDrawer() { const d = document.getElementById('dsFolderDrawer'); if (d) d.style.display = 'none'; }
-
-        function applyView() {
-            if (fActive === '__all__') hideDrawer();
-            else showDrawer(fActive);
-            applyHiding();
-            refreshTags();
-        }
-
         /* ---------- 官方三点菜单注入 ---------- */
         function escapeHtml(s) {
             return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
+        // 记录当前打开菜单所属会话（关闭时不记录）
         document.addEventListener('click', (e) => {
-            if (!folderManagerEnabled) return;   // 关闭时不记录
+            if (!folderManagerEnabled) return;
             const btn = e.target.closest('[class*="ds-button"]');
             if (!btn) return;
             const link = btn.closest('a[href^="/a/chat/s/"]');
@@ -1745,6 +1715,7 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
                 </div>
                 <div class="ds-dropdown-menu-option__label">移动到文件夹</div>`;
+            // 鼠标从官方菜单项滑到本项后，官方项的高亮态残留修复
             const clearNativeHighlight = () => {
                 menu.querySelectorAll('.ds-dropdown-menu-option').forEach((o) => {
                     if (o === item) return;
@@ -1756,7 +1727,7 @@
             };
             item.addEventListener('mouseenter', clearNativeHighlight);
             item.addEventListener('pointerenter', clearNativeHighlight);
-
+            // 悬停即展开次级菜单（仿 Windows 右键二级菜单）
             const openOnHover = () => {
                 if (document.getElementById('dsFolderPop')) return;
                 cancelClosePopup();
@@ -1774,7 +1745,7 @@
             menu.appendChild(item);
         }
 
-        // 悬停意图计时
+        // 悬停意图计时：离开浮层/锚点后稍候再关，避免穿梭 4px 间隙闪烁
         let dsPopupCloseTimer = null;
         function scheduleClosePopup() { clearTimeout(dsPopupCloseTimer); dsPopupCloseTimer = setTimeout(closeFolderPopup, 220); }
         function cancelClosePopup() { clearTimeout(dsPopupCloseTimer); dsPopupCloseTimer = null; }
@@ -1802,6 +1773,7 @@
             pop.innerHTML = html;
             document.body.appendChild(pop);
 
+            // 级联定位：锚点右侧展开，放不下翻左侧，垂直对齐夹紧在视口内
             const r = anchor.getBoundingClientRect();
             const pw = pop.offsetWidth, ph = pop.offsetHeight, gap = 4;
             let left = r.right + gap;
@@ -1833,7 +1805,7 @@
                 // 之后再次点 ⋯ 菜单只会渲染进这个永久隐藏的容器 → 表现为“菜单点不开/无反应”。
                 // 官方菜单的关闭由 DeepSeek 自身的点击/ESC 语义处理，这里不越权接管。
                 closeFolderPopup();
-                renderFolders(); applyView();
+                resyncFolders();
             });
             setTimeout(() => document.addEventListener('click', closeFolderPopup, { once: true }), 0);
         }
@@ -1846,28 +1818,26 @@
             });
         }
 
-        /* ---------- 由外层驱动的刷新（取代原自持 observer） ---------- */
+        /* ---------- 由外层驱动的刷新（取代原自持 observer；v0.9.2 导航守卫防自循环） ---------- */
         let folderPending = null;
+        let folderLastSid = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || null;   // 高亮/重绘守卫
         function schedule() {
             if (!folderManagerEnabled) return;
             if (folderPending) return;
             folderPending = setTimeout(() => {
                 folderPending = null;
                 ensurePanel();
-                applyHiding();
                 refreshTags();
                 injectMenus();
+                // 导航切换后重绘树（仅当 url 会话变化才做，避免 observer 自激循环）
+                const cur = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || null;
+                if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
+                syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
             }, 120);
         }
         function cancelSchedule() { if (folderPending) { clearTimeout(folderPending); folderPending = null; } }
 
-        /* ---------- 全部复位（供刷新数据时/off 用） ---------- */
-        function cleanResidualHidden() {
-            // 关闭时把所有原生入口复位为可见（补 applyHiding 设过 none 的兜底）
-            document.querySelectorAll('a[href^="/a/chat/s/"]').forEach((a) => { a.style.display = ''; });
-            // 逐会话祖先若整组隐藏归因于我们，也尽力复位（applyView(all) 正常已做，此处兜底不越权）
-        }
-
+        /* ---------- on / off（外层开关驱动） ---------- */
         function on() {
             injectCss();
             applyTheme();
@@ -1875,26 +1845,20 @@
         }
         function off() {
             cancelSchedule();
-            // 回到全部列表，按正常可视态复位一次（会把我们隐藏的行/分组复位）
-            fActive = '__all__';
-            cleanResidualHidden();
-            applyHiding();
-            refreshTags();
-            // 清掉动态元素
-            const panel = document.getElementById('dsFolderPanel'); if (panel) panel.remove();
-            const drawer = document.getElementById('dsFolderDrawer'); if (drawer) drawer.remove();
+            fCurrentMenuSid = null;
             closeFolderPopup();
+            // 复位归档隐藏：把 syncArchiveVisibility 藏起来的官方会话行全部还原（不越权动原生结构）
+            document.querySelectorAll('a[href^="/a/chat/s/"]').forEach((a) => { a.style.display = ''; });
             document.querySelectorAll('[data-ds-move]').forEach((el) => el.remove());
             document.querySelectorAll('.dsTag').forEach((el) => el.remove());
-            // 复位可能残留的 display none（wrapper 仅在我们给 map 设过 none 时；已尽量复位）
+            const panel = document.getElementById('dsFolderPanel'); if (panel) panel.remove();
             removeCss();
             // 移除注入的 --ds-* CSS 变量（复原官网原生配色源）
             const rs = document.documentElement.style;
             ['--ds-text','--ds-sub','--ds-hover','--ds-active-bg','--ds-accent','--ds-divider','--ds-border']
                 .forEach((k) => rs.removeProperty(k));
-            fCurrentMenuSid = null;
         }
-        function refreshData() { data = loadData(); renderFolders(); applyView(); }
+        function refreshData() { data = loadData(); renderFolders(); refreshTags(); }
 
         return { on, off, schedule, refreshData, isDark };
     })();
