@@ -1435,7 +1435,8 @@
             border:1px solid var(--ds-divider); border-radius:100px;
             padding:3px 10px; cursor:pointer; font-size:12px; font-weight:500;}
         #dsFolderPanel .dsNew:hover{background:var(--ds-hover); color:var(--ds-text);}
-        #dsFolderPanel .dsList{display:flex; flex-direction:column; gap:2px; max-height:300px; overflow:auto;}
+        /* 去掉区内自设 300px 独立滚动：让整个文件夹区随原生会话历史一起滚，内部不再单独出滚动条 */
+        #dsFolderPanel .dsList{display:flex; flex-direction:column; gap:2px;}
         #dsFolderPanel .dsItem{display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px;
             min-height:35px; box-sizing:border-box;
             cursor:pointer; color:var(--ds-text);}
