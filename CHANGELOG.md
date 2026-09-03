@@ -11,6 +11,9 @@
   - DOM 监听并入主脚本统一 MutationObserver，不再各占一个 body observer；开关切换由 observeDOM 打标记 + init 首启驱动
   - 子闭包 `folderUnit` 封装，避免污染主脚本命名空间
 
+### 修复
+- **不再对官方 `.ds-floating-container` 设 `display:none` 来收菜单**：官网浮层容器跨会话复用（React portal 一次创建、此后打开只切内容不复建），若在「移到文件夹/新建」后对其永久藏死，会导致该会话之后再点 ⋯ 时内容只渲染进这个隐藏容器 → “完全点不开/无反应”。真机（MCP Chrome）实测确认页面残留有 `display:none` 且 in-DOM 的空浮层容器，与旧代码产物吻合。修复为只移除我们自己的浮层，把菜单收敛交给官网自带关闭语义。
+
 ## v4.5.2 (2026-06-29)
 
 ### 修复

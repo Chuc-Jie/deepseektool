@@ -1828,8 +1828,10 @@
                     data.links[sid] = fid;
                 }
                 saveData();
-                const fc = anchor.closest('.ds-floating-container');
-                if (fc) fc.style.display = 'none';
+                // 收敛「移动」：仅移除我们自己的浮层，绝不把祖级官方浮层容器 .ds-floating-container 设 display:none。
+                // 原因：官方该容器跨会话复用（React portal 只在首开时创建、之后复用），若我们用内联 none 藏死它，
+                // 之后再次点 ⋯ 菜单只会渲染进这个永久隐藏的容器 → 表现为“菜单点不开/无反应”。
+                // 官方菜单的关闭由 DeepSeek 自身的点击/ESC 语义处理，这里不越权接管。
                 closeFolderPopup();
                 renderFolders(); applyView();
             });
