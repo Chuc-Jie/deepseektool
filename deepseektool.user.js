@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.7.0
+// @version      4.7.1
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -1545,7 +1545,7 @@
         const FOLDER_CSS = `
         #dsFolderPanel{
             font-size:14px; color:var(--ds-text); font-family:inherit;
-            margin:2px 0 4px; padding:6px 8px 8px 0;
+            margin:2px 0 4px; padding:22px 8px 8px 0;  /* 顶部预留原生「多选」按钮悬浮行，避免面板内容压在其下造成视觉错位 */
             background:transparent; border:none; box-shadow:none; border-radius:0;
             user-select:none;
         }
@@ -1635,22 +1635,54 @@
             return [...document.querySelectorAll('button,div,a')].find((x) => texts.includes((x.textContent || '').trim())) || null;
         }
         function findScrollContainer() {
+            // 优先：从任意会话链接向上找 overflow:auto/scroll 祖先（列表滚动容器）
             const link = document.querySelector('a[href^="/a/chat/s/"]');
-            if (!link) return null;
-            let el = link.parentElement;
-            while (el) {
-                const cs = getComputedStyle(el);
-                if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') return el;
-                el = el.parentElement;
+            if (link) {
+                let el = link.parentElement;
+                while (el) {
+                    const cs = getComputedStyle(el);
+                    if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') return el;
+                    el = el.parentElement;
+                }
+            }
+            // 兜底：链接尚未渲染（SPA 加载/导航竞态）时，从「新对话」按钮向上找侧栏根，
+            // 再于其后代中定位唯一的滚动容器——避免误插到滚动容器外被钉死在顶部。
+            const btn = findNewChatBtn();
+            let root = btn;
+            while (root && root !== document.body) {
+                const s = [...root.querySelectorAll('*')].find((d) => {
+                    const cs = getComputedStyle(d);
+                    return cs.overflowY === 'auto' || cs.overflowY === 'scroll';
+                });
+                if (s) return s;
+                root = root.parentElement;
             }
             return null;
         }
         function ensurePanel() {
             applyTheme();
-            if (document.getElementById('dsFolderPanel')) return;
-            const panel = document.createElement('div');
-            panel.id = 'dsFolderPanel';
-            panel.innerHTML = `
+            let panel = document.getElementById('dsFolderPanel');
+            if (panel) {
+                // 已存在：沿祖先链判断是否已在滚动容器内。面板经「置顶」sticky 行挂入其所在内容包装层
+                // （如 _3098d02，overflow:visible），真正的列表 scroller（_6d215eb ds-scroll-area）在其
+                // 上方若干层——只查直接父级会误判为"未挂载"，导致每轮 schedule 重挂 + renderFolders 重建
+                // .dsList（真实 mutation）→ observer → schedule 的无限刷新循环。
+                let inScroller = false;
+                let anc = panel.parentElement;
+                while (anc && anc !== document.body) {
+                    const ov = getComputedStyle(anc).overflowY;
+                    if (ov === 'auto' || ov === 'scroll') { inScroller = true; break; }
+                    anc = anc.parentElement;
+                }
+                if (inScroller) return;   // 已随列表滚动 → 稳态零扫描早退
+                // 面板在文档中但不在滚动容器内（误插残留/容器被替换）→ 继续走下方重挂
+            }
+            const sc = findScrollContainer();
+            if (!sc) return;   // 侧栏/滚动容器尚未就绪：暂不挂载，等下次 schedule 重试（避免误插容器外被钉死）
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = 'dsFolderPanel';
+                panel.innerHTML = `
                 <div class="dsfh">
                     <span class="dsHeadTitle" title="${data.collapsed ? '展开全部' : '折叠全部'}" role="button" tabindex="0">
                         <svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg><b>文件夹</b>
@@ -1658,34 +1690,29 @@
                     <button class="dsNew" title="新建文件夹">＋ 新建</button>
                 </div>
                 <div class="dsList"></div>`;
-            setCollapsedUI();
-            const headTitle = panel.querySelector('.dsHeadTitle');
-            const foldAll = () => { data.collapsed = !data.collapsed; saveData(); setCollapsedUI(); };
-            headTitle.addEventListener('click', foldAll);
-            headTitle.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); foldAll(); }
-            });
-            panel.querySelector('.dsNew').addEventListener('click', () => {
-                data.collapsed = false;          // 新建时自动展开，方便立即看到新夹
-                setCollapsedUI();                 // 先反映（含保存 collapsed）
-                onCreateFolder();
-            });
-            const sc = findScrollContainer();
-            if (sc) {
-                const titleRow = [...sc.querySelectorAll('div')].find((d) => {
-                    const cs = getComputedStyle(d);
-                    return cs.position === 'sticky' && d.clientHeight > 0 && d.clientHeight < 60;
+                const headTitle = panel.querySelector('.dsHeadTitle');
+                const foldAll = () => { data.collapsed = !data.collapsed; saveData(); setCollapsedUI(); };
+                headTitle.addEventListener('click', foldAll);
+                headTitle.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); foldAll(); }
                 });
-                if (titleRow && titleRow.parentElement) {
-                    titleRow.insertAdjacentElement('afterend', panel);
-                } else {
-                    sc.insertBefore(panel, sc.firstChild); // 兜底
-                }
-            } else {
-                const btn = findNewChatBtn();  // 无会话链接时降级常驻顶部
-                if (!btn) return;
-                btn.insertAdjacentElement('afterend', panel);
+                panel.querySelector('.dsNew').addEventListener('click', () => {
+                    data.collapsed = false;          // 新建时自动展开，方便立即看到新夹
+                    setCollapsedUI();                 // 先反映（含保存 collapsed）
+                    onCreateFolder();
+                });
             }
+            // 挂入/重挂入滚动容器（若面板此前被误插到别处则自动迁移，修复升级前的残留）
+            const titleRow = [...sc.querySelectorAll('div')].find((d) => {
+                const cs = getComputedStyle(d);
+                return cs.position === 'sticky' && d.clientHeight > 0 && d.clientHeight < 60;
+            });
+            if (titleRow && titleRow.parentElement) {
+                titleRow.insertAdjacentElement('afterend', panel);
+            } else {
+                sc.insertBefore(panel, sc.firstChild); // 兜底
+            }
+            setCollapsedUI();   // 挂载后再应用折叠态（原在创建块调用时面板未入 DOM，getElementById 找不到 → no-op，导致刷新后 data.collapsed 不生效）
             renderFolders();
         }
 

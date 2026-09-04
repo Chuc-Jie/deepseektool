@@ -1,5 +1,16 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v4.7.1 (2026-09-05)
+
+### 修复
+- **文件夹面板偶发不随会话列表滚动**：根因是 `ensurePanel` 在会话链接尚未渲染的加载/导航竞态下，`findScrollContainer` 返回 null 后把面板兜底插到「新对话」按钮之后（滚动容器外），再加 `getElementById` 早退守卫导致错误位置被永久锁定。现：`findScrollContainer` 增加兜底——链接缺失时从「新对话」按钮向上定位侧栏根、再于其后代中寻找唯一滚动容器；删除「插到新对话按钮后」的容器外降级；`ensurePanel` 对面板做自修复重挂（若被误插到别处自动迁移回滚动容器，升级前残留一并校正）。
+- **文件夹面板与原生「多选」按钮视觉重叠**：面板正确进入会话列表顶部后，原生绝对定位的「多选」按钮（固定悬浮于列表视口右上）压在面板顶部。`#dsFolderPanel` 顶部内边距 6px → 22px 预留悬浮按钮行，面板内容整体下移至按钮之下。
+- **文件夹树稳态下反复重建（无限刷新循环）**：`ensurePanel` 快路径守卫只检查面板直接父级是否为滚动容器，但面板实际经「置顶」sticky 行挂在内容包装层（overflow:visible）下、真正的列表 scroller 在其上方若干层——守卫永不成立 → 每轮 schedule 都重挂并 `renderFolders` 重建 `.dsList`（真实 mutation → observer → schedule 自激）。改为沿祖先链判定「是否已在滚动容器内」，稳态零额外渲染。
+- **面板折叠态刷新后首挂载不生效**：`setCollapsedUI` 原在面板入 DOM 前调用（`getElementById` 找不到 → no-op），`data.collapsed=true` 需点一次标题才生效。改为面板挂载后再调用。
+
+### 优化
+- `ensurePanel` 稳态路径零全量扫描：面板已随列表滚动时直接早退（仅一次 `getComputedStyle` 祖先链判定），不再每轮调用 `findScrollContainer`。
+
 ## v4.7.0 (2026-09-04)
 
 ### 新增
