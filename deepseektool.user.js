@@ -34,6 +34,7 @@
     const STORAGE_WIDE_SCREEN = 'deepseek_wide_screen';
     const STORAGE_FOLDER_MANAGER = 'deepseek_folder_manager_enabled';   // 对话文件夹管理总开关（默认关）
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
+    const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -45,6 +46,7 @@
     let tableWidthMode = GM_getValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
     let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
     let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
+    let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -73,6 +75,32 @@
         setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, duration);
     }
 
+    // ==================== 发送快捷键：Ctrl+Enter 发送 / Enter 换行（可开关，默认关） ====================
+    // 来自社区 PR（wha4up）并在 v4.6.1 复核。DeepSeek 原生为“Enter 发送、Shift+Enter 换行”；
+    // 开启后：纯 Enter → stopPropagation 让官方改用“仅换行”；Ctrl/Cmd+Enter → 以不带修饰的 Enter 事件
+    // 再次触发，让官方按 Enter(发送/换行)处理，从而在打字区按【Ctrl+Enter】等效发送。
+    let _supressNextEnter = false;
+    document.addEventListener('keydown', (e) => {
+        if (!ctrlEnterEnabled) return;
+        if (e.target && e.target.tagName !== 'TEXTAREA') return;
+        if (e.key !== 'Enter') return;
+        if (_supressNextEnter) { _supressNextEnter = false; return; }
+        if (e.ctrlKey || e.metaKey) {
+            // Ctrl/Cmd+Enter → 视同 Enter（发送/换行取决于表单当前语义），不携带 ctrl/meta
+            e.preventDefault();
+            e.stopPropagation();
+            _supressNextEnter = true;
+            e.target.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+                bubbles: true, cancelable: true, composed: true,
+                ctrlKey: false, metaKey: false, shiftKey: false,
+            }));
+        } else if (!e.shiftKey) {
+            // 开启模式下把“纯 Enter”改视为换行，不再发送
+            e.stopPropagation();
+        }
+        // Shift+Enter 保持原生语义（换行）不做拦截
+    }, true);
     // ==================== 统一控制面板 ====================
     function openControlPanel() {
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
@@ -181,6 +209,17 @@
             }),
         ]));
 
+        // 发送快捷键（Ctrl+Enter）/ 聊天增强
+        body.appendChild(createCard('\u2328\uFE0F 聊天发送设置', [
+            createToggle('Ctrl+Enter 发送', '改为 Ctrl+Enter 发送、原生 Enter 换行；关闭时恢复官方（Enter 发送 / Shift+Enter 换行）',
+                ctrlEnterEnabled, checked => {
+                    ctrlEnterEnabled = checked;
+                    GM_setValue(STORAGE_CTRL_ENTER, checked);
+                    if (!checked) showToast('已恢复 Enter 发送，Shift+Enter 换行');
+                    else showToast('已开启 Ctrl+Enter 发送，Enter 换行');
+                }),
+        ]));
+
         // 侧边栏对话文件夹管理（并入自 waitadd 独立脚本）
         body.appendChild(createCard('\uD83D\uDCC1 对话文件夹管理', [
             createToggle('启用文件夹分组', '在左侧对话历史栏加入「文件夹」分组面板，可通过会话 ⋯ 菜单移入/移出；关闭即整体移除（含已应用的分组/标签）',
@@ -213,6 +252,7 @@
                 tableThemeMode = 'auto'; GM_setValue(STORAGE_TABLE_THEME_MODE, 'auto');
                 tableWidthMode = 'equal'; GM_setValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
+                ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
                     GM_setValue(STORAGE_FOLDER_MANAGER, false);
@@ -960,30 +1000,35 @@
         table.style.opacity = '1';
     }
 
+    // 深拷贝表格并清洗脚本注入的内联样式/辅助节点，供各导出格式（PNG/CSV/MD）复用；
+    // 使导出内容回归“auto”布局、不污染页面 DOM，也避免各导出路径各自复制一份清洗逻辑。
+    function getCleanTableClone(table) {
+        const clone = table.cloneNode(true);
+        // 恢复默认可见性，并移除导出按钮容器与脚本注入标记
+        clone.style.opacity = '1';
+        const btns = clone.querySelector('.table-internal-buttons');
+        if (btns) btns.remove();
+        clone.removeAttribute('data-internal-buttons-added');
+        // 清洗 applyTableStyles 注入的内联样式（含 fixed 布局相关），让导出内容用到干净样式
+        clone.style.tableLayout = '';
+        clone.style.width = '';
+        clone.style.maxWidth = '';
+        clone.style.position = '';
+        clone.querySelectorAll('th,td').forEach(cell => {
+            cell.style.width = '';
+            cell.style.whiteSpace = '';
+            cell.style.overflowWrap = '';
+            cell.style.wordBreak = '';
+        });
+        return clone;
+    }
+
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) { alert('html2canvas 未加载'); return; }
         let iframe = null;
         try {
-            // 克隆表格（深拷贝，避免污染页面 DOM）
-            const clone = table.cloneNode(true);
-            // 移除导出按钮和脚本注入属性，并且恢复 visibility/opacity
-            clone.style.opacity = '1';
-            const btns = clone.querySelector('.table-internal-buttons');
-            if (btns) btns.remove();
-            // 移除脚本注入的自定义属性
-            clone.removeAttribute('data-internal-buttons-added');
-
-            // 清洗 applyTableStyles 注入的内联样式，使 iframe 中表格回归 auto 布局
-            clone.style.tableLayout = '';
-            clone.style.width = '';
-            clone.style.maxWidth = '';
-            clone.style.position = '';
-            clone.querySelectorAll('th,td').forEach(cell => {
-                cell.style.width = '';
-                cell.style.whiteSpace = '';
-                cell.style.overflowWrap = '';
-                cell.style.wordBreak = '';
-            });
+            // 深拷贝表格并清洗注入样式（PNG/CSV/MD 共用导出主体）
+            const clone = getCleanTableClone(table);
 
             // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）
             const styles = collectTableStyles();
@@ -1107,18 +1152,19 @@
     }
 
     function exportTableAsCSV(table) {
+        const clone = getCleanTableClone(table);   // 基于清洗克隆，避免读取页面注入样式/按钮
         const rows = [];
-        const thead = table.querySelector('thead');
+        const thead = clone.querySelector('thead');
         if (thead) thead.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('th').forEach(th => rd.push(getCellText(th)));
             if (rd.length) rows.push(rd);
         });
-        const tbody = table.querySelector('tbody');
+        const tbody = clone.querySelector('tbody');
         if (tbody) tbody.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('td').forEach(td => rd.push(getCellText(td)));
             if (rd.length) rows.push(rd);
         });
-        else table.querySelectorAll('tr').forEach(tr => {
+        else clone.querySelectorAll('tr').forEach(tr => {
             const rd = []; tr.querySelectorAll('td,th').forEach(c => rd.push(getCellText(c)));
             if (rd.length) rows.push(rd);
         });
@@ -1133,6 +1179,53 @@
         a.download = `table_${Date.now()}.csv`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 100);
+    }
+
+    // 导出为 Markdown 表格并复制到剪贴板（📝）
+    function exportTableAsMD(table) {
+        const clone = getCleanTableClone(table);
+        const rows = [];
+        const thead = clone.querySelector('thead');
+        if (thead) thead.querySelectorAll('tr').forEach(tr => {
+            const rd = []; tr.querySelectorAll('th').forEach(th => rd.push(getCellTextForMarkdown(th)));
+            if (rd.length) rows.push(rd);
+        });
+        // 有表头时追加分隔行
+        if (rows.length) rows.push(rows[0].map(() => '---'));
+        const tbody = clone.querySelector('tbody');
+        if (tbody) tbody.querySelectorAll('tr').forEach(tr => {
+            const rd = []; tr.querySelectorAll('td').forEach(td => rd.push(getCellTextForMarkdown(td)));
+            if (rd.length) rows.push(rd);
+        });
+        else clone.querySelectorAll('tr').forEach((tr, idx) => {
+            const rd = []; tr.querySelectorAll('td,th').forEach(c => rd.push(getCellTextForMarkdown(c)));
+            if (!rd.length) return;
+            if (idx === 0 && rows.length === 0) rows.push(rd.map(() => '---')); // 无表头：首行后补分隔
+            rows.push(rd);
+        });
+        if (!rows.length) { alert('无数据'); return; }
+        const md = rows.map(r => '| ' + r.join(' | ') + ' |').join('\n');
+        navigator.clipboard.writeText(md)
+            .then(() => showToast('表格已复制为 Markdown'))
+            .catch(() => alert('复制失败，请手动复制'));
+    }
+
+    // 提取带 Markdown 行内语法（`code` / **加粗** / *斜体*）的单元格文本，并对管道符做转义；
+    // 单元格内的 <br> 因会破坏表格“一行一格”结构，这里折叠为普通空格（与 CSV 的换行保留策略不同）
+    function getCellTextForMarkdown(cell) {
+        let text = '';
+        cell.childNodes.forEach(n => {
+            if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
+            else if (n.nodeName === 'BR') text += '\n';
+            else if (n.nodeType === Node.ELEMENT_NODE) {
+                if (n.tagName === 'CODE') text += '`' + n.textContent + '`';
+                else if (n.tagName === 'STRONG' || n.tagName === 'B') text += '**' + n.textContent + '**';
+                else if (n.tagName === 'EM' || n.tagName === 'I') text += '*' + n.textContent + '*';
+                else text += getCellTextForMarkdown(n);
+            }
+        });
+        return text.replace(/[^\S\n]+/g, ' ').replace(/ *\n */g, ' ').trim()
+            .replace(/\|/g, '\\|');
     }
 
     function getCellText(cell) {
@@ -1163,7 +1256,12 @@
         csvBtn.setAttribute('data-tooltip', '导出为 CSV');
         csvBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsCSV(table); });
 
-        bc.appendChild(pngBtn); bc.appendChild(csvBtn);
+        const mdBtn = document.createElement('button');
+        mdBtn.className = 'internal-export-btn'; mdBtn.innerHTML = '📝';
+        mdBtn.setAttribute('data-tooltip', '导出为 Markdown');
+        mdBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsMD(table); });
+
+        bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
         table.appendChild(bc);
     }
 
