@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.6.1
+// @version      4.7.0
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -76,7 +76,7 @@
     }
 
     // ==================== 发送快捷键：Ctrl+Enter 发送 / Enter 换行（可开关，默认关） ====================
-    // 来自社区 PR（wha4up）并在 v4.6.1 复核。DeepSeek 原生为“Enter 发送、Shift+Enter 换行”；
+    // 来自社区 PR（wha4up）并在 v4.7.0 复核。DeepSeek 原生为“Enter 发送、Shift+Enter 换行”；
     // 开启后：纯 Enter → stopPropagation 让官方改用“仅换行”；Ctrl/Cmd+Enter → 以不带修饰的 Enter 事件
     // 再次触发，让官方按 Enter(发送/换行)处理，从而在打字区按【Ctrl+Enter】等效发送。
     let _supressNextEnter = false;
@@ -1054,7 +1054,7 @@
             if (!iframeTable) throw new Error('iframe 中未找到表格元素');
 
             const canvas = await html2canvas(iframeTable, {
-                scale: 3,   // 提升 PNG 导出分辨率（v4.6.1）
+                scale: 3,   // 提升 PNG 导出分辨率（v4.7.0）
                 backgroundColor: '#ffffff',
                 logging: false,
             });
@@ -1462,7 +1462,7 @@
                 const d = JSON.parse(GM_getValue(STORAGE_FOLDER_DATA, 'null'));
                 if (d && Array.isArray(d.folders) && d.links) {
                     if (!d.expanded || typeof d.expanded !== 'object') d.expanded = {};
-                    if (typeof d.collapsed !== 'boolean') d.collapsed = false;   // 面板整体折叠态（v4.6.1 新增）
+                    if (typeof d.collapsed !== 'boolean') d.collapsed = false;   // 面板整体折叠态（v4.7.0 新增）
                     return d;
                 }
             } catch (e) { /* ignore */ }
@@ -1923,7 +1923,7 @@
                 // 防「伪悬停」误展开：点击三点按钮重现当前菜单时，若该项恰在指针正下方而指针没动，
                 // 浏览器仍会合成一个 mouseenter。判定——菜单刚被打开(pointerdown 距今 <300ms)且
                 // 自该打开后没有任何真实指针位移(lastRealMoveAt 停在更早) —— 视为伪事件，先不展开，
-                // 等用户真正把光标移入该项才 `mouseenter`/`pointerenter`（届时已有新位移）自然打开。v4.6.1
+                // 等用户真正把光标移入该项才 `mouseenter`/`pointerenter`（届时已有新位移）自然打开。v4.7.0
                 if (Date.now() - lastMenuOpenAt < 300 && lastRealMoveAt < lastMenuOpenAt) return;
                 cancelClosePopup();
                 if (fCurrentMenuSid) openFolderPopup(fCurrentMenuSid, item);
