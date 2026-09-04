@@ -1443,7 +1443,9 @@
         /* 去掉区内自设 300px 独立滚动：让整个文件夹区随原生会话历史一起滚，内部不再单独出滚动条 */
         #dsFolderPanel .dsList{display:flex; flex-direction:column; gap:2px;}
         #dsFolderPanel.collapsed .dsList{display:none;}   /* 面板整体折叠（点标题收起） */
+        #dsFolderPanel.collapsed .dsNew{display:none;}    /* 折叠态也不展示「＋ 新建」，只留标题行可展开 */
         #dsFolderPanel.collapsed .dsfh{margin-bottom:0;}  /* 收起后挤掉与列表的间隙，仅留标题行 */
+        #dsFolderPanel.collapsed .dsHeadTitle{margin-right:0;}  /* 标题占满整行便于再点开 */
         #dsFolderPanel .dsItem{display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px;
             min-height:35px; box-sizing:border-box;
             cursor:pointer; color:var(--ds-text);}
