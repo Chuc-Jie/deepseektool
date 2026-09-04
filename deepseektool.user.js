@@ -1359,10 +1359,11 @@
                 const d = JSON.parse(GM_getValue(STORAGE_FOLDER_DATA, 'null'));
                 if (d && Array.isArray(d.folders) && d.links) {
                     if (!d.expanded || typeof d.expanded !== 'object') d.expanded = {};
+                    if (typeof d.collapsed !== 'boolean') d.collapsed = false;   // 面板整体折叠态（v4.6.1 新增）
                     return d;
                 }
             } catch (e) { /* ignore */ }
-            return { folders: [], links: {}, expanded: {} };
+            return { folders: [], links: {}, expanded: {}, collapsed: false };
         }
         let data = loadData();
         function saveData() { GM_setValue(STORAGE_FOLDER_DATA, JSON.stringify(data)); }
@@ -1430,6 +1431,10 @@
             user-select:none;
         }
         #dsFolderPanel .dsfh{display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding-left:10px;}
+        #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 0; margin-left:-8px; border-radius:6px; user-select:none;}
+        #dsFolderPanel .dsfh .dsHeadTitle:hover{background:var(--ds-hover);}
+        #dsFolderPanel .dsHeadCaret{width:15px;height:15px;flex:0 0 auto;color:var(--ds-sub);transition:transform .15s ease;}
+        #dsFolderPanel.collapsed .dsHeadCaret{transform:rotate(-90deg);}   /* 折叠态箭头朝右 */
         #dsFolderPanel .dsfh b{font-weight:500; font-size:12px; color:var(--ds-sub); letter-spacing:.4px;}
         #dsFolderPanel .dsNew{background:transparent; color:var(--ds-sub);
             border:1px solid var(--ds-divider); border-radius:100px;
@@ -1437,6 +1442,8 @@
         #dsFolderPanel .dsNew:hover{background:var(--ds-hover); color:var(--ds-text);}
         /* 去掉区内自设 300px 独立滚动：让整个文件夹区随原生会话历史一起滚，内部不再单独出滚动条 */
         #dsFolderPanel .dsList{display:flex; flex-direction:column; gap:2px;}
+        #dsFolderPanel.collapsed .dsList{display:none;}   /* 面板整体折叠（点标题收起） */
+        #dsFolderPanel.collapsed .dsfh{margin-bottom:0;}  /* 收起后挤掉与列表的间隙，仅留标题行 */
         #dsFolderPanel .dsItem{display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px;
             min-height:35px; box-sizing:border-box;
             cursor:pointer; color:var(--ds-text);}
@@ -1523,9 +1530,25 @@
             const panel = document.createElement('div');
             panel.id = 'dsFolderPanel';
             panel.innerHTML = `
-                <div class="dsfh"><b>文件夹</b><button class="dsNew" title="新建文件夹">＋ 新建</button></div>
+                <div class="dsfh">
+                    <span class="dsHeadTitle" title="${data.collapsed ? '展开全部' : '折叠全部'}" role="button" tabindex="0">
+                        <svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg><b>文件夹</b>
+                    </span>
+                    <button class="dsNew" title="新建文件夹">＋ 新建</button>
+                </div>
                 <div class="dsList"></div>`;
-            panel.querySelector('.dsNew').addEventListener('click', onCreateFolder);
+            setCollapsedUI();
+            const headTitle = panel.querySelector('.dsHeadTitle');
+            const foldAll = () => { data.collapsed = !data.collapsed; saveData(); setCollapsedUI(); };
+            headTitle.addEventListener('click', foldAll);
+            headTitle.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); foldAll(); }
+            });
+            panel.querySelector('.dsNew').addEventListener('click', () => {
+                data.collapsed = false;          // 新建时自动展开，方便立即看到新夹
+                setCollapsedUI();                 // 先反映（含保存 collapsed）
+                onCreateFolder();
+            });
             const sc = findScrollContainer();
             if (sc) {
                 const titleRow = [...sc.querySelectorAll('div')].find((d) => {
@@ -1543,6 +1566,15 @@
                 btn.insertAdjacentElement('afterend', panel);
             }
             renderFolders();
+        }
+
+        /* ---- 面板整体折叠态 UI（数据在 data.collapsed；纯 class 由 CSS 控制显示） ---- */
+        function setCollapsedUI() {
+            const panel = document.getElementById('dsFolderPanel');
+            if (!panel) return;
+            panel.classList.toggle('collapsed', !!data.collapsed);
+            const t = panel.querySelector('.dsHeadTitle');
+            if (t) t.title = data.collapsed ? '展开全部' : '折叠全部';
         }
 
         /* ---- 归档可见性：已收进文件夹的会话从原生历史列表隐藏（避免点它时官方滚回原位） ---- */
