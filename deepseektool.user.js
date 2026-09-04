@@ -27,6 +27,7 @@
     const STORAGE_FOLD_THRESHOLD = 'deepseek_fold_threshold';
     const STORAGE_PREVIEW_LINES = 'deepseek_fold_preview_lines';
     const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
+    const STORAGE_TABLE_BUTTONS_ALWAYS = 'deepseek_table_buttons_always';  // 导出按钮恒定显示（默认关）
     const STORAGE_AUTO_COLLAPSE_THINKING = 'deepseek_auto_collapse_thinking';
     const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
     const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
@@ -40,6 +41,7 @@
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
     let enablePreviewLines = previewLines > 0;
     let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
+    let tableButtonsAlways = GM_getValue(STORAGE_TABLE_BUTTONS_ALWAYS, false);  // 导出按钮恒定常显（默认关）
     let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
     let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
@@ -163,6 +165,12 @@
                 toggleTableButtons(checked);
                 showToast(`表格导出按钮已${checked ? '开启' : '关闭'}`);
             }),
+            createToggle('持续显示导出按钮', '无需悬停，表格上的 📸 📄 📝 导出按钮始终可见（需上面的“表格导出按钮”开启才生效）', tableButtonsAlways, checked => {
+                tableButtonsAlways = checked;
+                GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, checked);
+                setTableButtonsAlways(checked);
+                showToast(`导出按钮已改为${checked ? '常显' : '悬停显示'}`);
+            }),
             createSelect('表格主题适配', '自动：半透明叠加色通用 \u00B7 双模式：浅色/深色各自优化', [
                 { value: 'auto', label: '自动适应（透明叠加）' },
                 { value: 'dual', label: '双模式（浅色 / 深色）' },
@@ -253,6 +261,7 @@
                 tableWidthMode = 'equal'; GM_setValue(STORAGE_TABLE_WIDTH_MODE, 'equal');
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
+                tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
                     GM_setValue(STORAGE_FOLDER_MANAGER, false);
@@ -467,6 +476,11 @@
         document.documentElement.classList.toggle('ds-wide-screen', on);
     }
 
+    // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
+    function setTableButtonsAlways(on) {
+        document.documentElement.classList.toggle('ds-export-always', !!on);
+    }
+
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
 
@@ -655,6 +669,8 @@
         }
         .ds-markdown table:hover .table-internal-buttons,
         .table-internal-buttons:hover { opacity: 1; visibility: visible; pointer-events: auto; }
+        /* 恒显开关：开启后导出按钮始终可见，不再依赖悬停 */
+        html.ds-export-always .table-internal-buttons { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }
         .internal-export-btn {
             width: 32px; height: 32px; border-radius: 8px;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -2128,6 +2144,7 @@
     function init() {
         applyTableThemeClass(tableThemeMode);
         applyWideScreen(wideScreen);
+        setTableButtonsAlways(tableButtonsAlways);
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
