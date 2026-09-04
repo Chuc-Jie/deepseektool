@@ -1054,7 +1054,7 @@
             if (!iframeTable) throw new Error('iframe 中未找到表格元素');
 
             const canvas = await html2canvas(iframeTable, {
-                scale: 2,
+                scale: 3,   // 提升 PNG 导出分辨率（v4.6.1）
                 backgroundColor: '#ffffff',
                 logging: false,
             });
@@ -1121,7 +1121,7 @@
         // 基础表格样式（兜底，根据当前主题模式选择配色）
         const bodyBg = getComputedStyle(document.body).backgroundColor || '#ffffff';
         css += /*css*/`
-            body { background: ${bodyBg}; }
+            body { background: ${bodyBg}; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
             table {
                 width: 100%; border-collapse: separate; border-spacing: 0;
                 margin: 1em 0; border-radius: 12px; overflow: hidden;
@@ -1133,6 +1133,11 @@
                 white-space: normal; word-wrap: break-word;
             }
             th { font-weight: 600; }
+            /* 单元格内联代码的兜底样式（PNG iframe 导出图里的 code） */
+            table code {
+                background: rgba(128,128,128,0.1); padding: 2px 4px;
+                border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em;
+            }
             ${mode === 'auto' ? /* 自动透明叠加 */`
                 th, td { border: 1px solid rgba(128,128,128,0.2); }
                 th { background: rgba(128,128,128,0.08); border-bottom: 1px solid rgba(128,128,128,0.2); }
