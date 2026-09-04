@@ -27,28 +27,20 @@ jobs:
           echo "current=$VERSION" >> "$GITHUB_OUTPUT"
           echo "当前版本: $VERSION"
 
-      - name: 获取上一版本
-        id: prev_version
-        run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
-          if [ "$LATEST_TAG" != "none" ]; then
-            PREV_VERSION=${LATEST_TAG#v}
-            echo "previous=$PREV_VERSION" >> "$GITHUB_OUTPUT"
-            echo "上一版本: $PREV_VERSION"
-          else
-            echo "previous=none" >> "$GITHUB_OUTPUT"
-            echo "未找到历史版本"
-          fi
-
-      - name: 检查版本是否更新
+      - name: Release 是否已存在
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ steps.prev_version.outputs.previous }}" = "${{ steps.version.outputs.current }}" ]; then
+          # 防重复守护以「该版本号的 Release 是否已存在于 GitHub」为准，而非比对最新 git tag。
+          # 否则 tag 一旦被提前推上去（v4.7.0 先打标即属此例），发布任务会被误判“版本未变化而跳过”，
+          # 结果是只有 tag、始终没有真正生成 Release。
+          if gh release view v${{ steps.version.outputs.current }} >/dev/null 2>&1; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "版本号未变化，跳过发布"
+            echo "Release v${{ steps.version.outputs.current }} 已存在，跳过发布"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "版本已更新: ${{ steps.prev_version.outputs.previous }} → ${{ steps.version.outputs.current }}"
+            echo "未找到 Release v${{ steps.version.outputs.current }}，准备发布"
           fi
 
       - name: 打包源码
