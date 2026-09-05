@@ -117,139 +117,241 @@
         `;
 
         const panel = document.createElement('div');
-        panel.className = 'ds-panel';   // 供滚动条样式精确定位（避免误伤页面其它滚动条）
-        panel.style.cssText = `
-            background: #1a1a24; border-radius: 20px;
-            box-shadow: 0 16px 40px rgba(0,0,0,0.35); width: 480px; max-width: 94%;
-            font-family: system-ui, -apple-system, sans-serif;
-            color: #e4e4e8; max-height: 82vh; overflow-y: auto;
-        `;
+        panel.className = 'ds-panel';
 
-        // 头部
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:20px 24px 0 24px;';
+        /* ===== 左侧导航 ===== */
+        const sidebar = document.createElement('aside');
+        sidebar.className = 'ds-p-sidebar';
+
+        const NAV_ITEMS = [
+            { key: 'fold', icon: 'code-tags', label: '代码块折叠' },
+            { key: 'table', icon: 'table-large', label: '表格优化导出' },
+            { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
+            { key: 'wide', icon: 'monitor', label: '宽屏模式' },
+            { key: 'chat', icon: 'send', label: '聊天发送' },
+            { key: 'folder', icon: 'folder-outline', label: '对话文件夹' },
+        ];
+        const NAV_EXTRA = [
+            { key: 'help', icon: 'help-circle-outline', label: '帮助中心' },
+            { key: 'about', icon: 'information-outline', label: '关于' },
+        ];
+
+        // iconify 图标：左侧导航 / logo（深蓝底固定亮色）；右侧标题需随主题取色
+        const ICON_HOST = 'https://api.iconify.design/mdi:';
+        const isPanelDark = () => document.body.classList.contains('dark');
+        const mdiNavUrl = (name) => ICON_HOST + name + '.svg?color=%23e6eaf2';
+        const mdiHeadUrl = (name) => ICON_HOST + name + '.svg?color=' + (isPanelDark() ? '%23e4e4e8' : '%231e293b');
+        function makeIconImg(name, cls, url) {
+            const im = document.createElement('img');
+            im.className = cls; im.src = url(name); im.alt = '';
+            im.draggable = false;
+            return im;
+        }
+
+        const logo = document.createElement('div');
+        logo.className = 'ds-p-logo';
+        const logoIc = document.createElement('span');
+        logoIc.className = 'ds-p-logo-ic';
+        logoIc.appendChild(makeIconImg('cog', 'ds-p-logo-ic-img', mdiNavUrl));
+        const logoTx = document.createElement('div');
+        logoTx.className = 'ds-p-logo-tx';
+        logoTx.innerHTML = '<div class="ds-p-logo-t">脚本设置</div><div class="ds-p-logo-s">DeepSeek 功能增强工具箱</div>';
+        logo.appendChild(logoIc);
+        logo.appendChild(logoTx);
+        sidebar.appendChild(logo);
+
+        const navBtns = [];
+        function renderNav(items) {
+            items.forEach(item => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'ds-p-nav';
+                btn.dataset.target = item.key;
+                const ind = document.createElement('span');
+                ind.className = 'ds-p-nav-ind';
+                const bd = document.createElement('span');
+                bd.className = 'ds-p-nav-bd';
+                bd.appendChild(makeIconImg(item.icon, 'ds-p-nav-ic', mdiNavUrl));
+                const lab = document.createElement('span');
+                lab.className = 'ds-p-nav-label';
+                lab.textContent = item.label;
+                bd.appendChild(lab);
+                btn.appendChild(ind);
+                btn.appendChild(bd);
+                sidebar.appendChild(btn);
+                navBtns.push(btn);
+            });
+        }
+        renderNav(NAV_ITEMS);
+        const navDivider = document.createElement('div');
+        navDivider.className = 'ds-p-nav-divider';
+        sidebar.appendChild(navDivider);
+        renderNav(NAV_EXTRA);
+        panel.appendChild(sidebar);
+
+        /* ===== 右侧主区 ===== */
+        const main = document.createElement('div');
+        main.className = 'ds-p-main';
+
+        const topbar = document.createElement('div');
+        topbar.className = 'ds-p-topbar';
         const closeX = document.createElement('button');
-        closeX.textContent = '\u2715';
-        closeX.style.cssText = 'background:none; border:none; color:rgba(255,255,255,0.4); font-size:22px; cursor:pointer; padding:4px 8px; line-height:1; border-radius:6px; transition:all 0.15s;';
-        closeX.addEventListener('mouseenter', () => { closeX.style.background = 'rgba(255,255,255,0.08)'; closeX.style.color = 'rgba(255,255,255,0.8)'; });
-        closeX.addEventListener('mouseleave', () => { closeX.style.background = 'none'; closeX.style.color = 'rgba(255,255,255,0.4)'; });
+        closeX.type = 'button';
+        closeX.className = 'ds-p-close';
+        closeX.textContent = '✕';
+        closeX.setAttribute('aria-label', '关闭设置');
         closeX.addEventListener('click', () => overlay.remove());
-        header.innerHTML = '<h2 style="margin:0; font-size:18px; font-weight:600;">\u2699\ufe0f 脚本设置</h2>';
-        header.appendChild(closeX);
-        panel.appendChild(header);
+        topbar.appendChild(closeX);
+        main.appendChild(topbar);
 
-        const body = document.createElement('div');
-        body.style.cssText = 'padding:16px 24px;';
+        const scroll = document.createElement('div');
+        scroll.className = 'ds-p-scroll';
 
-        // 代码块折叠
-        body.appendChild(createCard('\uD83D\uDCE6 代码块折叠', [
-            createNumberSetting('自动折叠阈值', '代码行数超过该值时自动折叠（0 = 禁用）', '行', foldThreshold, value => {
-                foldThreshold = value;
-                GM_setValue(STORAGE_FOLD_THRESHOLD, value);
-                reapplyFoldToAllCodeBlocks();
-                showToast(`折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
-            }),
-            createNumberSetting('折叠预览行数', '折叠后显示的行数（0 = 完全隐藏）', '行', previewLines, value => {
-                previewLines = value;
-                enablePreviewLines = value > 0;
-                GM_setValue(STORAGE_PREVIEW_LINES, value);
-                reapplyFoldToAllCodeBlocks();
-                showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
-            }),
-        ]));
-
-        // 表格优化导出
-        body.appendChild(createCard('\uD83D\uDCCA 表格优化导出', [
-            createToggle('表格导出按钮', '悬停表格显示 PNG / CSV 导出按钮', tableButtonsEnabled, checked => {
-                tableButtonsEnabled = checked;
-                GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, checked);
-                toggleTableButtons(checked);
-                showToast(`表格导出按钮已${checked ? '开启' : '关闭'}`);
-            }),
-            createToggle('持续显示导出按钮', '无需悬停，表格上的 📸 📄 📝 导出按钮始终可见（需上面的“表格导出按钮”开启才生效）', tableButtonsAlways, checked => {
-                tableButtonsAlways = checked;
-                GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, checked);
-                setTableButtonsAlways(checked);
-                showToast(`导出按钮已改为${checked ? '常显' : '悬停显示'}`);
-            }),
-            createSelect('表格主题适配', '自动：半透明叠加色通用 \u00B7 双模式：浅色/深色各自优化', [
-                { value: 'auto', label: '自动适应（透明叠加）' },
-                { value: 'dual', label: '双模式（浅色 / 深色）' },
-            ], tableThemeMode, value => {
-                tableThemeMode = value;
-                GM_setValue(STORAGE_TABLE_THEME_MODE, value);
-                applyTableThemeClass(value);
-                showToast(`表格主题已切换为${value === 'auto' ? '自动适应' : '双模式'}`);
-            }),
-            createSelect('表格列宽策略', '均分：等宽 \u00B7 自适应：按内容比例 \u00B7 均分+保护：等宽且不低于 80px', [
-                { value: 'equal', label: '均分列宽' },
-                { value: 'auto', label: '自适应（内容比例）' },
-                { value: 'equal-minwidth', label: '均分 + 最小宽度保护' },
-            ], tableWidthMode, value => {
-                tableWidthMode = value;
-                GM_setValue(STORAGE_TABLE_WIDTH_MODE, value);
-                document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
-                showToast('列宽策略已切换');
-            }),
-        ]));
-
-        // AI 思考过程折叠
-        body.appendChild(createCard('\uD83E\uDDE0 AI 思考过程折叠', [
-            createToggle('自动折叠思考区域', 'AI 开始思考后自动收起\u300C已思考\u300D过程', autoCollapseThinking, checked => {
-                autoCollapseThinking = checked;
-                GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
-                reapplyThinkingSections();
-                showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}`);
-            }),
-            createToggle('模拟点击折叠', '通过模拟点击箭头折叠（保持原生交互）', simulateClickThinking, checked => {
-                simulateClickThinking = checked;
-                GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
-                showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}（新产生的思考生效）`);
-            }),
-        ]));
-
-        // 宽屏模式
-        body.appendChild(createCard('\uD83D\uDDA5\uFE0F 宽屏模式', [
-            createToggle('启用宽屏布局', '消息区域扩展至全宽，减少左右留白', wideScreen, checked => {
-                wideScreen = checked;
-                GM_setValue(STORAGE_WIDE_SCREEN, checked);
-                applyWideScreen(checked);
-                showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
-            }),
-        ]));
-
-        // 发送快捷键（Ctrl+Enter）/ 聊天增强
-        body.appendChild(createCard('\u2328\uFE0F 聊天发送设置', [
-            createToggle('Ctrl+Enter 发送', '改为 Ctrl+Enter 发送、原生 Enter 换行；关闭时恢复官方（Enter 发送 / Shift+Enter 换行）',
-                ctrlEnterEnabled, checked => {
+        /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
+        const sections = [
+            { key: 'fold', icon: 'code-tags', title: '代码块折叠', sub: '长代码自动收起，随手展开', build: () => [
+                createNumberSetting('自动折叠阈值', '代码行数超过该值时自动折叠（0 = 禁用）', '行', foldThreshold, value => {
+                    foldThreshold = value;
+                    GM_setValue(STORAGE_FOLD_THRESHOLD, value);
+                    reapplyFoldToAllCodeBlocks();
+                    showToast(`折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
+                }),
+                createNumberSetting('折叠预览行数', '折叠后显示的行数（0 = 完全隐藏）', '行', previewLines, value => {
+                    previewLines = value;
+                    enablePreviewLines = value > 0;
+                    GM_setValue(STORAGE_PREVIEW_LINES, value);
+                    reapplyFoldToAllCodeBlocks();
+                    showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
+                }),
+            ] },
+            { key: 'table', icon: 'table-large', title: '表格优化导出', sub: '宽度修复 · 主题配色 · PNG / CSV / Markdown 导出', build: () => [
+                createToggleSetting('表格导出按钮', '悬停表格显示 📸 📄 📝 导出按钮', tableButtonsEnabled, checked => {
+                    tableButtonsEnabled = checked;
+                    GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, checked);
+                    toggleTableButtons(checked);
+                    showToast(`表格导出按钮已${checked ? '开启' : '关闭'}`);
+                }),
+                createToggleSetting('持续显示导出按钮', '无需悬停，表格上的导出按钮始终可见（需上一项开启）', tableButtonsAlways, checked => {
+                    tableButtonsAlways = checked;
+                    GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, checked);
+                    setTableButtonsAlways(checked);
+                    showToast(`导出按钮已改为${checked ? '常显' : '悬停显示'}`);
+                }),
+                createSelectSetting('表格主题适配', '自动：半透明叠加色通用 · 双模式：浅色/深色各自优化', [
+                    { value: 'auto', label: '自动适应（透明叠加）' },
+                    { value: 'dual', label: '双模式（浅色 / 深色）' },
+                ], tableThemeMode, value => {
+                    tableThemeMode = value;
+                    GM_setValue(STORAGE_TABLE_THEME_MODE, value);
+                    applyTableThemeClass(value);
+                    showToast(`表格主题已切换为${value === 'auto' ? '自动适应' : '双模式'}`);
+                }),
+                createSelectSetting('表格列宽策略', '均分：等宽 · 自适应：按内容比例 · 均分+保护：等宽且不低于 80px', [
+                    { value: 'equal', label: '均分列宽' },
+                    { value: 'auto', label: '自适应（内容比例）' },
+                    { value: 'equal-minwidth', label: '均分 + 最小宽度保护' },
+                ], tableWidthMode, value => {
+                    tableWidthMode = value;
+                    GM_setValue(STORAGE_TABLE_WIDTH_MODE, value);
+                    document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
+                    showToast('列宽策略已切换');
+                }),
+            ] },
+            { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「已思考」区域自动收起', build: () => [
+                createToggleSetting('自动折叠思考区域', 'AI 开始思考后自动收起「已思考」过程', autoCollapseThinking, checked => {
+                    autoCollapseThinking = checked;
+                    GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
+                    reapplyThinkingSections();
+                    showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}`);
+                }),
+                createToggleSetting('模拟点击折叠', '通过模拟点击箭头折叠（保持原生交互）；关闭后用 CSS 直接折叠', simulateClickThinking, checked => {
+                    simulateClickThinking = checked;
+                    GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
+                    showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}（新产生的思考生效）`);
+                }),
+            ] },
+            { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区扩展至全宽，减少左右留白', build: () => [
+                createToggleSetting('启用宽屏布局', '消息区扩展至全宽，减少左右留白', wideScreen, checked => {
+                    wideScreen = checked;
+                    GM_setValue(STORAGE_WIDE_SCREEN, checked);
+                    applyWideScreen(checked);
+                    showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
+                }),
+            ] },
+            { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送与快捷键', build: () => [
+                createToggleSetting('Ctrl+Enter 发送', '改为 Ctrl+Enter 发送、Enter 换行；关闭时恢复官方（Enter 发送 / Shift+Enter 换行）', ctrlEnterEnabled, checked => {
                     ctrlEnterEnabled = checked;
                     GM_setValue(STORAGE_CTRL_ENTER, checked);
                     if (!checked) showToast('已恢复 Enter 发送，Shift+Enter 换行');
                     else showToast('已开启 Ctrl+Enter 发送，Enter 换行');
                 }),
-        ]));
-
-        // 侧边栏对话文件夹管理（并入自 waitadd 独立脚本）
-        body.appendChild(createCard('\uD83D\uDCC1 对话文件夹管理', [
-            createToggle('启用文件夹分组', '在左侧对话历史栏加入「文件夹」分组面板，可通过会话 ⋯ 菜单移入/移出；关闭即整体移除（含已应用的分组/标签）',
-                folderManagerEnabled, checked => {
+            ] },
+            { key: 'folder', icon: 'folder-outline', title: '对话文件夹', sub: '左侧历史栏分组管理（可选模块）', build: () => [
+                createToggleSetting('启用文件夹分组', '在左侧对话历史栏加入「文件夹」分组面板，可通过会话 ⋯ 菜单移入/移出；关闭即整体移除（含已应用的分组/标签）', folderManagerEnabled, checked => {
                     folderManagerEnabled = checked;
                     GM_setValue(STORAGE_FOLDER_MANAGER, checked);
                     folderEnabledChanged(checked);
                 }),
-        ]));
+            ] },
+            {
+                key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '使用小贴士与常见问题',
+                build: () => [
+                    createInfoIntro('打开方法', 'Tampermonkey / ScriptCat 图标 → 本脚本 →「脚本设置」'),
+                    createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置自动保存，下次打开页面保持。'),
+                    createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效，欢迎反馈适配。'),
+                ],
+            },
+            {
+                key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 致谢',
+                build: () => [
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.7.1'),
+                    createInfoIntro('许可', 'MIT License · 完全开源'),
+                    createInfoIntro('致谢', '感谢每一位反馈与建议的用户。信息提交到控制台 / GitHub。'),
+                ],
+            },
+        ];
+        const pages = [];
+        sections.forEach(sec => {
+            const page = document.createElement('section');
+            page.className = 'ds-p-page';
+            page.dataset.page = sec.key;
+            const head = document.createElement('div');
+            const titleEl = document.createElement('h2');
+            titleEl.appendChild(makeIconImg(sec.icon, 'ds-p-hic', mdiHeadUrl));
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'ds-p-title-text';
+            titleSpan.textContent = sec.title;
+            titleEl.appendChild(titleSpan);
+            const subEl = document.createElement('div');
+            subEl.className = 'ds-p-sub';
+            subEl.textContent = sec.sub;
+            head.appendChild(titleEl);
+            head.appendChild(subEl);
+            page.appendChild(head);
+            sec.build().forEach(item => page.appendChild(item));
+            scroll.appendChild(page);
+            pages.push(page);
+        });
+        main.appendChild(scroll);
 
-        panel.appendChild(body);
-
-        // 底部
+        // 底部操作条
         const footer = document.createElement('div');
-        footer.style.cssText = 'padding:0 24px 20px 24px;';
+        footer.className = 'ds-p-footer';
         footer.innerHTML = `
-            <div class="ds-panel-footer">
-                <button class="ds-panel-btn" id="ds-panel-close-btn">关闭面板</button>
-                <span class="ds-panel-reset" id="ds-panel-reset">恢复默认设置</span>
-            </div>
+            <span class="ds-p-reset" id="ds-panel-reset">恢复默认设置</span>
+            <button type="button" class="ds-p-btn" id="ds-panel-close-btn">关闭面板</button>
         `;
+        main.appendChild(footer);
+        panel.appendChild(main);
+
+        /* ===== 分区切换 ===== */
+        function showPage(key) {
+            pages.forEach(p => p.classList.toggle('active', p.dataset.page === key));
+            navBtns.forEach(b => b.classList.toggle('active', b.dataset.target === key));
+        }
+        navBtns.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.target)));
+        showPage('fold');   // 默认展开第一分区
+
         footer.querySelector('#ds-panel-close-btn').addEventListener('click', () => overlay.remove());
         footer.querySelector('#ds-panel-reset').addEventListener('click', () => {
             if (confirm('确定恢复所有设置为默认值？')) {
@@ -279,7 +381,6 @@
                 setTimeout(() => openControlPanel(), 300);
             }
         });
-        panel.appendChild(footer);
 
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
@@ -294,92 +395,74 @@
 
     // 控件工厂
 
-    function createCard(title, children) {
-        const card = document.createElement('div');
-        card.className = 'ds-panel-card';
-        const hd = document.createElement('div');
-        hd.className = 'ds-panel-card-title';
-        hd.textContent = title;
-        card.appendChild(hd);
-        children.forEach(c => card.appendChild(c));
-        return card;
+    // 行式设置项外壳：label + 描述 在左、控件在右
+    function createSettingRow(labelText, description, controlEl) {
+        const item = document.createElement('div');
+        item.className = 'ds-setting-item';
+        const labelBlock = document.createElement('div');
+        labelBlock.className = 'ds-setting-label';
+        const t = document.createElement('div');
+        t.className = 'ds-setting-title';
+        t.textContent = labelText;
+        labelBlock.appendChild(t);
+        if (description) {
+            const d = document.createElement('small');
+            d.textContent = description;
+            labelBlock.appendChild(d);
+        }
+        const ctrl = document.createElement('div');
+        ctrl.className = 'ds-setting-ctrl';
+        ctrl.appendChild(controlEl);
+        item.appendChild(labelBlock);
+        item.appendChild(ctrl);
+        return item;
     }
 
     function createNumberSetting(labelText, description, unit, currentValue, onChange) {
         const wrap = document.createElement('div');
-        wrap.className = 'ds-panel-control';
-        wrap.innerHTML = `
-            <div class="ds-panel-label">${labelText}</div>
-            <div class="ds-panel-desc">${description}</div>
-        `;
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; gap:8px; align-items:center;';
+        wrap.style.cssText = 'display:flex; gap:6px; align-items:center;';
         const input = document.createElement('input');
         input.type = 'number'; input.value = currentValue; input.min = 0; input.step = 1;
         input.className = 'ds-panel-input';
-        input.style.flex = '1';
         input.addEventListener('change', () => {
             let val = parseInt(input.value, 10);
             if (isNaN(val) || val < 0) val = 0;
             input.value = val;
             onChange(val);
         });
-        row.appendChild(input);
+        wrap.appendChild(input);
         if (unit) {
             const u = document.createElement('span');
-            u.style.cssText = 'font-size:13px; opacity:0.5; flex-shrink:0;';
+            u.className = 'ds-panel-unit';
             u.textContent = unit;
-            row.appendChild(u);
+            wrap.appendChild(u);
         }
-        wrap.appendChild(row);
-        return wrap;
+        return createSettingRow(labelText, description, wrap);
     }
 
-    function createToggle(labelText, description, checked, onToggle) {
-        const wrap = document.createElement('div');
-        wrap.className = 'ds-panel-control';
+    function createToggleSetting(labelText, description, checked, onToggle) {
         const label = document.createElement('label');
-        label.className = 'ds-toggle';
-        label.style.cssText = 'display:flex; align-items:center; justify-content:space-between;';
-        label.innerHTML = `
-            <div>
-                <div class="ds-panel-label" style="margin-bottom:2px;">${labelText}</div>
-                <div class="ds-panel-desc" style="margin-bottom:0;">${description}</div>
-            </div>
-        `;
+        label.className = 'ds-switch';
         const input = document.createElement('input');
         input.type = 'checkbox';
         if (checked) input.checked = true;
-        const track = document.createElement('span');
-        track.className = 'ds-toggle-track';
-        track.style.position = 'relative';
-        track.innerHTML = '<span class="ds-toggle-thumb"></span>';
+        const slider = document.createElement('span');
+        slider.className = 'ds-slider';
         label.appendChild(input);
-        label.appendChild(track);
+        label.appendChild(slider);
         input.addEventListener('change', () => onToggle(input.checked));
-        wrap.appendChild(label);
-        return wrap;
+        return createSettingRow(labelText, description, label);
     }
 
-    function createSelect(labelText, description, options, selectedValue, onChange) {
-        const wrap = document.createElement('div');
-        wrap.className = 'ds-panel-control';
-        wrap.innerHTML = `
-            <div class="ds-panel-label">${labelText}</div>
-            <div class="ds-panel-desc">${description}</div>
-        `;
-
+    function createSelectSetting(labelText, description, options, selectedValue, onChange) {
         const container = document.createElement('div');
         container.className = 'ds-custom-select';
-
         const trigger = document.createElement('button');
-        trigger.className = 'ds-custom-select-trigger';
         trigger.type = 'button';
-
+        trigger.className = 'ds-custom-select-trigger';
         const dropdown = document.createElement('div');
         dropdown.className = 'ds-custom-select-dropdown';
         dropdown.style.display = 'none';
-
         let selectedLabel = '';
         options.forEach(opt => {
             const item = document.createElement('div');
@@ -412,8 +495,22 @@
 
         container.appendChild(trigger);
         container.appendChild(dropdown);
-        wrap.appendChild(container);
-        return wrap;
+        return createSettingRow(labelText, description, container);
+    }
+
+    // 说明性字（帮助/关于页）：竖向小标题 + 描述段，供 build() 返回
+    function createInfoIntro(labelText, text) {
+        const block = document.createElement('div');
+        block.className = 'ds-info';
+        const h = document.createElement('div');
+        h.className = 'ds-info-title';
+        h.textContent = labelText;
+        const p = document.createElement('div');
+        p.className = 'ds-info-body';
+        p.textContent = text;
+        block.appendChild(h);
+        block.appendChild(p);
+        return block;
     }
 
     // 设置变动后的刷新函数
@@ -483,7 +580,7 @@
     }
 
     // ==================== 菜单命令 ====================
-    GM_registerMenuCommand('⚙️ 脚本设置', openControlPanel);
+    GM_registerMenuCommand('脚本设置', openControlPanel);
 
     // ==================== 全局样式 ====================
     GM_addStyle(`
@@ -500,108 +597,249 @@
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
 
-        /* 控制面板 — Toggle 开关 */
-        .ds-toggle { position: relative; display: inline-flex; align-items: center; cursor: pointer; user-select: none; }
-        .ds-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
-        .ds-toggle-track {
-            width: 44px; height: 24px; border-radius: 12px;
-            background: rgba(128,128,128,0.3); transition: background 0.2s;
-            flex-shrink: 0;
+        /* ===== 设置面板 — 左右布局（深浅双主题） ===== */
+        .ds-panel {
+            width: min(920px, 94vw); height: min(640px, 84vh);
+            display: flex; overflow: hidden;
+            border-radius: 18px;
+            box-shadow: 0 24px 64px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.18);
+            font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            /* 浅色默认值 */
+            --dsp-content-bg: #f7f8fa;
+            --dsp-topbar-bg: #ffffff;
+            --dsp-title: #0f172a;
+            --dsp-text: #1e293b;
+            --dsp-sub: #64748b;
+            --dsp-line: #eef1f5;
+            --dsp-ctrl-bg: #ffffff;
+            --dsp-ctrl-border: #d7dce3;
+            --dsp-accent: #6366f1;
+            --dsp-accent-deep: #4f46e5;
+            --dsp-accent-soft: rgba(99,102,241,.08);
+            --dsp-switch-off: #cbd5e1;
+            --dsp-scroll-thumb: rgba(100,116,139,.3);
+            --dsp-scroll-thumb-hover: rgba(100,116,139,.52);
+            --dsp-opt-hover: rgba(99,102,241,.06);
+            --dsp-opt-active: rgba(99,102,241,.12);
+            color: var(--dsp-text);
         }
-        .ds-toggle input:checked + .ds-toggle-track { background: #4f46e5; }
-        .ds-toggle-thumb {
-            position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
-            border-radius: 50%; background: white; transition: transform 0.2s;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        body.dark .ds-panel {
+            --dsp-content-bg: #1a1a24;
+            --dsp-topbar-bg: #1e1e2d;
+            --dsp-title: #f1f2f6;
+            --dsp-text: #e4e4e8;
+            --dsp-sub: rgba(255,255,255,.46);
+            --dsp-line: rgba(255,255,255,.08);
+            --dsp-ctrl-bg: rgba(255,255,255,.06);
+            --dsp-ctrl-border: rgba(255,255,255,.14);
+            --dsp-accent-soft: rgba(99,102,241,.24);
+            --dsp-switch-off: rgba(255,255,255,.22);
+            --dsp-scroll-thumb: rgba(255,255,255,.16);
+            --dsp-scroll-thumb-hover: rgba(255,255,255,.3);
+            --dsp-opt-hover: rgba(99,102,241,.16);
+            --dsp-opt-active: rgba(99,102,241,.3);
         }
-        .ds-toggle input:checked + .ds-toggle-track .ds-toggle-thumb { transform: translateX(20px); }
-        .ds-toggle input:focus-visible + .ds-toggle-track { outline: 2px solid #4f46e5; outline-offset: 2px; }
+        .ds-panel *, .ds-panel *::before, .ds-panel *::after { box-sizing: border-box; }
 
-        /* 控制面板 — 卡片分区 */
-        .ds-panel-card {
-            background: rgba(128,128,128,0.06); border-radius: 12px;
-            padding: 16px; margin-bottom: 12px;
+        /* 左导航 — 深蓝渐变（两主题一致） */
+        .ds-p-sidebar {
+            width: 224px; flex-shrink: 0;
+            background: linear-gradient(180deg, #1b2437 0%, #0f1622 100%);
+            display: flex; flex-direction: column; gap: 2px;
+            padding: 18px 12px 16px 8px;
+            overflow-y: auto; user-select: none; -webkit-user-select: none;
+            scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent;
         }
-        .ds-panel-card-title {
-            font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
-            text-transform: uppercase; opacity: 0.5; margin-bottom: 12px;
+        .ds-p-sidebar::-webkit-scrollbar { width: 5px; }
+        .ds-p-sidebar::-webkit-scrollbar-track { background: transparent; }
+        .ds-p-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+        .ds-p-logo {
+            display: flex; align-items: center; gap: 10px;
+            padding: 2px 10px 18px 12px; color: #fff;
         }
-        .ds-panel-control {
-            margin-bottom: 14px;
+        .ds-p-logo-ic { width: 22px; height: 22px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .ds-p-logo-ic-img { width: 22px; height: 22px; display: block; }
+        .ds-p-logo-t { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+        .ds-p-logo-s { font-size: 11px; color: rgba(255,255,255,.42); margin-top: 2px; }
+        .ds-p-nav {
+            display: flex; align-items: center; width: 100%;
+            padding: 0; border: none; background: transparent; cursor: pointer;
+            font-family: inherit; text-align: left; outline: none;
         }
-        .ds-panel-control:last-child { margin-bottom: 0; }
-        .ds-panel-label {
-            font-size: 14px; font-weight: 500; margin-bottom: 4px;
-            display: flex; align-items: center; gap: 8px;
+        .ds-p-nav-ind {
+            flex-shrink: 0; width: 3px; height: 24px; border-radius: 3px;
+            margin: 0 8px 0 4px; background: transparent;
+            transition: background .2s ease;
         }
-        .ds-panel-desc {
-            font-size: 12px; opacity: 0.55; margin-bottom: 8px; line-height: 1.5;
+        .ds-p-nav-bd {
+            flex: 1; display: flex; align-items: center; gap: 10px;
+            padding: 9px 12px 9px 4px; border-radius: 9px;
+            color: rgba(255,255,255,.62); font-size: 14px; font-weight: 500;
+            transition: background .18s ease, color .18s ease;
         }
-        .ds-panel-input {
-            width: 100%; padding: 8px 12px; border-radius: 8px;
-            border: 1px solid rgba(128,128,128,0.25);
-            background: rgba(128,128,128,0.08); color: inherit;
-            font-size: 14px; box-sizing: border-box; outline: none;
-            transition: border-color 0.2s;
+        .ds-p-nav-ic { width: 18px; height: 18px; display: block; flex: none; }
+        .ds-p-nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .ds-p-nav-divider { height: 1px; background: rgba(255,255,255,.08); margin: 8px 10px 10px 16px; flex-shrink: 0; }
+        .ds-p-nav:hover .ds-p-nav-bd { background: rgba(255,255,255,.06); color: #fff; }
+        .ds-p-nav.active .ds-p-nav-ind { background: #818cf8; }
+        .ds-p-nav.active .ds-p-nav-bd { background: rgba(99,102,241,.24); color: #fff; }
+
+        /* 右主区 */
+        .ds-p-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--dsp-content-bg); }
+        .ds-p-topbar {
+            flex-shrink: 0; height: 46px;
+            display: flex; align-items: center; justify-content: flex-end;
+            padding: 0 14px; background: var(--dsp-topbar-bg);
+            border-bottom: 1px solid var(--dsp-line);
         }
-        .ds-panel-input:focus { border-color: #4f46e5; }
-        select.ds-panel-input { cursor: pointer; -webkit-appearance: none; appearance: none;
-            background-color: rgba(128,128,128,0.08);
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23aaa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: right 10px center;
-            padding-right: 28px;
+        .ds-p-close {
+            border: none; background: transparent; cursor: pointer;
+            color: var(--dsp-sub); font-size: 18px; line-height: 1;
+            padding: 6px 8px; border-radius: 7px; transition: background .15s, color .15s;
         }
-        /* 自定义下拉面板 */
-        .ds-custom-select { position: relative; }
+        .ds-p-close:hover { background: var(--dsp-accent-soft); color: var(--dsp-text); }
+        .ds-p-scroll { flex: 1; overflow-y: auto; padding: 20px 26px 12px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+        .ds-p-scroll:hover { scrollbar-color: var(--dsp-scroll-thumb) transparent; }
+        .ds-p-scroll::-webkit-scrollbar { width: 8px; }
+        .ds-p-scroll::-webkit-scrollbar-track { background: transparent; }
+        .ds-p-scroll::-webkit-scrollbar-thumb {
+            background: var(--dsp-scroll-thumb); border-radius: 999px;
+            border: 2px solid transparent; background-clip: padding-box;
+            transition: background .15s;
+        }
+        .ds-p-scroll:hover::-webkit-scrollbar-thumb { background: var(--dsp-scroll-thumb-hover); background-clip: padding-box; border-color: transparent; }
+
+        /* 分区页 */
+        .ds-p-page { display: none; }
+        .ds-p-page.active { display: block; animation: dsFadeUp .28s ease forwards; }
+        @keyframes dsFadeUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .ds-p-page h2 {
+            margin: 0 0 4px; font-size: 21px; font-weight: 700;
+            display: flex; align-items: center; gap: 9px;
+            color: var(--dsp-title); letter-spacing: -.2px;
+            user-select: none; -webkit-user-select: none;
+        }
+        .ds-p-hic { width: 24px; height: 24px; flex: none; }
+        /* 帮助/关于：说明字块 */
+        .ds-info { padding: 12px 2px; }
+        .ds-info + .ds-info { border-top: 1px solid var(--dsp-line); }
+        .ds-info-title { font-size: 13px; font-weight: 600; color: var(--dsp-text); margin-bottom: 4px; user-select: none; -webkit-user-select: none; }
+        .ds-info-body { font-size: 13px; color: var(--dsp-sub); line-height: 1.7; user-select: text; }
+        .ds-p-sub {
+            font-size: 13px; color: var(--dsp-sub);
+            padding-bottom: 12px; margin-bottom: 6px;
+            border-bottom: 1px solid var(--dsp-line);
+            user-select: text;
+        }
+
+        /* 行式设置项 */
+        .ds-setting-item {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 20px; padding: 15px 0;
+            border-bottom: 1px solid var(--dsp-line);
+        }
+        .ds-setting-item:last-child { border-bottom: none; }
+        .ds-setting-label { min-width: 0; }
+        .ds-setting-title { font-size: 14.5px; font-weight: 600; color: var(--dsp-text); user-select: none; -webkit-user-select: none; }
+        .ds-setting-label small {
+            display: block; margin-top: 3px; font-size: 12px; font-weight: 400;
+            color: var(--dsp-sub); line-height: 1.55; user-select: text;
+        }
+        .ds-setting-ctrl { flex-shrink: 0; margin-left: 12px; }
+
+        /* Switch（参考 slider 风格） */
+        .ds-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
+        .ds-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .ds-slider {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--dsp-switch-off); transition: background .2s ease; border-radius: 24px;
+        }
+        .ds-slider::before {
+            content: ""; position: absolute; height: 18px; width: 18px;
+            left: 3px; bottom: 3px; background: #fff; transition: transform .2s ease;
+            border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.22);
+        }
+        .ds-switch input:checked + .ds-slider { background: var(--dsp-accent); }
+        .ds-switch input:checked + .ds-slider::before { transform: translateX(20px); }
+        .ds-switch input:focus-visible + .ds-slider { outline: 2px solid var(--dsp-accent); outline-offset: 2px; }
+
+        /* 数字输入 / 单位 */
+        .ds-setting-ctrl input[type="number"] {
+            width: 96px; padding: 7px 10px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
+            background: var(--dsp-ctrl-bg); color: var(--dsp-text);
+            font-size: 13.5px; font-family: inherit; outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .ds-setting-ctrl input[type="number"]:focus {
+            border-color: var(--dsp-accent);
+            box-shadow: 0 0 0 3px var(--dsp-accent-soft);
+        }
+        .ds-panel-unit { font-size: 13px; color: var(--dsp-sub); }
+
+        /* 自定义下拉（深浅自适应） */
+        .ds-custom-select { position: relative; min-width: 178px; }
         .ds-custom-select-trigger {
-            width: 100%; padding: 8px 28px 8px 12px; border-radius: 8px;
-            border: 1px solid rgba(128,128,128,0.25); font-size: 14px;
-            background: rgba(128,128,128,0.08); color: inherit; cursor: pointer;
-            box-sizing: border-box; outline: none; transition: border-color 0.2s;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23aaa' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: right 10px center;
+            width: 100%; padding: 8px 30px 8px 12px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
+            background: var(--dsp-ctrl-bg); color: var(--dsp-text);
+            font-size: 13.5px; font-family: inherit; cursor: pointer;
+            text-align: left; outline: none; transition: border-color .15s, box-shadow .15s;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 11px center;
             -webkit-appearance: none; appearance: none;
         }
-        .ds-custom-select-trigger:focus { border-color: #4f46e5; }
+        .ds-custom-select-trigger:focus { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-accent-soft); }
         .ds-custom-select-dropdown {
-            position: absolute; top: 100%; left: 0; right: 0; z-index: 10002;
-            background: #1e1e2d; border: 1px solid rgba(128,128,128,0.25);
-            border-radius: 8px; margin-top: 4px; overflow: hidden;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-            max-height: 200px; overflow-y: auto;
+            position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10002;
+            background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
+            border-radius: 9px; overflow: hidden;
+            box-shadow: 0 10px 28px rgba(0,0,0,.18);
+            max-height: 210px; overflow-y: auto;
         }
         .ds-custom-select-option {
-            padding: 10px 12px; font-size: 14px; cursor: pointer; color: #e4e4e8;
-            transition: background 0.1s;
+            padding: 9px 12px; font-size: 13.5px; cursor: pointer;
+            color: var(--dsp-text); transition: background .1s;
         }
-        .ds-custom-select-option:hover { background: rgba(128,128,128,0.12); }
-        .ds-custom-select-option.active { background: rgba(255,255,255,0.08); }
-        .ds-panel-footer { border-top: 1px solid rgba(128,128,128,0.15); padding-top: 12px; margin-top: 4px; }
-        .ds-panel-btn {
-            width: 100%; padding: 10px; border: none; border-radius: 10px;
-            background: #4f46e5; color: white; font-size: 15px; font-weight: 500;
-            cursor: pointer; transition: background 0.2s;
-        }
-        .ds-panel-btn:hover { background: #6366f1; }
-        .ds-panel-reset {
-            display: block; text-align: center; font-size: 12px; opacity: 0.4;
-            cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
-        }
-        .ds-panel-reset:hover { opacity: 0.7; }
+        .ds-custom-select-option:hover { background: var(--dsp-opt-hover); }
+        .ds-custom-select-option.active { background: var(--dsp-opt-active); font-weight: 600; }
 
-        /* 设置面板滚动条 — 细窄圆角半透明、hover 显现（磨砂极简）
-           限定 .ds-panel 容器，避免影响官网其它滚动条；
-           scrollbar-width/scrollbar-color 为 Firefox 兼容，width 仅供 WebKit */
-        .ds-panel { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0) rgba(0,0,0,0); }
-        .ds-panel:hover { scrollbar-color: rgba(255,255,255,0.18) rgba(0,0,0,0); }
-        .ds-panel::-webkit-scrollbar { width: 8px; }
-        .ds-panel::-webkit-scrollbar-track { background: transparent; }
-        .ds-panel::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.14); border-radius: 999px;
-            border: 2px solid transparent; background-clip: padding-box;
+        /* 底部操作条 */
+        .ds-p-footer {
+            flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 18px; border-top: 1px solid var(--dsp-line);
+            background: var(--dsp-topbar-bg);
         }
-        .ds-panel:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28); background-clip: padding-box; border-color: transparent; }
-        .ds-panel::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.42); background-clip: padding-box; border-color: transparent; }
+        .ds-p-reset {
+            font-size: 12.5px; color: var(--dsp-sub); cursor: pointer;
+            user-select: none; -webkit-user-select: none; transition: color .15s;
+        }
+        .ds-p-reset:hover { color: var(--dsp-accent); }
+        .ds-p-btn {
+            padding: 8px 22px; border: none; border-radius: 9px;
+            background: var(--dsp-accent); color: #fff;
+            font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+            transition: background .15s;
+        }
+        .ds-p-btn:hover { background: var(--dsp-accent-deep); }
+
+        /* 响应式：窄屏导航转横排、设置项纵向 */
+        @media (max-width: 640px) {
+            .ds-panel { flex-direction: column; height: 92vh; }
+            .ds-p-sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; padding: 10px 10px 6px; overflow-y: visible; max-height: 150px; }
+            .ds-p-logo { display: none; }
+            .ds-p-nav { width: auto; flex: 1 0 calc(50% - 8px); }
+            .ds-p-nav-bd { padding: 7px 10px; }
+            .ds-p-nav-ind { display: none; }
+            .ds-p-scroll { padding: 18px 18px 8px; }
+            .ds-setting-item { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .ds-setting-ctrl { margin-left: 0; width: 100%; }
+            .ds-custom-select { min-width: 100%; }
+            .ds-setting-ctrl input[type="number"] { width: 100%; }
+        }
 
         /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分 */
         html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
@@ -693,6 +931,7 @@
             position: relative;
         }
         .internal-export-btn:active { transform: scale(0.98); }
+        .internal-export-btn .export-btn-ic { position: absolute; inset: 0; margin: auto; width: 16px; height: 16px; pointer-events: none; }
         .internal-export-btn::after {
             content: attr(data-tooltip); position: absolute; right: 40px; top: 50%;
             transform: translateY(-50%); font-size: 12px; padding: 4px 8px; border-radius: 6px;
@@ -1282,20 +1521,28 @@
         const bc = document.createElement('div');
         bc.className = 'table-internal-buttons';
 
-        const pngBtn = document.createElement('button');
-        pngBtn.className = 'internal-export-btn'; pngBtn.innerHTML = '📸';
-        pngBtn.setAttribute('data-tooltip', '导出为 PNG');
-        pngBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsPNG(table); });
+        // 导出按钮图标（iconify mdi SVG）；emoji 作为加载失败的兜底
+        const makeExportBtn = (emoji, icon, tooltip, onClick) => {
+            const b = document.createElement('button');
+            b.className = 'internal-export-btn';
+            b.innerHTML = emoji;   // emoji 兜底（SVG 加载失败时露出）
+            b.setAttribute('data-tooltip', tooltip);
+            if (icon) {
+                const im = document.createElement('img');
+                im.className = 'export-btn-ic';
+                im.alt = '';
+                im.draggable = false;
+                im.src = 'https://api.iconify.design/mdi:' + icon + '.svg?color=%235b6472';
+                im.addEventListener('error', function fallback() { im.remove(); });
+                b.appendChild(im);
+            }
+            b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+            return b;
+        };
 
-        const csvBtn = document.createElement('button');
-        csvBtn.className = 'internal-export-btn'; csvBtn.innerHTML = '📄';
-        csvBtn.setAttribute('data-tooltip', '导出为 CSV');
-        csvBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsCSV(table); });
-
-        const mdBtn = document.createElement('button');
-        mdBtn.className = 'internal-export-btn'; mdBtn.innerHTML = '📝';
-        mdBtn.setAttribute('data-tooltip', '导出为 Markdown');
-        mdBtn.addEventListener('click', e => { e.stopPropagation(); exportTableAsMD(table); });
+        const pngBtn = makeExportBtn('📸', 'image-outline', '导出为 PNG', () => exportTableAsPNG(table));
+        const csvBtn = makeExportBtn('📄', 'file-delimited-outline', '导出为 CSV', () => exportTableAsCSV(table));
+        const mdBtn  = makeExportBtn('📝', 'language-markdown', '导出为 Markdown', () => exportTableAsMD(table));
 
         bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
         table.appendChild(bc);
