@@ -18,6 +18,18 @@
 | Ctrl+Enter 发送 | 输入框内 Enter 换行、Ctrl+Enter 发送，防误触 | 关闭 |
 | 对话文件夹分组 | 左侧「对话历史」的文件夹面板 + 会话 ⋯ 菜单归类 | 关闭（按需开启） |
 
+## 📦 安装方式
+
+**前置条件**：请先安装以下任一用户脚本管理器：
+
+- **Tampermonkey（油猴）** — 目前为止全球最流行的用户脚本管理器 · [tampermonkey.net](https://www.tampermonkey.net/)
+- **ScriptCat（脚本猫）** — 国产脚本管理器，中文界面友好，推荐 · [scriptcat.org](https://scriptcat.org/zh-CN)
+
+**一键安装（推荐）**
+
+- 📥 **从脚本猫安装**：[scriptcat.org/zh-CN/users/185208](https://scriptcat.org/zh-CN/users/185208)
+- 🐙 **GitHub 仓库**：[Chuc-Jie/deepseektool](https://github.com/Chuc-Jie/deepseektool)
+
 ## 🚀 三步上手
 
 1. 安装脚本后刷新 DeepSeek 对话页；

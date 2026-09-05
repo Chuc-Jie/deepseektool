@@ -148,6 +148,36 @@
             return im;
         }
 
+        // 外链卡片（帮助/关于页）：整卡可点跳外链，target=_blank
+        function createLinkCard(title, desc, href, iconName) {
+            const a = document.createElement('a');
+            a.className = 'ds-link-card';
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.appendChild(makeIconImg(iconName, 'ds-link-card-ic', mdiHeadUrl));
+            const tx = document.createElement('span');
+            tx.className = 'ds-link-card-tx';
+            const t = document.createElement('span');
+            t.className = 'ds-link-card-title';
+            t.textContent = title;
+            tx.appendChild(t);
+            if (desc) {
+                const d = document.createElement('span');
+                d.className = 'ds-link-card-desc';
+                d.textContent = desc;
+                tx.appendChild(d);
+            }
+            a.appendChild(tx);
+            return a;
+        }
+        function createLinkCardGrid(cards) {
+            const g = document.createElement('div');
+            g.className = 'ds-link-grid';
+            cards.forEach(c => g.appendChild(c));
+            return g;
+        }
+
         const logo = document.createElement('div');
         logo.className = 'ds-p-logo';
         const logoIc = document.createElement('span');
@@ -294,19 +324,28 @@
                 }),
             ] },
             {
-                key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '使用小贴士与常见问题',
+                key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '前置条件 · 使用小贴士',
                 build: () => [
-                    createInfoIntro('打开方法', 'Tampermonkey / ScriptCat 图标 → 本脚本 →「脚本设置」'),
+                    createInfoIntro('前置安装条件', '请先安装以下任一用户脚本管理器，再在 DeepSeek 对话页打开本面板：'),
+                    createLinkCardGrid([
+                        createLinkCard('Tampermonkey（油猴）', '全球最流行的用户脚本管理器', 'https://www.tampermonkey.net/', 'shield-check-outline'),
+                        createLinkCard('ScriptCat（脚本猫）', '国产脚本管理器 · 中文界面友好 · 推荐', 'https://scriptcat.org/zh-CN', 'web'),
+                    ]),
+                    createInfoIntro('打开方法', '点击浏览器工具栏 Tampermonkey / ScriptCat 图标 → 本脚本 →「脚本设置」'),
                     createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置自动保存，下次打开页面保持。'),
-                    createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效，欢迎反馈适配。'),
+                    createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效；如遇异常欢迎反馈适配。'),
                 ],
             },
             {
-                key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 致谢',
+                key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
                     createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.8.0'),
-                    createInfoIntro('许可', 'MIT License · 完全开源'),
-                    createInfoIntro('致谢', '感谢每一位反馈与建议的用户。信息提交到控制台 / GitHub。'),
+                    createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
+                    createLinkCardGrid([
+                        createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
+                        createLinkCard('ScriptCat 主页', '安装页 · 评论区', 'https://scriptcat.org/zh-CN', 'web'),
+                    ]),
+                    createInfoIntro('致谢', '感谢每一位反馈与建议的用户。'),
                 ],
             },
         ];
@@ -728,6 +767,19 @@
         .ds-info + .ds-info { border-top: 1px solid var(--dsp-line); }
         .ds-info-title { font-size: 13px; font-weight: 600; color: var(--dsp-text); margin-bottom: 4px; user-select: none; -webkit-user-select: none; }
         .ds-info-body { font-size: 13px; color: var(--dsp-sub); line-height: 1.7; user-select: text; }
+        /* 帮助/关于：外链卡片组 */
+        .ds-link-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 6px 0 2px; }
+        .ds-link-card {
+            display: flex; align-items: center; gap: 11px;
+            padding: 12px 14px; border-radius: 11px; text-decoration: none;
+            background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
+            transition: border-color .15s, box-shadow .15s, transform .15s;
+        }
+        .ds-link-card:hover { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-accent-soft); transform: translateY(-1px); }
+        .ds-link-card-ic { width: 24px; height: 24px; flex: none; }
+        .ds-link-card-tx { min-width: 0; display: flex; flex-direction: column; }
+        .ds-link-card-title { font-size: 13.5px; font-weight: 600; color: var(--dsp-text); line-height: 1.3; }
+        .ds-link-card-desc { font-size: 12px; color: var(--dsp-sub); margin-top: 2px; line-height: 1.45; }
         .ds-p-sub {
             font-size: 13px; color: var(--dsp-sub);
             padding-bottom: 12px; margin-bottom: 6px;
