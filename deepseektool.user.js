@@ -931,7 +931,7 @@
             position: relative;
         }
         .internal-export-btn:active { transform: scale(0.98); }
-        .internal-export-btn .export-btn-ic { position: absolute; inset: 0; margin: auto; width: 16px; height: 16px; pointer-events: none; }
+        .internal-export-btn .export-btn-ic { width: 16px; height: 16px; display: block; pointer-events: none; }
         .internal-export-btn::after {
             content: attr(data-tooltip); position: absolute; right: 40px; top: 50%;
             transform: translateY(-50%); font-size: 12px; padding: 4px 8px; border-radius: 6px;
@@ -1521,21 +1521,19 @@
         const bc = document.createElement('div');
         bc.className = 'table-internal-buttons';
 
-        // 导出按钮图标（iconify mdi SVG）；emoji 作为加载失败的兜底
+        // 导出按钮图标（iconify mdi SVG）；emoji 作加载失败兜底（二者择一，不叠加）
         const makeExportBtn = (emoji, icon, tooltip, onClick) => {
             const b = document.createElement('button');
             b.className = 'internal-export-btn';
-            b.innerHTML = emoji;   // emoji 兜底（SVG 加载失败时露出）
             b.setAttribute('data-tooltip', tooltip);
-            if (icon) {
-                const im = document.createElement('img');
-                im.className = 'export-btn-ic';
-                im.alt = '';
-                im.draggable = false;
-                im.src = 'https://api.iconify.design/mdi:' + icon + '.svg?color=%235b6472';
-                im.addEventListener('error', function fallback() { im.remove(); });
-                b.appendChild(im);
-            }
+            const showEmoji = () => { b.innerHTML = ''; b.textContent = emoji; };
+            const im = document.createElement('img');
+            im.className = 'export-btn-ic';
+            im.alt = '';
+            im.draggable = false;
+            im.src = 'https://api.iconify.design/mdi:' + icon + '.svg?color=%235b6472';
+            im.addEventListener('error', showEmoji);
+            b.appendChild(im);
             b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
             return b;
         };
