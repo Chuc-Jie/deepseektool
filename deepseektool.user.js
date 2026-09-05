@@ -117,6 +117,7 @@
         `;
 
         const panel = document.createElement('div');
+        panel.className = 'ds-panel';   // 供滚动条样式精确定位（避免误伤页面其它滚动条）
         panel.style.cssText = `
             background: #1a1a24; border-radius: 20px;
             box-shadow: 0 16px 40px rgba(0,0,0,0.35); width: 480px; max-width: 94%;
@@ -587,6 +588,20 @@
             cursor: pointer; margin-top: 8px; transition: opacity 0.2s;
         }
         .ds-panel-reset:hover { opacity: 0.7; }
+
+        /* 设置面板滚动条 — 细窄圆角半透明、hover 显现（磨砂极简）
+           限定 .ds-panel 容器，避免影响官网其它滚动条；
+           scrollbar-width/scrollbar-color 为 Firefox 兼容，width 仅供 WebKit */
+        .ds-panel { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0) rgba(0,0,0,0); }
+        .ds-panel:hover { scrollbar-color: rgba(255,255,255,0.18) rgba(0,0,0,0); }
+        .ds-panel::-webkit-scrollbar { width: 8px; }
+        .ds-panel::-webkit-scrollbar-track { background: transparent; }
+        .ds-panel::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.14); border-radius: 999px;
+            border: 2px solid transparent; background-clip: padding-box;
+        }
+        .ds-panel:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28); background-clip: padding-box; border-color: transparent; }
+        .ds-panel::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.42); background-clip: padding-box; border-color: transparent; }
 
         /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分 */
         html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
