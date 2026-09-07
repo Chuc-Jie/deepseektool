@@ -1896,9 +1896,12 @@
         #dsFolderPanel .dsCaret:hover{background:var(--ds-hover); color:var(--ds-text);}
         #dsFolderPanel .dsFoldBody{display:flex; flex-direction:column;}
         #dsFolderPanel .dsConvRow{display:flex; align-items:center; gap:8px; padding:7px 10px 7px 30px; border-radius:8px;
-            min-height:32px; box-sizing:border-box; cursor:pointer; color:var(--ds-text); font-size:13px;}
+            min-height:32px; box-sizing:border-box; cursor:pointer; color:var(--ds-text); font-size:13px; position:relative;}
         #dsFolderPanel .dsConvRow:hover{background:var(--ds-hover);}
         #dsFolderPanel .dsConvRow.on{color:var(--ds-accent);}
+        #dsFolderPanel .dsConvBar{display:none; position:absolute; left:18px; top:50%; transform:translateY(-50%);
+            width:3px; height:15px; border-radius:2px; background:var(--ds-accent); pointer-events:none;}
+        #dsFolderPanel .dsConvRow.on .dsConvBar{display:block;}
         #dsFolderPanel .dsConvTitle{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
         #dsFolderPanel .dsOut{background:none; border:1px solid var(--ds-divider); color:var(--ds-sub);
             border-radius:7px; padding:2px 9px; cursor:pointer; font-size:12px; flex:0 0 auto;}
@@ -2107,7 +2110,7 @@
                         const on = currentOn.has(sid);
                         const cr = document.createElement('div');
                         cr.className = 'dsConvRow' + (on ? ' on' : '');
-                        cr.innerHTML = `<span class="dsConvTitle"></span>`;
+                        cr.innerHTML = `<span class="dsConvBar"></span><span class="dsConvTitle"></span>`;
                         const cvT = cr.querySelector('.dsConvTitle');
                         cvT.textContent = titleOf(native);
                         bindTitleTip(cvT, titleOf(native));   // 自绘 tooltip（官方质感），仅标题溢出时触发
