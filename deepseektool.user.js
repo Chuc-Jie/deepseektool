@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.8.0
+// @version      4.8.1
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -339,7 +339,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.8.0'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.8.1'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -367,7 +367,11 @@
             head.appendChild(titleEl);
             head.appendChild(subEl);
             page.appendChild(head);
-            sec.build().forEach(item => page.appendChild(item));
+            // 分区内容统一包进白底卡片（antd List 质感），设置行/说明块的横向内边距由卡片统一承接
+            const card = document.createElement('div');
+            card.className = 'ds-p-card';
+            sec.build().forEach(item => card.appendChild(item));
+            page.appendChild(card);
             scroll.appendChild(page);
             pages.push(page);
         });
@@ -640,8 +644,8 @@
         .ds-panel {
             width: min(920px, 94vw); height: min(640px, 84vh);
             display: flex; overflow: hidden;
-            border-radius: 18px;
-            box-shadow: 0 24px 64px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.18);
+            border-radius: 8px;
+            box-shadow: 0 12px 40px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.08);
             font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
             /* 浅色默认值 */
             --dsp-content-bg: #f7f8fa;
@@ -649,17 +653,17 @@
             --dsp-title: #0f172a;
             --dsp-text: #1e293b;
             --dsp-sub: #64748b;
-            --dsp-line: #eef1f5;
+            --dsp-line: #f0f0f0;
             --dsp-ctrl-bg: #ffffff;
-            --dsp-ctrl-border: #d7dce3;
-            --dsp-accent: #6366f1;
-            --dsp-accent-deep: #4f46e5;
-            --dsp-accent-soft: rgba(99,102,241,.08);
+            --dsp-ctrl-border: #d9d9d9;
+            --dsp-accent: #1677ff;
+            --dsp-accent-deep: #0958d9;
+            --dsp-accent-soft: rgba(22,119,255,.08);
             --dsp-switch-off: #cbd5e1;
             --dsp-scroll-thumb: rgba(100,116,139,.3);
             --dsp-scroll-thumb-hover: rgba(100,116,139,.52);
-            --dsp-opt-hover: rgba(99,102,241,.06);
-            --dsp-opt-active: rgba(99,102,241,.12);
+            --dsp-opt-hover: rgba(22,119,255,.06);
+            --dsp-opt-active: rgba(22,119,255,.12);
             color: var(--dsp-text);
         }
         body.dark .ds-panel {
@@ -671,12 +675,12 @@
             --dsp-line: rgba(255,255,255,.08);
             --dsp-ctrl-bg: rgba(255,255,255,.06);
             --dsp-ctrl-border: rgba(255,255,255,.14);
-            --dsp-accent-soft: rgba(99,102,241,.24);
+            --dsp-accent-soft: rgba(22,119,255,.24);
             --dsp-switch-off: rgba(255,255,255,.22);
             --dsp-scroll-thumb: rgba(255,255,255,.16);
             --dsp-scroll-thumb-hover: rgba(255,255,255,.3);
-            --dsp-opt-hover: rgba(99,102,241,.16);
-            --dsp-opt-active: rgba(99,102,241,.3);
+            --dsp-opt-hover: rgba(22,119,255,.16);
+            --dsp-opt-active: rgba(22,119,255,.3);
         }
         .ds-panel *, .ds-panel *::before, .ds-panel *::after { box-sizing: border-box; }
 
@@ -712,7 +716,7 @@
         }
         .ds-p-nav-bd {
             flex: 1; display: flex; align-items: center; gap: 10px;
-            padding: 9px 12px 9px 4px; border-radius: 9px;
+            padding: 9px 12px 9px 4px; border-radius: 6px;
             color: rgba(255,255,255,.62); font-size: 14px; font-weight: 500;
             transition: background .18s ease, color .18s ease;
         }
@@ -720,24 +724,24 @@
         .ds-p-nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .ds-p-nav-divider { height: 1px; background: rgba(255,255,255,.08); margin: 8px 10px 10px 16px; flex-shrink: 0; }
         .ds-p-nav:hover .ds-p-nav-bd { background: rgba(255,255,255,.06); color: #fff; }
-        .ds-p-nav.active .ds-p-nav-ind { background: #818cf8; }
-        .ds-p-nav.active .ds-p-nav-bd { background: rgba(99,102,241,.24); color: #fff; }
+        .ds-p-nav.active .ds-p-nav-ind { background: #4096ff; }
+        .ds-p-nav.active .ds-p-nav-bd { background: rgba(22,119,255,.26); color: #fff; }
 
         /* 右主区 */
         .ds-p-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--dsp-content-bg); }
         .ds-p-topbar {
-            flex-shrink: 0; height: 46px;
+            flex-shrink: 0; height: 48px;
             display: flex; align-items: center; justify-content: flex-end;
-            padding: 0 14px; background: var(--dsp-topbar-bg);
+            padding: 0 16px; background: var(--dsp-topbar-bg);
             border-bottom: 1px solid var(--dsp-line);
         }
         .ds-p-close {
             border: none; background: transparent; cursor: pointer;
             color: var(--dsp-sub); font-size: 18px; line-height: 1;
-            padding: 6px 8px; border-radius: 7px; transition: background .15s, color .15s;
+            padding: 6px 8px; border-radius: 6px; transition: background .15s, color .15s;
         }
         .ds-p-close:hover { background: var(--dsp-accent-soft); color: var(--dsp-text); }
-        .ds-p-scroll { flex: 1; overflow-y: auto; padding: 20px 26px 12px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+        .ds-p-scroll { flex: 1; overflow-y: auto; padding: 24px 24px 24px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
         .ds-p-scroll:hover { scrollbar-color: var(--dsp-scroll-thumb) transparent; }
         .ds-p-scroll::-webkit-scrollbar { width: 8px; }
         .ds-p-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -756,14 +760,14 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .ds-p-page h2 {
-            margin: 0 0 4px; font-size: 21px; font-weight: 700;
+            margin: 0 0 4px; font-size: 20px; font-weight: 700;
             display: flex; align-items: center; gap: 9px;
             color: var(--dsp-title); letter-spacing: -.2px;
             user-select: none; -webkit-user-select: none;
         }
         .ds-p-hic { width: 24px; height: 24px; flex: none; }
         /* 帮助/关于：说明字块 */
-        .ds-info { padding: 12px 2px; }
+        .ds-info { padding: 12px 0; }
         .ds-info + .ds-info { border-top: 1px solid var(--dsp-line); }
         .ds-info-title { font-size: 13px; font-weight: 600; color: var(--dsp-text); margin-bottom: 4px; user-select: none; -webkit-user-select: none; }
         .ds-info-body { font-size: 13px; color: var(--dsp-sub); line-height: 1.7; user-select: text; }
@@ -771,31 +775,37 @@
         .ds-link-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 6px 0 2px; }
         .ds-link-card {
             display: flex; align-items: center; gap: 11px;
-            padding: 12px 14px; border-radius: 11px; text-decoration: none;
+            padding: 12px 14px; border-radius: 8px; text-decoration: none;
             background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
             transition: border-color .15s, box-shadow .15s, transform .15s;
         }
         .ds-link-card:hover { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-accent-soft); transform: translateY(-1px); }
         .ds-link-card-ic { width: 24px; height: 24px; flex: none; }
         .ds-link-card-tx { min-width: 0; display: flex; flex-direction: column; }
-        .ds-link-card-title { font-size: 13.5px; font-weight: 600; color: var(--dsp-text); line-height: 1.3; }
+        .ds-link-card-title { font-size: 14px; font-weight: 600; color: var(--dsp-text); line-height: 1.3; }
         .ds-link-card-desc { font-size: 12px; color: var(--dsp-sub); margin-top: 2px; line-height: 1.45; }
         .ds-p-sub {
             font-size: 13px; color: var(--dsp-sub);
-            padding-bottom: 12px; margin-bottom: 6px;
-            border-bottom: 1px solid var(--dsp-line);
+            padding-bottom: 0; margin-bottom: 16px;
             user-select: text;
+        }
+        /* 分区内容卡片（antd Card/List 质感：白底承载内容行，分隔线收进卡内，与 #f7f8fa 页底形成层次） */
+        .ds-p-card {
+            background: var(--dsp-ctrl-bg);
+            border: 1px solid var(--dsp-line);
+            border-radius: 8px;
+            padding: 2px 16px;
         }
 
         /* 行式设置项 */
         .ds-setting-item {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 20px; padding: 15px 0;
+            gap: 20px; padding: 14px 0;
             border-bottom: 1px solid var(--dsp-line);
         }
         .ds-setting-item:last-child { border-bottom: none; }
         .ds-setting-label { min-width: 0; }
-        .ds-setting-title { font-size: 14.5px; font-weight: 600; color: var(--dsp-text); user-select: none; -webkit-user-select: none; }
+        .ds-setting-title { font-size: 14px; font-weight: 600; color: var(--dsp-text); user-select: none; -webkit-user-select: none; }
         .ds-setting-label small {
             display: block; margin-top: 3px; font-size: 12px; font-weight: 400;
             color: var(--dsp-sub); line-height: 1.55; user-select: text;
@@ -821,9 +831,9 @@
         /* 数字输入 / 单位 */
         .ds-setting-ctrl input[type="number"] {
             width: 96px; padding: 7px 10px;
-            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 6px;
             background: var(--dsp-ctrl-bg); color: var(--dsp-text);
-            font-size: 13.5px; font-family: inherit; outline: none;
+            font-size: 14px; font-family: inherit; outline: none;
             transition: border-color .15s, box-shadow .15s;
         }
         .ds-setting-ctrl input[type="number"]:focus {
@@ -836,9 +846,9 @@
         .ds-custom-select { position: relative; min-width: 178px; }
         .ds-custom-select-trigger {
             width: 100%; padding: 8px 30px 8px 12px;
-            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 6px;
             background: var(--dsp-ctrl-bg); color: var(--dsp-text);
-            font-size: 13.5px; font-family: inherit; cursor: pointer;
+            font-size: 14px; font-family: inherit; cursor: pointer;
             text-align: left; outline: none; transition: border-color .15s, box-shadow .15s;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat; background-position: right 11px center;
@@ -848,12 +858,12 @@
         .ds-custom-select-dropdown {
             position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10002;
             background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
-            border-radius: 9px; overflow: hidden;
-            box-shadow: 0 10px 28px rgba(0,0,0,.18);
+            border-radius: 8px; overflow: hidden;
+            box-shadow: 0 6px 16px rgba(0,0,0,.12);
             max-height: 210px; overflow-y: auto;
         }
         .ds-custom-select-option {
-            padding: 9px 12px; font-size: 13.5px; cursor: pointer;
+            padding: 9px 12px; font-size: 14px; cursor: pointer;
             color: var(--dsp-text); transition: background .1s;
         }
         .ds-custom-select-option:hover { background: var(--dsp-opt-hover); }
@@ -862,7 +872,7 @@
         /* 底部操作条 */
         .ds-p-footer {
             flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 18px; border-top: 1px solid var(--dsp-line);
+            padding: 12px 24px; border-top: 1px solid var(--dsp-line);
             background: var(--dsp-topbar-bg);
         }
         .ds-p-reset {
@@ -871,7 +881,7 @@
         }
         .ds-p-reset:hover { color: var(--dsp-accent); }
         .ds-p-btn {
-            padding: 8px 22px; border: none; border-radius: 9px;
+            padding: 8px 22px; border: none; border-radius: 6px;
             background: var(--dsp-accent); color: #fff;
             font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
             transition: background .15s;
@@ -886,7 +896,8 @@
             .ds-p-nav { width: auto; flex: 1 0 calc(50% - 8px); }
             .ds-p-nav-bd { padding: 7px 10px; }
             .ds-p-nav-ind { display: none; }
-            .ds-p-scroll { padding: 18px 18px 8px; }
+            .ds-p-scroll { padding: 16px 16px 16px; }
+            .ds-p-card { padding: 2px 12px; }
             .ds-setting-item { flex-direction: column; align-items: flex-start; gap: 10px; }
             .ds-setting-ctrl { margin-left: 0; width: 100%; }
             .ds-custom-select { min-width: 100%; }
