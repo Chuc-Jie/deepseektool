@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 4.9.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 4.9.2）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -115,6 +115,7 @@ flowchart LR
 - **总开关**：控制面板开关 → `folderEnabledChanged(on|off)` → `folderUnit.on()/off()`；切换后若面板处于打开态会关闭重开，以刷新子开关置灰态。
 - **子开关**：`pinGroupCollapsible`（存储键 `deepseek_pin_group_collapsible`，默认 false）控制「置顶分组可折叠」能力；设置面板该行在总开关未开时置灰不可点。切换即时生效 → `folderUnit.setPinCollapsible(bool)`：开启则 `bindPinClick()` + `applyPinCollapse()`，关闭则 `resetPinCollapseUi()`。
 - **on**：注入主题 CSS 变量（浅/深随 `body.dark`）→ **若子开关开启**则绑定「置顶」折叠点击（`bindPinClick`）→ `ensurePanel`（面板插入「置顶」**分组容器**之后、整体随原生会话历史滚动；无置顶分组时兜底插列表最顶并临时补 22px 让开悬浮「多选」按钮）→ `renderFolders` + `refreshTags` + `injectMenus` + 归档隐藏已收会话（`syncArchiveVisibility`，置顶分组内的行豁免）。
+- **面板锚点稳态判据（v4.9.2 修正）**：`ensurePanel` 的早退条件是**直接核对锚点**——有「置顶」分组时要求 `panel.previousElementSibling === pg`，无分组时要求 `panel === sc.firstChild`；不满足则走重挂迁移。旧判据「不在 pg 内即稳态」语义过宽，会让早期竞态被兜底挂到最顶的面板**永久卡在错误位置**。重挂逻辑带幂等保护（位置/`paddingTop` 确需变更时才动 DOM），避免无意义 mutation 触发 observer→schedule 自激循环。
 - **数据模型**：`{folders, links(sid→fid), expanded, collapsed}`；改动路径 `…→ saveData() → renderFolders()/resyncFolders()`。
 - **交互**：面板头点击整体折叠（`collapsed` 隐藏列表与「＋新建」）；树形就地展开；内嵌会话行点击跳官方会话（当前会话高亮，带自绘悬停 tooltip）；每行「移出」。
 - **级联浮层**：⋯ 菜单注入「移动到文件夹」→ 悬停开 `#dsFolderPop`（列出文件夹 / ＋新建 / 移出）；**伪悬停门控**——用 `pointermove`/capture click 时间戳（`lastMenuOpenAt`/`lastRealMoveAt`）避免"点 ⋯ 时菜单项正好在指针下"误弹次级菜单；关闭只移除自己浮层，不藏官方 `.ds-floating-container`。

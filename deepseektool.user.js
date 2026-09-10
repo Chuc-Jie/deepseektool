@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.9.1
+// @version      4.9.2
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -348,7 +348,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.9.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.9.2'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -2053,10 +2053,16 @@
                     anc = anc.parentElement;
                 }
                 if (inScroller) {
-                    // 位置校验：若面板仍夹在「置顶」分组内（v4.8.1 及更早的挂载位置），继续走下方迁移；
-                    // 否则确认为稳态 → 零扫描早退（避免每轮 schedule 重挂引发无限刷新循环）。
+                    // 位置校验（v4.9.1 修正自愈判据）：仅当面板**挂在正确锚点**时才认作稳态 → 零扫描早退。
+                    // 此前判据为「不在「置顶」分组内即稳态」，语义过宽：若面板曾被兜底挂到滚动容器最顶部
+                    // （页面早期 sticky「置顶」头尚未渲染时 `findPinnedGroup()` 返回 null 所走的兜底路径），
+                    // 该条件恒成立 → 守卫误判稳态、永不复位，导致面板长期卡在错误位置并残留 22px 死空白。
+                    // 现改为直接核对锚点：有「置顶」分组时面板须紧跟其后；无分组时须为滚动容器首子节点。
                     const pg = findPinnedGroup();
-                    if (!pg || !pg.contains(panel)) return;
+                    const sc0 = findScrollContainer();
+                    const anchored = pg ? (panel.previousElementSibling === pg) : (sc0 && sc0.firstChild === panel);
+                    if (anchored) return;   // 位置正确 → 稳态早退（避免每轮 schedule 重挂引发无限刷新循环）
+                    // 位置不正确（夹在置顶分组内 / 兜底挂在最顶而分组已出现 / 误插容器外）→ 继续走下方重挂迁移
                 }
                 // 面板在文档中但不在滚动容器内（误插残留/容器被替换）→ 继续走下方重挂
             }
@@ -2090,11 +2096,11 @@
             // 若插在 sticky 头之后会夹在「置顶」标题与置顶会话之间，把分组切断。
             const pg = findPinnedGroup();
             if (pg) {
-                pg.insertAdjacentElement('afterend', panel);
-                panel.style.paddingTop = '';   // 正常位置：对齐原生「分组头→首行」零间距节奏，无需为悬浮按钮预留
+                if (panel.previousElementSibling !== pg) pg.insertAdjacentElement('afterend', panel);
+                if (panel.style.paddingTop !== '') panel.style.paddingTop = '';   // 正常位置：对齐原生「分组头→首行」零间距节奏，无需为悬浮按钮预留
             } else {
-                sc.insertBefore(panel, sc.firstChild);   // 兜底：无置顶分组时插到列表最顶
-                panel.style.paddingTop = '22px';         // 顶部让开原生悬浮「多选」按钮带
+                if (sc.firstChild !== panel) sc.insertBefore(panel, sc.firstChild);   // 兜底：无置顶分组时插到列表最顶
+                if (panel.style.paddingTop !== '22px') panel.style.paddingTop = '22px';         // 顶部让开原生悬浮「多选」按钮带
             }
             setCollapsedUI();   // 挂载后再应用折叠态（原在创建块调用时面板未入 DOM，getElementById 找不到 → no-op，导致刷新后 data.collapsed 不生效）
             renderFolders();
