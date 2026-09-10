@@ -1874,8 +1874,8 @@
             background:transparent; border:none; box-shadow:none; border-radius:0;
             user-select:none;
         }
-        /* 原生「选择对话」（多选）模式：文件夹树不参与批量选择 → 降透明度并禁用交互，避免两种模式打架 */
-        #dsFolderPanel.dsSelectModeLocked{opacity:.45; pointer-events:none;}
+        /* 原生「选择对话」（多选）模式：文件夹树不参与批量选择 → 整区隐藏，让位给原生批量选择 */
+        #dsFolderPanel.dsSelectModeHidden{display:none;}
 
         /* 原生「置顶」分组标题可折叠：点击切换。
            箭头与「文件夹」标题完全一致（同款 chevron、同色 --ds-sub、收起旋转 -90°），用 mask 绘制而非
@@ -2110,14 +2110,14 @@
 
         /* ---- 原生「选择对话」（多选）模式互斥 ----
            两者选择态互不相通（原生选择圈只给原生行、文件夹树无任何选择控件），
-           多选态下继续让文件夹树可点会互相打架 → 降透明度并禁用交互。 */
+           多选态下继续展示文件夹树没有意义 → 整区隐藏（display:none），退出后自动恢复。 */
         function syncSelectModeLock() {
             const panel = document.getElementById('dsFolderPanel');
             if (!panel) return;
             const listRoot = (pinnedGroupEl && pinnedGroupEl.isConnected && pinnedGroupEl.parentElement)
                 ? pinnedGroupEl.parentElement : findScrollContainer();
             const inSelectMode = !!(listRoot && listRoot.querySelector('.ds-checkbox'));
-            panel.classList.toggle('dsSelectModeLocked', inSelectMode);
+            panel.classList.toggle('dsSelectModeHidden', inSelectMode);
         }
 
         /* ---- 原生「置顶」分组折叠 ----
