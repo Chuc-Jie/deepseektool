@@ -31,6 +31,7 @@
 | `deepseek_ctrl_enter` | `ctrlEnterEnabled` | false | Ctrl+Enter 发送快捷键 |
 | `deepseek_folder_manager_enabled` | `folderManagerEnabled` | false | 对话文件夹总开关（opt-in） |
 | `deepseek_folder_manager_data_v2` | `data`（folderUnit 内） | `{folders:[],links:{},expanded:{},collapsed:false}` | 文件夹/归属/树展开态/面板折叠态（独立键） |
+| `deepseek_pin_group_collapsed` | `pinGroupCollapsed`（folderUnit 内） | false | 原生「置顶」分组折叠态（随文件夹模块生效） |
 
 ## 3. 模块总览
 
@@ -111,11 +112,13 @@ flowchart LR
 ### 5.4 对话文件夹管理（folderUnit 子闭包）
 
 - **总开关**：控制面板开关 → `folderEnabledChanged(on|off)` → `folderUnit.on()/off()`。
-- **on**：注入主题 CSS 变量（浅/深随 `body.dark`）→ `ensurePanel`（面板插入可滚动历史容器内 sticky 标题行之后，整体随原生会话历史滚动）→ `renderFolders` + `refreshTags` + `injectMenus` + 归档隐藏已收会话（`syncArchiveVisibility`）。
+- **on**：注入主题 CSS 变量（浅/深随 `body.dark`）→ 绑定「置顶」折叠点击（`bindPinClick`）→ `ensurePanel`（面板插入「置顶」**分组容器**之后、整体随原生会话历史滚动；无置顶分组时兜底插列表最顶并临时补 22px 让开悬浮「多选」按钮）→ `renderFolders` + `refreshTags` + `injectMenus` + 归档隐藏已收会话（`syncArchiveVisibility`，置顶分组内的行豁免）。
 - **数据模型**：`{folders, links(sid→fid), expanded, collapsed}`；改动路径 `…→ saveData() → renderFolders()/resyncFolders()`。
 - **交互**：面板头点击整体折叠（`collapsed` 隐藏列表与「＋新建」）；树形就地展开；内嵌会话行点击跳官方会话（当前会话高亮，带自绘悬停 tooltip）；每行「移出」。
 - **级联浮层**：⋯ 菜单注入「移动到文件夹」→ 悬停开 `#dsFolderPop`（列出文件夹 / ＋新建 / 移出）；**伪悬停门控**——用 `pointermove`/capture click 时间戳（`lastMenuOpenAt`/`lastRealMoveAt`）避免"点 ⋯ 时菜单项正好在指针下"误弹次级菜单；关闭只移除自己浮层，不藏官方 `.ds-floating-container`。
-- **off（整体清理）**：还原被归档隐藏的原生会话行、移除面板/标签/注入菜单项/临时样式/CSS 变量/自绘 tooltip；数据保留，再次开启可恢复。
+- **「置顶」分组折叠**：`findPinnedGroup` 定位原生「置顶」分组容器（缓存 `pinnedGroupEl`，`isConnected` 失效即重算；判据 = 容器内含 innerText 为「置顶」的 sticky 头）→ `findPinHeader` 取其中标题 → `applyPinCollapse` 加稳定类 `ds-pin-head` / 折叠类 `dsPinCollapsed`，并隐藏容器内除标题外的兄弟（被藏节点标 `data-ds-pin-hidden`，展开时只还原自己藏过的）；点击走 document 级捕获事件委托（不依赖官网 hash 类名），折叠态每轮 `schedule` 重放（抗 React 重建）；状态存 `deepseek_pin_group_collapsed`，多选态下不响应。
+- **多选互斥**：`syncSelectModeLock` 检测列表根内 `.ds-checkbox`（普通态 0 / 原生多选态 >0，为多选专属标记）→ 面板加 `dsSelectModeHidden`（`display:none`）整区隐藏，退出多选自动恢复。
+- **off（整体清理）**：`resetPinCollapseUi`（解绑折叠点击 + 还原被折叠隐藏的原生节点与注入类名）、还原被归档隐藏的原生会话行、移除面板/标签/注入菜单项/临时样式/CSS 变量/自绘 tooltip；数据保留，再次开启可恢复。
 - **路由**：URL 会话变化才重绘树（防 observer 自激循环）；导航切换后 `folderUnit.schedule()` 由外层驱动。
 
 ### 5.5 发送快捷键（Ctrl+Enter）
