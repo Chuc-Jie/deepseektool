@@ -1868,10 +1868,12 @@
         const FOLDER_CSS = `
         #dsFolderPanel{
             font-size:14px; color:var(--ds-text); font-family:inherit;
-            margin:2px 0 4px; padding:22px 8px 8px 0;  /* 顶部预留原生「多选」按钮悬浮行，避免面板内容压在其下造成视觉错位 */
+            margin:2px 0 4px; padding:2px 8px 8px 0;  /* 对齐原生「分组头→首行」节奏（原生间距 0）；仅兜底挂载（无置顶分组）时由 JS 临时补 22px 让开悬浮「多选」按钮带 */
             background:transparent; border:none; box-shadow:none; border-radius:0;
             user-select:none;
         }
+        /* 原生「选择对话」（多选）模式：文件夹树不参与批量选择 → 降透明度并禁用交互，避免两种模式打架 */
+        #dsFolderPanel.dsSelectModeLocked{opacity:.45; pointer-events:none;}
         #dsFolderPanel .dsfh{display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding-left:10px;}
         #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 0; margin-left:-8px; border-radius:6px; user-select:none;}
         #dsFolderPanel .dsfh .dsHeadTitle:hover{background:var(--ds-hover);}
@@ -1985,6 +1987,23 @@
             }
             return null;
         }
+        /* ---- 「置顶」分组容器定位 ----
+           原生结构：[置顶 sticky 头 → 置顶会话容器 → 分隔线]，父级即「置顶」分组容器。
+           两个用途：① 面板锚点（插在分组容器之后，避免夹在「置顶」标题与其会话之间）；
+           ② 归档隐藏时跳过置顶分组内的行（置顶是显式行为，不能因归档进文件夹而从置顶区消失）。 */
+        let pinnedGroupEl = null;
+        function findPinnedGroup() {
+            if (pinnedGroupEl && pinnedGroupEl.isConnected) return pinnedGroupEl;
+            const sc = findScrollContainer();
+            if (!sc) return null;
+            const head = [...sc.querySelectorAll('div')].find((d) => {
+                const cs = getComputedStyle(d);
+                return cs.position === 'sticky' && d.clientHeight > 0 && d.clientHeight < 60
+                    && (d.innerText || '').trim() === '置顶';
+            });
+            pinnedGroupEl = (head && head.parentElement) ? head.parentElement : null;
+            return pinnedGroupEl;
+        }
         function ensurePanel() {
             applyTheme();
             let panel = document.getElementById('dsFolderPanel');
@@ -2000,7 +2019,12 @@
                     if (ov === 'auto' || ov === 'scroll') { inScroller = true; break; }
                     anc = anc.parentElement;
                 }
-                if (inScroller) return;   // 已随列表滚动 → 稳态零扫描早退
+                if (inScroller) {
+                    // 位置校验：若面板仍夹在「置顶」分组内（v4.8.1 及更早的挂载位置），继续走下方迁移；
+                    // 否则确认为稳态 → 零扫描早退（避免每轮 schedule 重挂引发无限刷新循环）。
+                    const pg = findPinnedGroup();
+                    if (!pg || !pg.contains(panel)) return;
+                }
                 // 面板在文档中但不在滚动容器内（误插残留/容器被替换）→ 继续走下方重挂
             }
             const sc = findScrollContainer();
@@ -2029,14 +2053,15 @@
                 });
             }
             // 挂入/重挂入滚动容器（若面板此前被误插到别处则自动迁移，修复升级前的残留）
-            const titleRow = [...sc.querySelectorAll('div')].find((d) => {
-                const cs = getComputedStyle(d);
-                return cs.position === 'sticky' && d.clientHeight > 0 && d.clientHeight < 60;
-            });
-            if (titleRow && titleRow.parentElement) {
-                titleRow.insertAdjacentElement('afterend', panel);
+            // 锚点 = 「置顶」分组容器之后：原生是 [置顶 sticky 头 → 置顶会话 → 分隔线]，
+            // 若插在 sticky 头之后会夹在「置顶」标题与置顶会话之间，把分组切断。
+            const pg = findPinnedGroup();
+            if (pg) {
+                pg.insertAdjacentElement('afterend', panel);
+                panel.style.paddingTop = '';   // 正常位置：对齐原生「分组头→首行」零间距节奏，无需为悬浮按钮预留
             } else {
-                sc.insertBefore(panel, sc.firstChild); // 兜底
+                sc.insertBefore(panel, sc.firstChild);   // 兜底：无置顶分组时插到列表最顶
+                panel.style.paddingTop = '22px';         // 顶部让开原生悬浮「多选」按钮带
             }
             setCollapsedUI();   // 挂载后再应用折叠态（原在创建块调用时面板未入 DOM，getElementById 找不到 → no-op，导致刷新后 data.collapsed 不生效）
             renderFolders();
@@ -2051,19 +2076,35 @@
             if (t) t.title = data.collapsed ? '展开全部' : '折叠全部';
         }
 
-        /* ---- 归档可见性：已收进文件夹的会话从原生历史列表隐藏（避免点它时官方滚回原位） ---- */
+        /* ---- 归档可见性：已收进文件夹的会话从原生历史列表隐藏（避免点它时官方滚回原位） ----
+           例外：「置顶」分组内的行不隐藏——置顶是用户的显式行为，若因归档进文件夹就整组消失，
+           等于置顶功能被脚本静默废掉（实测：脚本开启时置顶会话容器高度归 0）。 */
         const archivedIds = () => Object.keys(data.links);
         function syncArchiveVisibility() {
             const all = document.querySelectorAll('a[href^="/a/chat/s/"]');
             const set = new Set(archivedIds());
+            const pg = findPinnedGroup();
             all.forEach((a) => {
                 const sid = sessionIdOf(a);
-                if (sid && set.has(sid)) {
+                const isPinned = !!(pg && pg.contains(a));
+                if (!isPinned && sid && set.has(sid)) {
                     if (a.style.display !== 'none') a.style.display = 'none';
                 } else if (a.style.display === 'none') {
                     a.style.display = '';
                 }
             });
+        }
+
+        /* ---- 原生「选择对话」（多选）模式互斥 ----
+           两者选择态互不相通（原生选择圈只给原生行、文件夹树无任何选择控件），
+           多选态下继续让文件夹树可点会互相打架 → 降透明度并禁用交互。 */
+        function syncSelectModeLock() {
+            const panel = document.getElementById('dsFolderPanel');
+            if (!panel) return;
+            const listRoot = (pinnedGroupEl && pinnedGroupEl.isConnected && pinnedGroupEl.parentElement)
+                ? pinnedGroupEl.parentElement : findScrollContainer();
+            const inSelectMode = !!(listRoot && listRoot.querySelector('.ds-checkbox'));
+            panel.classList.toggle('dsSelectModeLocked', inSelectMode);
         }
 
         /* ---------- 树形渲染 ---------- */
@@ -2401,6 +2442,7 @@
                 const cur = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || null;
                 if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
                 syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
+                syncSelectModeLock();    // 原生多选态下禁用文件夹树交互（模式互斥）
             }, 120);
         }
         function cancelSchedule() { if (folderPending) { clearTimeout(folderPending); folderPending = null; } }
