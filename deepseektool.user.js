@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.9.0
+// @version      4.9.1
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -37,6 +37,7 @@
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
     const STORAGE_PIN_COLLAPSED = 'deepseek_pin_group_collapsed';       // 原生「置顶」分组折叠态（默认展开）
+    const STORAGE_PIN_COLLAPSIBLE = 'deepseek_pin_group_collapsible';   // 原生「置顶」分组折叠能力开关（默认关，opt-in）
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -50,6 +51,7 @@
     let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
     let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
     let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
+    let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -323,6 +325,12 @@
                     GM_setValue(STORAGE_FOLDER_MANAGER, checked);
                     folderEnabledChanged(checked);
                 }),
+                createToggleSetting('置顶分组可折叠', '点击原生「置顶」分组标题可收起/展开该组会话（需先开启上方文件夹分组）', pinGroupCollapsible, checked => {
+                    pinGroupCollapsible = checked;
+                    GM_setValue(STORAGE_PIN_COLLAPSIBLE, checked);
+                    folderUnit.setPinCollapsible(checked);
+                    showToast(checked ? '置顶分组折叠已开启' : '置顶分组折叠已关闭');
+                }, !folderManagerEnabled),
             ] },
             {
                 key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '前置条件 · 使用小贴士',
@@ -340,7 +348,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.9.0'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.9.1'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -409,6 +417,7 @@
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
                 tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
+                pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
                     GM_setValue(STORAGE_FOLDER_MANAGER, false);
@@ -440,9 +449,13 @@
     // 控件工厂
 
     // 行式设置项外壳：label + 描述 在左、控件在右
-    function createSettingRow(labelText, description, controlEl) {
+    function createSettingRow(labelText, description, controlEl, disabled) {
         const item = document.createElement('div');
         item.className = 'ds-setting-item';
+        if (disabled) {
+            item.classList.add('dsDisabled');
+            item.setAttribute('aria-disabled', 'true');
+        }
         const labelBlock = document.createElement('div');
         labelBlock.className = 'ds-setting-label';
         const t = document.createElement('div');
@@ -484,18 +497,19 @@
         return createSettingRow(labelText, description, wrap);
     }
 
-    function createToggleSetting(labelText, description, checked, onToggle) {
+    function createToggleSetting(labelText, description, checked, onToggle, disabled) {
         const label = document.createElement('label');
         label.className = 'ds-switch';
         const input = document.createElement('input');
         input.type = 'checkbox';
         if (checked) input.checked = true;
+        if (disabled) input.disabled = true;
         const slider = document.createElement('span');
         slider.className = 'ds-slider';
         label.appendChild(input);
         label.appendChild(slider);
-        input.addEventListener('change', () => onToggle(input.checked));
-        return createSettingRow(labelText, description, label);
+        if (!disabled) input.addEventListener('change', () => onToggle(input.checked));
+        return createSettingRow(labelText, description, label, disabled);
     }
 
     function createSelectSetting(labelText, description, options, selectedValue, onChange) {
@@ -828,6 +842,11 @@
         .ds-switch input:checked + .ds-slider { background: var(--dsp-accent); }
         .ds-switch input:checked + .ds-slider::before { transform: translateX(20px); }
         .ds-switch input:focus-visible + .ds-slider { outline: 2px solid var(--dsp-accent); outline-offset: 2px; }
+        /* 依赖项未开启 → 子开关置灰不可点（Ant Design disabled 语义：降透明度 + not-allowed） */
+        .ds-setting-item.dsDisabled { opacity: .5; }
+        .ds-setting-item.dsDisabled .ds-setting-title,
+        .ds-setting-item.dsDisabled small { cursor: not-allowed; }
+        .ds-switch input:disabled + .ds-slider { cursor: not-allowed; }
 
         /* 数字输入 / 单位 */
         .ds-setting-ctrl input[type="number"] {
@@ -1879,19 +1898,20 @@
 
         /* 原生「置顶」分组标题可折叠：点击切换。
            箭头与「文件夹」标题完全一致（同款 chevron、同色 --ds-sub、收起旋转 -90°），用 mask 绘制而非
-           往 React 管理的标题里塞节点；hover 也复用文件夹标题的 --ds-hover 底色。 */
+           往 React 管理的标题里塞节点；hover 也复用文件夹标题的 --ds-hover 底色。
+           语义：展开 = 朝下 v，折叠 = 朝右 >（基础图形为朝下 chevron，折叠态 rotate(-90°) 即得朝右）。 */
         .ds-pin-head{cursor:pointer; border-radius:6px; transition:background .15s ease;}
         .ds-pin-head:hover{background:var(--ds-hover);}
         .ds-pin-head::after{content:""; display:inline-block; width:15px; height:15px; margin-left:6px;
             vertical-align:middle; background-color:var(--ds-sub); transition:transform .15s ease;
-            -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
-            mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;}
+            -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 6 8 10.5 12.5 6' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
+            mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 6 8 10.5 12.5 6' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;}
         .ds-pin-head.dsPinCollapsed::after{transform:rotate(-90deg);}
         #dsFolderPanel .dsfh{display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding-left:10px;}
         #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 5px; margin-left:-5px; border-radius:6px; user-select:none;}
         #dsFolderPanel .dsfh .dsHeadTitle:hover{background:var(--ds-hover);}
         #dsFolderPanel .dsHeadCaret{width:15px;height:15px;flex:0 0 auto;color:var(--ds-sub);transition:transform .15s ease;}
-        #dsFolderPanel.collapsed .dsHeadCaret{transform:rotate(-90deg);}   /* 折叠态箭头朝右 */
+        #dsFolderPanel.collapsed .dsHeadCaret{transform:rotate(-90deg);}   /* 展开=朝下 v，折叠=朝右 > */
         #dsFolderPanel .dsfh b{font-weight:500; font-size:12px; color:var(--ds-sub); letter-spacing:.4px;}
         #dsFolderPanel .dsNew{background:transparent; color:var(--ds-sub);
             border:1px solid var(--ds-divider); border-radius:100px;
@@ -2048,7 +2068,7 @@
                 panel.innerHTML = `
                 <div class="dsfh">
                     <span class="dsHeadTitle" title="${data.collapsed ? '展开全部' : '折叠全部'}" role="button" tabindex="0">
-                        <b>文件夹</b><svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                        <b>文件夹</b><svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
                     </span>
                     <button class="dsNew" title="新建文件夹">＋ 新建</button>
                 </div>
@@ -2508,7 +2528,7 @@
                 if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
                 syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
                 syncSelectModeLock();    // 原生多选态下禁用文件夹树交互（模式互斥）
-                applyPinCollapse();      // 重放「置顶」分组折叠态（React 重建会重置）
+                if (pinGroupCollapsible) applyPinCollapse();   // 重放「置顶」分组折叠态（React 重建会重置；仅开关开启时）
             }, 120);
         }
         function cancelSchedule() { if (folderPending) { clearTimeout(folderPending); folderPending = null; } }
@@ -2517,7 +2537,7 @@
         function on() {
             injectCss();
             applyTheme();
-            bindPinClick();
+            if (pinGroupCollapsible) bindPinClick();   // 置顶折叠为 opt-in，仅开关开启时接管点击
             schedule();
         }
         function off() {
@@ -2539,13 +2559,23 @@
         }
         function refreshData() { data = loadData(); renderFolders(); refreshTags(); }
 
-        return { on, off, schedule, refreshData, isDark };
+        /* 置顶折叠能力开关（由设置面板驱动）：开启则绑定点击并应用折叠态；关闭则解绑并还原被折叠节点。 */
+        function setPinCollapsible(enabled) {
+            if (!folderManagerEnabled) return;   // 文件夹模块未启用时无需处理
+            if (enabled) { bindPinClick(); applyPinCollapse(); }
+            else { resetPinCollapseUi(); }
+        }
+
+        return { on, off, schedule, refreshData, setPinCollapsible, isDark };
     })();
 
     // hold the ref so disabled switching can re-load stored folder list later
     const folderEnabledChanged = (nowEnabled) => {
         if (nowEnabled) { folderUnit.on(); showToast('对话文件夹管理已开启'); }
         else { folderUnit.off(); showToast('对话文件夹管理已关闭'); }
+        // 子开关「置顶分组可折叠」的可用性依赖本项 → 重开面板刷新置灰态
+        const ov = document.getElementById('ds-control-panel-overlay');
+        if (ov) { ov.remove(); setTimeout(() => openControlPanel(), 300); }
     };
 
     // ==================== 统一 DOM 监听（合并多个 observer，添加节流） ====================
