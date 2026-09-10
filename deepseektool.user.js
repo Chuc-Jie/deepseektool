@@ -36,6 +36,7 @@
     const STORAGE_FOLDER_MANAGER = 'deepseek_folder_manager_enabled';   // 对话文件夹管理总开关（默认关）
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
+    const STORAGE_PIN_COLLAPSED = 'deepseek_pin_group_collapsed';       // 原生「置顶」分组折叠态（默认展开）
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -1809,6 +1810,7 @@
         }
         let data = loadData();
         function saveData() { GM_setValue(STORAGE_FOLDER_DATA, JSON.stringify(data)); }
+        let pinGroupCollapsed = !!GM_getValue(STORAGE_PIN_COLLAPSED, false);   // 原生「置顶」分组折叠态
 
         const genId = () => 'f_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
         const sessionIdOf = (a) => {
@@ -1874,6 +1876,14 @@
         }
         /* 原生「选择对话」（多选）模式：文件夹树不参与批量选择 → 降透明度并禁用交互，避免两种模式打架 */
         #dsFolderPanel.dsSelectModeLocked{opacity:.45; pointer-events:none;}
+
+        /* 原生「置顶」分组标题可折叠：点击切换；箭头用伪元素绘制（不往 React 管理的标题里塞节点） */
+        .ds-pin-head{cursor:pointer; transition:opacity .15s ease;}
+        .ds-pin-head:hover{opacity:.7;}
+        .ds-pin-head::after{content:""; display:inline-block; width:0; height:0; margin-left:6px;
+            vertical-align:middle; border-left:4px solid transparent; border-right:4px solid transparent;
+            border-top:4.5px solid currentColor; opacity:.5; transition:transform .18s ease;}
+        .ds-pin-head.dsPinCollapsed::after{transform:rotate(-90deg);}
         #dsFolderPanel .dsfh{display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding-left:10px;}
         #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 0; margin-left:-8px; border-radius:6px; user-select:none;}
         #dsFolderPanel .dsfh .dsHeadTitle:hover{background:var(--ds-hover);}
@@ -2105,6 +2115,58 @@
                 ? pinnedGroupEl.parentElement : findScrollContainer();
             const inSelectMode = !!(listRoot && listRoot.querySelector('.ds-checkbox'));
             panel.classList.toggle('dsSelectModeLocked', inSelectMode);
+        }
+
+        /* ---- 原生「置顶」分组折叠 ----
+           取「置顶」分组容器内的 sticky 头作为可点击标题；折叠 = 隐藏容器内除标题外的所有兄弟。
+           用 document 级事件委托 + 我们自己的稳定类 .ds-pin-head，不依赖官网 hash 类名、不怕 React 重渲染；
+           折叠态每轮 schedule 重放（React 重建会重置 inline display / class）。 */
+        function findPinHeader() {
+            const pg = findPinnedGroup();
+            if (!pg) return null;
+            return [...pg.children].find((c) => {
+                const cs = getComputedStyle(c);
+                return cs.position === 'sticky' && (c.innerText || '').trim().startsWith('置顶');
+            }) || null;
+        }
+        function applyPinCollapse() {
+            const pg = findPinnedGroup();
+            const head = findPinHeader();
+            if (!pg || !head) return;
+            head.classList.add('ds-pin-head');                                  // 稳定类：样式与事件委托的挂钩
+            head.classList.toggle('dsPinCollapsed', pinGroupCollapsed);
+            [...pg.children].forEach((c) => {
+                if (c === head) return;
+                if (pinGroupCollapsed) {
+                    if (c.style.display !== 'none') { c.style.display = 'none'; c.dataset.dsPinHidden = '1'; }
+                } else if (c.dataset.dsPinHidden === '1') {
+                    c.style.display = ''; delete c.dataset.dsPinHidden;         // 只还原自己藏过的，不动其它逻辑的 display
+                }
+            });
+        }
+        let pinClickHandler = null;
+        function bindPinClick() {
+            if (pinClickHandler) return;
+            pinClickHandler = (e) => {
+                const head = e.target && e.target.closest ? e.target.closest('.ds-pin-head') : null;
+                if (!head) return;
+                const pg = findPinnedGroup();
+                if (!pg || head.parentElement !== pg) return;        // 只认当前置顶组的标题
+                if (document.querySelector('.ds-checkbox')) return;  // 原生多选态下不响应折叠
+                pinGroupCollapsed = !pinGroupCollapsed;
+                GM_setValue(STORAGE_PIN_COLLAPSED, pinGroupCollapsed);
+                applyPinCollapse();
+            };
+            document.addEventListener('click', pinClickHandler, true);
+        }
+        function unbindPinClick() {
+            if (pinClickHandler) { document.removeEventListener('click', pinClickHandler, true); pinClickHandler = null; }
+        }
+        function resetPinCollapseUi() {
+            unbindPinClick();
+            const pg = findPinnedGroup();
+            if (pg) [...pg.children].forEach((c) => { if (c.dataset.dsPinHidden === '1') { c.style.display = ''; delete c.dataset.dsPinHidden; } });
+            document.querySelectorAll('.ds-pin-head').forEach((h) => h.classList.remove('ds-pin-head', 'dsPinCollapsed'));
         }
 
         /* ---------- 树形渲染 ---------- */
@@ -2443,6 +2505,7 @@
                 if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
                 syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
                 syncSelectModeLock();    // 原生多选态下禁用文件夹树交互（模式互斥）
+                applyPinCollapse();      // 重放「置顶」分组折叠态（React 重建会重置）
             }, 120);
         }
         function cancelSchedule() { if (folderPending) { clearTimeout(folderPending); folderPending = null; } }
@@ -2451,10 +2514,12 @@
         function on() {
             injectCss();
             applyTheme();
+            bindPinClick();
             schedule();
         }
         function off() {
             cancelSchedule();
+            resetPinCollapseUi();   // 解绑「置顶」折叠点击并还原被折叠隐藏的原生节点
             fCurrentMenuSid = null;
             closeFolderPopup();
             if (_dsConvTip) { _dsConvTip.remove(); _dsConvTip = null; }   // 清掉自绘 tooltip 残留节点
