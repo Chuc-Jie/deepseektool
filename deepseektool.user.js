@@ -1877,15 +1877,18 @@
         /* 原生「选择对话」（多选）模式：文件夹树不参与批量选择 → 降透明度并禁用交互，避免两种模式打架 */
         #dsFolderPanel.dsSelectModeLocked{opacity:.45; pointer-events:none;}
 
-        /* 原生「置顶」分组标题可折叠：点击切换；箭头用伪元素绘制（不往 React 管理的标题里塞节点） */
-        .ds-pin-head{cursor:pointer; transition:opacity .15s ease;}
-        .ds-pin-head:hover{opacity:.7;}
-        .ds-pin-head::after{content:""; display:inline-block; width:0; height:0; margin-left:6px;
-            vertical-align:middle; border-left:4px solid transparent; border-right:4px solid transparent;
-            border-top:4.5px solid currentColor; opacity:.5; transition:transform .18s ease;}
+        /* 原生「置顶」分组标题可折叠：点击切换。
+           箭头与「文件夹」标题完全一致（同款 chevron、同色 --ds-sub、收起旋转 -90°），用 mask 绘制而非
+           往 React 管理的标题里塞节点；hover 也复用文件夹标题的 --ds-hover 底色。 */
+        .ds-pin-head{cursor:pointer; border-radius:6px; transition:background .15s ease;}
+        .ds-pin-head:hover{background:var(--ds-hover);}
+        .ds-pin-head::after{content:""; display:inline-block; width:15px; height:15px; margin-left:6px;
+            vertical-align:middle; background-color:var(--ds-sub); transition:transform .15s ease;
+            -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
+            mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;}
         .ds-pin-head.dsPinCollapsed::after{transform:rotate(-90deg);}
         #dsFolderPanel .dsfh{display:flex; align-items:center; justify-content:space-between; margin:2px 0 6px; padding-left:10px;}
-        #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 0; margin-left:-8px; border-radius:6px; user-select:none;}
+        #dsFolderPanel .dsfh .dsHeadTitle{display:flex; align-items:center; gap:6px; cursor:pointer; padding:3px 8px 3px 5px; margin-left:-5px; border-radius:6px; user-select:none;}
         #dsFolderPanel .dsfh .dsHeadTitle:hover{background:var(--ds-hover);}
         #dsFolderPanel .dsHeadCaret{width:15px;height:15px;flex:0 0 auto;color:var(--ds-sub);transition:transform .15s ease;}
         #dsFolderPanel.collapsed .dsHeadCaret{transform:rotate(-90deg);}   /* 折叠态箭头朝右 */
@@ -2045,7 +2048,7 @@
                 panel.innerHTML = `
                 <div class="dsfh">
                     <span class="dsHeadTitle" title="${data.collapsed ? '展开全部' : '折叠全部'}" role="button" tabindex="0">
-                        <svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg><b>文件夹</b>
+                        <b>文件夹</b><svg class="dsHeadCaret" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
                     </span>
                     <button class="dsNew" title="新建文件夹">＋ 新建</button>
                 </div>
