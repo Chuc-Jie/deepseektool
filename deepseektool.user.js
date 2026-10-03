@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.9.2
+// @version      4.10.0
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -38,6 +38,8 @@
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
     const STORAGE_PIN_COLLAPSED = 'deepseek_pin_group_collapsed';       // 原生「置顶」分组折叠态（默认展开）
     const STORAGE_PIN_COLLAPSIBLE = 'deepseek_pin_group_collapsible';   // 原生「置顶」分组折叠能力开关（默认关，opt-in）
+    const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
+    const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -52,6 +54,8 @@
     let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
     let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
     let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
+    let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
+    let codeBgLevel = GM_getValue(STORAGE_CODE_BG_LEVEL, 'light');          // 加深强度（默认轻档）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -128,6 +132,7 @@
 
         const NAV_ITEMS = [
             { key: 'fold', icon: 'code-tags', label: '代码块折叠' },
+            { key: 'codebg', icon: 'format-color-fill', label: '代码块外观' },
             { key: 'table', icon: 'table-large', label: '表格优化导出' },
             { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
             { key: 'wide', icon: 'monitor', label: '宽屏模式' },
@@ -257,6 +262,24 @@
                     showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
                 }),
             ] },
+            { key: 'codebg', icon: 'format-color-fill', title: '代码块外观', sub: '背景加深 · 与正文拉开层次', build: () => [
+                createToggleSetting('加深代码块背景', '浅色主题下代码块底色由近白的 #F9FAFB 加深，顶部工具条同色并补分隔线（深色主题不受影响）', codeBgEnhance, checked => {
+                    codeBgEnhance = checked;
+                    GM_setValue(STORAGE_CODE_BG, checked);
+                    applyCodeBlockBg(checked, codeBgLevel);
+                    showToast(`代码块背景加深已${checked ? '开启' : '关闭'}`);
+                }),
+                createSelectSetting('加深强度', '轻微 / 中等 / 明显三档底色，按屏幕与偏好自选（仅浅色主题生效）', [
+                    { value: 'light', label: '轻微（#F3F4F6）' },
+                    { value: 'medium', label: '中等（#EEF1F5）' },
+                    { value: 'strong', label: '明显（#E9EDF2）' },
+                ], codeBgLevel, value => {
+                    codeBgLevel = value;
+                    GM_setValue(STORAGE_CODE_BG_LEVEL, value);
+                    applyCodeBlockBg(codeBgEnhance, value);
+                    showToast('代码块背景强度已更新');
+                }, !codeBgEnhance),
+            ] },
             { key: 'table', icon: 'table-large', title: '表格优化导出', sub: '宽度修复 · 主题配色 · PNG / CSV / Markdown 导出', build: () => [
                 createToggleSetting('表格导出按钮', '悬停表格显示 📸 📄 📝 导出按钮', tableButtonsEnabled, checked => {
                     tableButtonsEnabled = checked;
@@ -348,7 +371,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.9.2'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.10.0'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -418,6 +441,9 @@
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
                 tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
                 pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
+                codeBgEnhance = true; GM_setValue(STORAGE_CODE_BG, true);
+                codeBgLevel = 'light'; GM_setValue(STORAGE_CODE_BG_LEVEL, 'light');
+                applyCodeBlockBg(true, 'light');
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
                     GM_setValue(STORAGE_FOLDER_MANAGER, false);
@@ -512,7 +538,7 @@
         return createSettingRow(labelText, description, label, disabled);
     }
 
-    function createSelectSetting(labelText, description, options, selectedValue, onChange) {
+    function createSelectSetting(labelText, description, options, selectedValue, onChange, disabled) {
         const container = document.createElement('div');
         container.className = 'ds-custom-select';
         const trigger = document.createElement('button');
@@ -553,7 +579,11 @@
 
         container.appendChild(trigger);
         container.appendChild(dropdown);
-        return createSettingRow(labelText, description, container);
+        if (disabled) {
+            trigger.disabled = true;
+            trigger.classList.add('ds-select-disabled');
+        }
+        return createSettingRow(labelText, description, container, disabled);
     }
 
     // 说明性字（帮助/关于页）：竖向小标题 + 描述段，供 build() 返回
@@ -635,6 +665,16 @@
     // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
     function setTableButtonsAlways(on) {
         document.documentElement.classList.toggle('ds-export-always', !!on);
+    }
+
+    // 代码块背景加深：总开关 + 强度档位（仅接管浅色主题；深色主题保持官网原样）
+    // 官网浅色下代码块为 #F9FAFB，几乎与白底无对比；这里加深并让顶部工具栏条同色、补 1px 底分隔线
+    const CODE_BG_LEVEL_CLASS = { light: 'ds-code-bg-1', medium: 'ds-code-bg-2', strong: 'ds-code-bg-3' };
+    function applyCodeBlockBg(on, level) {
+        const html = document.documentElement;
+        html.classList.toggle('ds-code-bg', !!on);
+        Object.keys(CODE_BG_LEVEL_CLASS).forEach(k => html.classList.remove(CODE_BG_LEVEL_CLASS[k]));
+        if (on) html.classList.add(CODE_BG_LEVEL_CLASS[level] || CODE_BG_LEVEL_CLASS.light);
     }
 
     // ==================== 菜单命令 ====================
@@ -847,6 +887,7 @@
         .ds-setting-item.dsDisabled .ds-setting-title,
         .ds-setting-item.dsDisabled small { cursor: not-allowed; }
         .ds-switch input:disabled + .ds-slider { cursor: not-allowed; }
+        .ds-custom-select-trigger.ds-select-disabled { cursor: not-allowed; }
 
         /* 数字输入 / 单位 */
         .ds-setting-ctrl input[type="number"] {
@@ -1054,6 +1095,20 @@
         }
         html.ds-table-dual body.dark .internal-export-btn::after {
             background: #e4e4e8; color: #1a1a22;
+        }
+
+        /* 代码块背景加深 — 浅色主题专用（html.ds-code-bg + 强度档位类） */
+        html.ds-code-bg.ds-code-bg-1 { --ds-code-bg: #f3f4f6; --ds-code-bg-line: #e5e8ec; }
+        html.ds-code-bg.ds-code-bg-2 { --ds-code-bg: #eef1f5; --ds-code-bg-line: #dde3e9; }
+        html.ds-code-bg.ds-code-bg-3 { --ds-code-bg: #e9edf2; --ds-code-bg-line: #d8dfe7; }
+        html.ds-code-bg body:not(.dark) .md-code-block,
+        html.ds-code-bg body:not(.dark) .md-code-block .md-code-block-banner-wrap,
+        html.ds-code-bg body:not(.dark) .md-code-block .md-code-block-banner {
+            background: var(--ds-code-bg) !important;
+        }
+        /* 顶部语言/工具条与代码区同色，补一条底部分隔线消除白条割裂 */
+        html.ds-code-bg body:not(.dark) .md-code-block .md-code-block-banner-wrap {
+            border-bottom: 1px solid var(--ds-code-bg-line) !important;
         }
     `);
 
@@ -2648,6 +2703,7 @@
         applyTableThemeClass(tableThemeMode);
         applyWideScreen(wideScreen);
         setTableButtonsAlways(tableButtonsAlways);
+        applyCodeBlockBg(codeBgEnhance, codeBgLevel);
         cleanupLegacyWrappers();
         deduplicateButtons();
         processAllExistingCodeBlocks();
