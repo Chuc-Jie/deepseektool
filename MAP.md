@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 4.9.2）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 4.10.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -33,6 +33,8 @@
 | `deepseek_folder_manager_data_v2` | `data`（folderUnit 内） | `{folders:[],links:{},expanded:{},collapsed:false}` | 文件夹/归属/树展开态/面板折叠态（独立键） |
 | `deepseek_pin_group_collapsible` | `pinGroupCollapsible` | false | 原生「置顶」分组**折叠能力**开关（opt-in 子开关，依赖文件夹总开关） |
 | `deepseek_pin_group_collapsed` | `pinGroupCollapsed`（folderUnit 内） | false | 原生「置顶」分组**折叠态**（仅能力开关开启时生效/持久化） |
+| `deepseek_code_bg_enhance` | `codeBgEnhance` | true | 代码块背景加深总开关（`html.ds-code-bg`） |
+| `deepseek_code_bg_level` | `codeBgLevel` | 'light' | 加深强度档位：light / medium / strong（`ds-code-bg-1/2/3`） |
 
 ## 3. 模块总览
 
@@ -41,6 +43,7 @@ flowchart LR
     subgraph Main["主 IIFE 闭包"]
         Panel["⚙️ 统一控制面板<br/>openControlPanel + 控件工厂"]
         Fold["代码块折叠<br/>addFoldButtonToCodeBlock"]
+        CodeBg["代码块外观<br/>applyCodeBlockBg（html 类 + CSS 变量）"]
         Table["表格优化与导出<br/>applyTableStyles / 导出三格式"]
         Think["AI 思考折叠<br/>CSS 预隐藏 + capture 点击释放"]
         Keys["Ctrl+Enter 快捷键<br/>capture keydown"]
@@ -65,7 +68,7 @@ flowchart LR
 
 ### 4.1 `init()` 执行序列（幂等，仅一次）
 
-1. 套用静态开关：`applyTableThemeClass` / `applyWideScreen` / `setTableButtonsAlways`（写 `html` 类）。
+1. 套用静态开关：`applyTableThemeClass` / `applyWideScreen` / `setTableButtonsAlways` / `applyCodeBlockBg`（写 `html` 类）。
 2. 代码块：`cleanupLegacyWrappers()`（清旧 wrapper）→ `deduplicateButtons()` → `processAllExistingCodeBlocks()` 全量补折叠按钮。
 3. 表格：`processAllTables()` 全量处理既有表格。
 4. 思考：若开启 → `setupThinkContentHiding()`（注入预隐藏 style + 注册 capture click）+ `processAllThinkingSections()`。
@@ -95,7 +98,13 @@ flowchart LR
 - **展开恢复**：记录 `origDisplay/origMaxHeight/origOverflow`，用户手动展开后不再被后续加载重置（`expandBlock`）。
 - **重应用**：改阈值/预览行 → `reapplyFoldToAllCodeBlocks` 清标记重建按钮。
 
-### 5.2 表格优化与导出
+### 5.2 代码块外观（背景加深）
+
+- **驱动方式**：`applyCodeBlockBg(on, level)` 只切 `html` 上的两个类——总开关 `ds-code-bg` + 强度档位 `ds-code-bg-1/2/3`；具体色值由 CSS 变量 `--ds-code-bg` / `--ds-code-bg-line` 承载（轻 `#f3f4f6`/`#e5e8ec`、中 `#eef1f5`/`#dde3e9`、强 `#e9edf2`/`#d8dfe7`）。纯样式模块，**无 MutationObserver 参与、无需重扫 DOM**。
+- **作用范围**：`.md-code-block` 与其内 `.md-code-block-banner-wrap` / `.md-code-block-banner` 统一上底色，banner 另加 `1px` 底分隔线（消除官网「白顶条 + 灰代码体」割裂）。
+- **主题隔离**：所有规则以 `body:not(.dark)` 限定，深色主题完全交还官网；分隔线仅使块高 +1px，无布局位移。
+
+### 5.3 表格优化与导出
 
 - **样式应用 `applyTableStyles`**：`maxWidth` 取自 `.ds-virtual-list-visible-items.clientWidth`；按 `tableWidthMode` 三策略（均分 / 内容比例自适应 / 均分+80px 下限，超出自动回落自适应并 Toast）；配色由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；仅改直接包裹的 `.ds-scroll-area`；完成后 `opacity:1` 淡入（消除闪烁）。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
@@ -105,12 +114,12 @@ flowchart LR
   - 📝 MD：复制到剪贴板；保留 `code`/`**`/`*` 行内语法、`|` 转义、`<br>` 折为空格。
 - **显隐**：`.table-internal-buttons` 默认 hover 显示；`html.ds-export-always`（`setTableButtonsAlways`）强制常显。
 
-### 5.3 AI 思考过程自动折叠
+### 5.4 AI 思考过程自动折叠
 
 - **预隐藏（零布局偏移）**：注入 `#ds-think-hide`：`.ds-think-content{display:none!important}`；document **capture 阶段**监听折叠区点击 → 移除该 style → 官方正常创建可视内容。
 - **折叠执行** `processAllThinkingSections`：基于稳定的 `.ds-think-content` 类名 + 标题「已思考」向上找 wrapper；`simulateClickThinking` 开 → 模拟点击箭头（保持原生交互），关 → CSS 直接隐藏；`data-thinking-collapsed` / `dsScriptCollapsed` 防重。
 
-### 5.4 对话文件夹管理（folderUnit 子闭包）
+### 5.5 对话文件夹管理（folderUnit 子闭包）
 
 - **总开关**：控制面板开关 → `folderEnabledChanged(on|off)` → `folderUnit.on()/off()`；切换后若面板处于打开态会关闭重开，以刷新子开关置灰态。
 - **子开关**：`pinGroupCollapsible`（存储键 `deepseek_pin_group_collapsible`，默认 false）控制「置顶分组可折叠」能力；设置面板该行在总开关未开时置灰不可点。切换即时生效 → `folderUnit.setPinCollapsible(bool)`：开启则 `bindPinClick()` + `applyPinCollapse()`，关闭则 `resetPinCollapseUi()`。
