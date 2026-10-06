@@ -150,6 +150,7 @@
         const NAV_ITEMS = [
             { key: 'fold', icon: 'code-tags', label: '代码块折叠' },
             { key: 'codebg', icon: 'format-color-fill', label: '代码块外观' },
+            { key: 'codeexport', icon: 'image-multiple-outline', label: '代码块导出' },
             { key: 'table', icon: 'table-large', label: '表格优化导出' },
             { key: 'mdexport', icon: 'language-markdown', label: '对话导出' },
             { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
@@ -297,6 +298,8 @@
                     applyCodeBlockBg(codeBgEnhance, value);
                     showToast('代码块背景强度已更新');
                 }, !codeBgEnhance),
+            ] },
+            { key: 'codeexport', icon: 'image-multiple-outline', title: '代码块导出', sub: '一键导出为图片 · 8 项样式可调', build: () => [
                 createToggleSetting('代码块导出为图片按钮', '代码块右上角显示「导出」按钮：选择样式后将该代码块导出为图片（支持下载 PNG / 复制图片到剪贴板）', codeExportEnabled, checked => {
                     codeExportEnabled = checked;
                     GM_setValue(STORAGE_CODE_EXPORT_ENABLED, checked);
@@ -1903,22 +1906,37 @@
         });
     }
 
+    // 按钮先后顺序约定：导出在前、折叠在后（导出是主动作）。
+    // 本函数幂等——顺序已正确时不产生任何 DOM 变更，因而可反复调用，
+    // 用来兜住「脚本热更新后，页面上仍是旧顺序的已处理节点」。
+    function ensureButtonOrder(container) {
+        const exp = container.querySelector('.ds-code-export-btn');
+        const fold = container.querySelector('.ds-fold-btn');
+        if (!exp || !fold) return;
+        // exp 排在 fold 之后 → 把它移到 fold 之前
+        if (fold.compareDocumentPosition(exp) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            container.insertBefore(exp, fold);
+        }
+    }
+
     function addFoldButtonToCodeBlock(preEl) {
         if (preEl.hasAttribute(processedAttr)) return;
         const targetContainer = findButtonContainer(preEl);
         if (targetContainer) {
-            // 两类按钮各自判重，互不牵连（历史实现只判折叠按钮即 return，会漏掉导出按钮）
-            if (!targetContainer.querySelector('.ds-fold-btn')) targetContainer.appendChild(createFoldButton(preEl));
+            // 先建导出、后建折叠，使 DOM 次序为「导出 → 折叠」。
+            // 两类按钮各自判重，互不牵连（历史实现只判折叠按钮即 return，会漏掉导出按钮）。
             if (codeExportEnabled && !targetContainer.querySelector('.ds-code-export-btn')) {
                 targetContainer.appendChild(createCodeExportButton(preEl));
             }
+            if (!targetContainer.querySelector('.ds-fold-btn')) targetContainer.appendChild(createFoldButton(preEl));
+            ensureButtonOrder(targetContainer);
         } else {
             const wrapper = document.createElement('div');
             wrapper.className = 'ds-fold-btn-wrapper';
             wrapper.style.textAlign = 'right';
             wrapper.style.marginBottom = '6px';
-            wrapper.appendChild(createFoldButton(preEl));
             if (codeExportEnabled) wrapper.appendChild(createCodeExportButton(preEl));
+            wrapper.appendChild(createFoldButton(preEl));
             preEl.parentNode.insertBefore(wrapper, preEl);
         }
         preEl.setAttribute(processedAttr, 'true');
@@ -1926,7 +1944,13 @@
 
     function processAllExistingCodeBlocks() {
         document.querySelectorAll('pre').forEach(block => {
-            if (!block.hasAttribute(processedAttr)) addFoldButtonToCodeBlock(block);
+            if (!block.hasAttribute(processedAttr)) {
+                addFoldButtonToCodeBlock(block);
+            } else {
+                // 已处理过：只做顺序归一（幂等），兜住热更新后残留的旧顺序
+                const c = findButtonContainer(block);
+                if (c) ensureButtonOrder(c);
+            }
         });
     }
 
@@ -5527,7 +5551,7 @@
         }
 
         function openDialog(preEl) {
-            if (!codeExportEnabled) { showToast('代码块导出已关闭，请在「脚本设置 → 代码块外观」中开启'); return; }
+            if (!codeExportEnabled) { showToast('代码块导出已关闭，请在「脚本设置 → 代码块导出」中开启'); return; }
             const block = preEl.closest('.md-code-block');
             if (!block) return;
             closeDialog();

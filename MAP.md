@@ -97,7 +97,7 @@ flowchart LR
 ### 4.1 `init()` 执行序列（幂等，仅一次）
 
 1. 套用静态开关：`applyTableThemeClass` / `applyWideScreen` / `setTableButtonsAlways` / `applyCodeBlockBg`（写 `html` 类）。
-2. 代码块：`cleanupLegacyWrappers()`（清旧 wrapper）→ `deduplicateButtons()` → `processAllExistingCodeBlocks()` 全量补折叠按钮。
+2. 代码块：`cleanupLegacyWrappers()`（清旧 wrapper）→ `deduplicateButtons()` → `processAllExistingCodeBlocks()` 全量补按钮（含「导出 → 折叠」次序归一）。
 3. 表格：`processAllTables()` 全量处理既有表格。
 4. 思考：若开启 → `setupThinkContentHiding()`（注入预隐藏 style + 注册 capture click）+ `processAllThinkingSections()`。
 5. 文件夹：若开启 → `folderUnit.on()` + `folderUnit.schedule()`（不等首轮 DOM 变化）。
@@ -269,7 +269,8 @@ DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去
 **按钮生命周期**
 - `createCodeExportButton(preEl)`：造按钮（`ICON_EXPORT_IMAGE` + 「导出」文字），点击 `codeImageUnit.open(preEl)`；
 - `applyCodeExportButtons(on)`：开关切换时遍历全部 `pre` 按需增删导出按钮（**只动导出按钮，不碰折叠按钮**）；
-- `addFoldButtonToCodeBlock` 内两类按钮**各自判重**（旧写法只判折叠按钮即 `return`，会漏掉导出按钮）；`deduplicateButtons` 与 `reapplyFoldToAllCodeBlocks` 均对 `['.ds-fold-btn', '.ds-code-export-btn']` **成对处理**——只删折叠按钮会让导出按钮残留、且 `append` 到末尾造成两按钮顺序错乱。
+- `addFoldButtonToCodeBlock` 内两类按钮**各自判重**（旧写法只判折叠按钮即 `return`，会漏掉导出按钮）；`deduplicateButtons` 与 `reapplyFoldToAllCodeBlocks` 均对 `['.ds-fold-btn', '.ds-code-export-btn']` **成对处理**——只删折叠按钮会让导出按钮残留、且 `append` 到末尾造成两按钮顺序错乱；
+- **按钮次序约定「导出 → 折叠」**（导出是主动作）：增量路径**先建导出、后建折叠**；`ensureButtonOrder()` 做幂等归一（顺序已正确时不产生任何 DOM 变更），并由 `processAllExistingCodeBlocks()` 对已处理节点复跑，兜住脚本热更新后残留的旧顺序。
 
 **克隆清洗 `cloneCodeBlockPre(block)`**
 `cloneNode(true)` → 移除整条 `.md-code-block-banner-wrap`（语言标签 + 官方按钮 + 自绘按钮）、`.ds-fold-btn` / `.ds-code-export-btn` / `.table-internal-buttons`，剔除装饰 `<svg>`，清 `data-fold-processed` 与折叠态（`style.maxHeight/overflow/display` + `.ds-fold-preview` + `dataset.orig*`）→ **折叠态代码块也能拿到全文**。以上全部只在副本上操作。
