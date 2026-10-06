@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.0.0
-// @description  一站式管理：代码块折叠、表格优化导出、对话导出为 Markdown（勾选 + 模板）、自动折叠 AI 思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
+// @version      5.1.0
+// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格优化及 PNG/CSV/Markdown 导出、对话导出为 Markdown（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -42,6 +42,8 @@
     const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
     const STORAGE_TABLE_EXPORT_ROUNDED = 'deepseek_table_export_rounded'; // PNG 导出表格四角圆角（默认开）
     const STORAGE_MD_EXPORT_ENABLED = 'deepseek_md_export_enabled';       // 对话导出为 Markdown 总开关（默认开）
+    const STORAGE_CODE_EXPORT_ENABLED = 'deepseek_code_export_enabled';   // 代码块「导出为图片」按钮总开关（默认开）
+    const STORAGE_CODE_IMAGE_PREFS = 'deepseek_code_image_prefs';         // 代码块导图样式偏好（JSON，记住上次选择）
     // 说明：v4.12 起「含思考过程 / 仅导出 AI 回答」不再作为设置项，改为在导出弹窗里每次询问。
     // 因此**不得**再把旧键 deepseek_md_export_reasoning / _answer_only 读作默认值 ——
     // 那会形成一个「用户在设置里看不见、也关不掉」的隐形开关（曾导致「全选后只导出回答」的事故）。
@@ -67,6 +69,8 @@
     let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
     let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出 Markdown（默认开）
     let mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true); // 文件名附加日期（默认开）
+    let codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);    // 代码块导图按钮（默认开）
+    let codeImagePrefs = GM_getValue(STORAGE_CODE_IMAGE_PREFS, null);          // 导图样式偏好（对象或 JSON 字符串）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -74,6 +78,8 @@
     // ==================== SVG 图标 (代码块折叠) ====================
     const ICON_CHEVRON_DOWN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 470.6C309.9 483.1 330.2 483.1 342.7 470.6L534.7 278.6C547.2 266.1 547.2 245.8 534.7 233.3C522.2 220.8 501.9 220.8 489.4 233.3L320 402.7L150.6 233.4C138.1 220.9 117.8 220.9 105.3 233.4C92.8 245.9 92.8 266.2 105.3 278.7L297.3 470.7z"/></svg>`;
     const ICON_CHEVRON_UP = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="20" height="20" fill="currentColor"><path d="M297.4 169.4C309.9 156.9 330.2 156.9 342.7 169.4L534.7 361.4C547.2 373.9 547.2 394.2 534.7 406.7C522.2 419.2 501.9 419.2 489.4 406.7L320 237.3L150.6 406.6C138.1 419.1 117.8 419.1 105.3 406.6C92.8 394.1 92.8 373.8 105.3 361.3L297.3 169.3z"/></svg>`;
+    // 「导出为图片」按钮图标（内联 SVG，fill=currentColor 以随按钮文字色；与折叠按钮同为 20px）
+    const ICON_EXPORT_IMAGE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M13.96,12.29L11.21,15.83L9.25,13.47L6.5,17H17.5L13.96,12.29Z"/></svg>`;
 
     // ==================== 通用 Toast ====================
     function showToast(message, duration = 2000) {
@@ -291,6 +297,12 @@
                     applyCodeBlockBg(codeBgEnhance, value);
                     showToast('代码块背景强度已更新');
                 }, !codeBgEnhance),
+                createToggleSetting('代码块导出为图片按钮', '代码块右上角显示「导出」按钮：选择样式后将该代码块导出为图片（支持下载 PNG / 复制图片到剪贴板）', codeExportEnabled, checked => {
+                    codeExportEnabled = checked;
+                    GM_setValue(STORAGE_CODE_EXPORT_ENABLED, checked);
+                    applyCodeExportButtons(checked);
+                    showToast(`代码块导出按钮已${checked ? '开启' : '关闭'}`);
+                }),
             ] },
             { key: 'table', icon: 'table-large', title: '表格优化导出', sub: '宽度修复 · 主题配色 · PNG / CSV / Markdown 导出', build: () => [
                 createToggleSetting('表格导出按钮', '悬停表格显示 📸 📄 📝 导出按钮', tableButtonsEnabled, checked => {
@@ -425,7 +437,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.0.0'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.1.0'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -675,8 +687,10 @@
                 delete pre.dataset.origOverflow;
             }
             pre.classList.remove('ds-fold-preview');
-            const btn = pre.parentElement?.querySelector('.ds-fold-btn');
-            if (btn) btn.remove();
+            // 两类按钮都要一并清除再重建：只删折叠按钮会让导出按钮残留，
+            // 且折叠按钮被删后 append 到末尾会造成两按钮顺序错乱。
+            pre.parentElement?.querySelectorAll('.ds-fold-btn, .ds-code-export-btn')
+                .forEach(b => b.remove());
             addFoldButtonToCodeBlock(pre);
         });
     }
@@ -755,6 +769,19 @@
         .ds-fold-btn:hover { background: rgba(128,128,128,0.2); opacity: 1; }
         .ds-fold-btn .fold-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
         .ds-fold-btn svg { width: 20px; height: 20px; display: block; }
+        /* 代码块「导出为图片」按钮：沿用折叠按钮的视觉规范，保证同排观感一致 */
+        .ds-code-export-btn {
+            background: transparent; border: none; border-radius: 12px;
+            font-size: 13px; padding: 4px 8px; cursor: pointer;
+            transition: all 0.2s; font-family: system-ui, sans-serif;
+            user-select: none; display: inline-flex; align-items: center; gap: 2px;
+            opacity: 0.7;
+        }
+        .ds-code-export-btn:hover { background: rgba(128,128,128,0.2); opacity: 1; }
+        .ds-code-export-btn .export-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+        .ds-code-export-btn svg { width: 20px; height: 20px; display: block; }
+        /* 对话导出勾选态下整体隐藏，避免与勾选交互互相干扰（与 .table-internal-buttons 同策略） */
+        .ds-md-selection-active .ds-code-export-btn { display: none !important; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
 
         /* ===== 设置面板 — 左右布局（深浅双主题） ===== */
@@ -1610,6 +1637,102 @@
         html.ds-code-bg body:not(.dark) .md-code-block .md-code-block-banner-wrap {
             border-bottom: 1px solid var(--ds-code-bg-line) !important;
         }
+
+        /* ==================== 代码块导出为图片 — 弹窗 ====================
+           复用脚本弹窗主题令牌 --ds-md-*（其定义在 body 上、含深色覆盖，见上方说明）。
+           这里只定义本功能自己的类名与布局，不重复定义色板。 */
+        @keyframes dsCiOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes dsCiDialogIn { from { opacity: 0; transform: scale(.94) translateY(16px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .ds-ci-modal {
+            position: fixed; inset: 0; z-index: 10000;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--ds-md-overlay);
+            -webkit-backdrop-filter: saturate(160%) blur(4px);
+            backdrop-filter: saturate(160%) blur(4px);
+            animation: dsCiOverlayIn 180ms cubic-bezier(.2, 0, 0, 1) forwards;
+        }
+        .ds-ci-dialog {
+            width: 92%; max-width: 900px; max-height: 86vh;
+            display: flex; flex-direction: column; overflow: hidden;
+            background: var(--ds-md-surface);
+            border: 1px solid var(--ds-md-border);
+            border-radius: 24px;
+            box-shadow: var(--ds-md-shadow-xs);
+            animation: dsCiDialogIn 280ms cubic-bezier(.16, 1, .3, 1) forwards;
+            font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            color: var(--ds-md-text);
+        }
+        .ds-ci-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 28px 6px; }
+        .ds-ci-title { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .1px; }
+        .ds-ci-close {
+            width: 32px; height: 32px; display: grid; place-items: center; flex: none;
+            border: 0; background: transparent; cursor: pointer; padding: 0;
+            font-size: 15px; line-height: 1; color: var(--ds-md-sub); border-radius: 8px;
+            transition: background-color 120ms cubic-bezier(.2,0,0,1), color 120ms cubic-bezier(.2,0,0,1);
+        }
+        .ds-ci-close:hover { background: var(--ds-md-surface-2); color: var(--ds-md-text); }
+        .ds-ci-body { padding: 6px 28px 0; overflow-y: auto; flex: 1; min-height: 0; }
+
+        /* 预览区：等比缩放到容器内（缩放由 renderPreview 直接作用于 .ds-shot-root 与包裹层，无需额外类） */
+        .ds-ci-preview-wrap {
+            display: flex; align-items: center; justify-content: center;
+            padding: 18px; border-radius: 14px; min-height: 170px;
+            background: var(--ds-md-surface-2); border: 1px solid var(--ds-md-border);
+            overflow: hidden;
+        }
+
+        /* 选项区（两列） */
+        .ds-ci-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 22px; padding: 18px 0 4px; }
+        .ds-ci-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+        .ds-ci-field.is-wide { grid-column: 1 / -1; }
+        .ds-ci-label { font-size: 12px; font-weight: 600; color: var(--ds-md-sub); letter-spacing: .02em; }
+        .ds-ci-seg {
+            display: inline-flex; gap: 4px; padding: 3px; width: fit-content;
+            border-radius: 10px; background: var(--ds-md-surface-2); border: 1px solid var(--ds-md-border);
+        }
+        .ds-ci-seg-btn {
+            border: 0; background: transparent; padding: 5px 12px; border-radius: 8px;
+            cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; color: var(--ds-md-sub);
+            transition: background-color 140ms cubic-bezier(.2,0,0,1), color 140ms cubic-bezier(.2,0,0,1);
+        }
+        .ds-ci-seg-btn:hover { color: var(--ds-md-text); }
+        .ds-ci-seg-btn.is-active { background: var(--ds-md-accent); color: #fff; }
+
+        /* 背景色板 */
+        .ds-ci-sw-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .ds-ci-sw {
+            width: 36px; height: 26px; padding: 0; border-radius: 8px; cursor: pointer;
+            border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(128,128,128,.28);
+            transition: border-color 140ms cubic-bezier(.2,0,0,1), transform 140ms;
+        }
+        .ds-ci-sw:hover { transform: translateY(-1px); }
+        .ds-ci-sw.is-active { border-color: var(--ds-md-accent); }
+        .ds-ci-sw.is-transparent { background: repeating-conic-gradient(#c9c9c9 0 25%, #ffffff 0 50%) 50% / 12px 12px; }
+
+        /* 滑块 */
+        .ds-ci-range { display: flex; align-items: center; gap: 10px; }
+        .ds-ci-range input[type=range] { flex: 1; min-width: 0; accent-color: var(--ds-md-accent); }
+        .ds-ci-range-val { font-size: 12px; color: var(--ds-md-sub); min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+
+        /* 开关 */
+        .ds-ci-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--ds-md-text); }
+        .ds-ci-switch input { width: 16px; height: 16px; accent-color: var(--ds-md-accent); cursor: pointer; }
+        .ds-ci-toggles { display: flex; flex-wrap: wrap; gap: 18px; }
+
+        /* 页脚 */
+        .ds-ci-footer {
+            display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+            padding: 16px 28px 20px; margin-top: 12px; border-top: 1px solid var(--ds-md-border);
+        }
+        .ds-ci-btn {
+            border: 1px solid var(--ds-md-border); background: var(--ds-md-surface-2); color: var(--ds-md-text);
+            font: inherit; font-size: 14px; font-weight: 600; padding: 9px 18px; border-radius: 10px; cursor: pointer;
+            transition: border-color 140ms cubic-bezier(.2,0,0,1), background-color 140ms, filter 140ms, opacity 140ms;
+        }
+        .ds-ci-btn:hover { border-color: var(--ds-md-accent); }
+        .ds-ci-btn.primary { background: var(--ds-md-accent); border-color: var(--ds-md-accent); color: #fff; }
+        .ds-ci-btn.primary:hover { filter: brightness(1.06); }
+        .ds-ci-btn:disabled { opacity: .55; cursor: default; }
     `);
 
     // ==================== 代码块折叠逻辑 ====================
@@ -1742,21 +1865,60 @@
         return btn;
     }
 
+    // 创建「导出为图片」按钮（与折叠按钮同容器并列；点击打开样式弹窗）
+    function createCodeExportButton(preEl) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ds-code-export-btn';
+        btn.setAttribute('aria-label', '导出代码为图片');
+        btn.title = '导出为图片';
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'export-icon';
+        iconDiv.innerHTML = ICON_EXPORT_IMAGE;
+        const textSpan = document.createElement('span');
+        textSpan.textContent = '导出';
+        btn.appendChild(iconDiv);
+        btn.appendChild(textSpan);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!codeExportEnabled) return;
+            codeImageUnit.open(preEl);
+        });
+        return btn;
+    }
+
+    // 开关切换时即时增删全部代码块的导出按钮（只动导出按钮，不影响折叠按钮）
+    function applyCodeExportButtons(enabled) {
+        document.querySelectorAll('pre').forEach(pre => {
+            const block = pre.closest('.md-code-block');
+            if (!block) return;
+            const existing = block.querySelector('.ds-code-export-btn');
+            if (enabled) {
+                if (existing) return;
+                const container = findButtonContainer(pre);
+                if (container) container.appendChild(createCodeExportButton(pre));
+            } else if (existing) {
+                existing.remove();
+            }
+        });
+    }
+
     function addFoldButtonToCodeBlock(preEl) {
         if (preEl.hasAttribute(processedAttr)) return;
         const targetContainer = findButtonContainer(preEl);
         if (targetContainer) {
-            if (targetContainer.querySelector('.ds-fold-btn')) {
-                preEl.setAttribute(processedAttr, 'true');
-                return;
+            // 两类按钮各自判重，互不牵连（历史实现只判折叠按钮即 return，会漏掉导出按钮）
+            if (!targetContainer.querySelector('.ds-fold-btn')) targetContainer.appendChild(createFoldButton(preEl));
+            if (codeExportEnabled && !targetContainer.querySelector('.ds-code-export-btn')) {
+                targetContainer.appendChild(createCodeExportButton(preEl));
             }
-            targetContainer.appendChild(createFoldButton(preEl));
         } else {
             const wrapper = document.createElement('div');
             wrapper.className = 'ds-fold-btn-wrapper';
             wrapper.style.textAlign = 'right';
             wrapper.style.marginBottom = '6px';
             wrapper.appendChild(createFoldButton(preEl));
+            if (codeExportEnabled) wrapper.appendChild(createCodeExportButton(preEl));
             preEl.parentNode.insertBefore(wrapper, preEl);
         }
         preEl.setAttribute(processedAttr, 'true');
@@ -1773,8 +1935,14 @@
     }
 
     function deduplicateButtons() {
-        // 通过按钮文字或类名找到按钮容器，去重其中的折叠按钮
+        // 通过按钮文字或类名找到按钮容器，去重其中的折叠按钮与导出按钮
         const seen = new Set();
+        const dedupeIn = (container) => {
+            ['.ds-fold-btn', '.ds-code-export-btn'].forEach(sel => {
+                const btns = container.querySelectorAll(sel);
+                for (let i = 1; i < btns.length; i++) btns[i].remove();
+            });
+        };
         // 新版按钮：.code-info-button-text
         document.querySelectorAll('.code-info-button-text').forEach(span => {
             const btn = span.closest('[role="button"], .ds-button');
@@ -1782,16 +1950,14 @@
             const container = btn.parentElement;
             if (!container || seen.has(container)) return;
             seen.add(container);
-            const btns = container.querySelectorAll('.ds-fold-btn');
-            if (btns.length > 1) for (let i = 1; i < btns.length; i++) btns[i].remove();
+            dedupeIn(container);
         });
         // 旧版按钮：.ds-text-button
         document.querySelectorAll('.ds-text-button').forEach(btn => {
             const container = btn.parentElement;
             if (!container || seen.has(container)) return;
             seen.add(container);
-            const btns = container.querySelectorAll('.ds-fold-btn');
-            if (btns.length > 1) for (let i = 1; i < btns.length; i++) btns[i].remove();
+            dedupeIn(container);
         });
     }
 
@@ -5063,6 +5229,545 @@
             buildMarkdown, isSelecting: () => selectionActive,
             SEL, ATTR,
         };
+    })();
+
+    // ==================== 代码块导出为图片 ====================
+    // 把单个代码块渲染成「窗口卡片」样式的图片：背景 + 窗口 chrome + 代码体（可选行号）。
+    //
+    // 关键设计（依据真实页面实测，见 .workbuddy/research/code-export-image-trace.md）：
+    //   1. 官网高亮是 Prism token class（无内联色）→「浅色底 / 深色底」通过注入 CSS 覆盖实现；
+    //   2. 官网 .token / .md-code-block 规则读不到 cssRules → 必须自建完整样式与 token 色板；
+    //   3. 折叠态只是 max-height/overflow 的视觉裁剪，内容完整留在 DOM → 克隆后清样式即可拿全文，
+    //      **绝不在原 DOM 上改动**（与表格导出同一条「克隆 + 隔离」原则）；
+    //   4. 官网 pre 计算样式为 white-space:pre-wrap，但实测最宽行 829px < 内容宽 858px、未触发折行；
+    //      导出统一强制 white-space:pre（不折行，卡片按最长行自适应宽），逻辑行 = 视觉行，行号 counter 1:1；
+    //   5. 复用既有 html2canvas（@require）与「离屏 iframe 隔离」渲染手法，零新增依赖 / 零新增权限。
+    const codeImageUnit = (() => {
+        const MONO_STACK = 'Menlo, Monaco, Consolas, "Cascadia Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono", "JetBrains Mono", "Fira Code", Courier, monospace';
+
+        // 背景预设：渐变 / 纯色 / 透明
+        const BG_PRESETS = [
+            { id: 'grad-indigo', css: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', label: '靛蓝渐变' },
+            { id: 'grad-sunset', css: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', label: '日落渐变' },
+            { id: 'grad-mint', css: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', label: '薄荷渐变' },
+            { id: 'grad-ocean', css: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', label: '海洋渐变' },
+            { id: 'grad-night', css: 'linear-gradient(135deg, #232526 0%, #414345 100%)', label: '深空渐变' },
+            { id: 'solid-gray', css: '#e9edf2', label: '浅灰' },
+            { id: 'solid-dark', css: '#1e1e24', label: '墨黑' },
+            { id: 'transparent', css: 'transparent', label: '透明' },
+        ];
+        const bgCssOf = (id) => {
+            const hit = BG_PRESETS.filter(p => p.id === id)[0];
+            return hit ? hit.css : BG_PRESETS[0].css;
+        };
+
+        // 浅色 / 深色代码色板。
+        // 取值来源：官网真机实测（comment / keyword / function / operator / constant / punctuation）
+        // + 标准 One Light / One Dark 对剩余 token 类型的约定。
+        // ⚠️ 这份色板只负责「导出底色与页面当前底色**不一致**」的跨主题场景；
+        //    底色一致时以 harvestTokenColors() 采到的页面实测色为准（见 buildShotCss）。
+        const THEME_LIGHT = {
+            name: 'light', bg: '#f3f4f6', text: '#383a42',
+            comment: '#a0a1a7', prolog: '#a0a1a7', cdata: '#a0a1a7',
+            keyword: '#a626a4', boolean: '#b76b01',
+            string: '#50a14f', 'template-string': '#50a14f', 'template-punctuation': '#50a14f',
+            'attr-value': '#50a14f', char: '#50a14f', regex: '#50a14f', variable: '#50a14f', inserted: '#50a14f',
+            number: '#b76b01', constant: '#b76b01', symbol: '#b76b01', 'attr-name': '#b76b01',
+            'class-name': '#b76b01', deleted: '#b76b01',
+            tag: '#e45649', selector: '#e45649',
+            function: '#4078f2', 'function-variable': '#4078f2', atrule: '#4078f2', operator: '#4078f2',
+            property: '#e45649', 'literal-property': '#e45649',
+            url: '#0184bc',
+            parameter: '#383a42', punctuation: '#383a42',
+        };
+        const THEME_DARK = {
+            name: 'dark', bg: '#282c34', text: '#abb2bf',
+            comment: '#5c6370', prolog: '#5c6370', cdata: '#5c6370',
+            keyword: '#c678dd',
+            string: '#98c379', 'template-string': '#98c379', 'template-punctuation': '#98c379',
+            'attr-value': '#98c379', char: '#98c379', regex: '#98c379', variable: '#98c379',
+            inserted: '#98c379', selector: '#98c379', builtin: '#98c379',
+            number: '#d19a66', constant: '#d19a66', boolean: '#d19a66',
+            'attr-name': '#d19a66', 'class-name': '#d19a66', atrule: '#d19a66',
+            function: '#61afef', 'function-variable': '#61afef',
+            property: '#e06c75', 'literal-property': '#e06c75', tag: '#e06c75', symbol: '#e06c75',
+            deleted: '#e06c75', important: '#e06c75',
+            operator: '#56b6c2', url: '#56b6c2',
+            parameter: '#abb2bf', punctuation: '#abb2bf',
+        };
+
+        const DEFAULT_OPTS = {
+            bg: 'grad-indigo', window: 'macos', padding: 32, shadow: true,
+            fontSize: 13, lineHeight: 22, lineNumbers: false, scale: 2, theme: '',
+        };
+
+        // ---------- 样式偏好读写（记住上次选择） ----------
+        function loadPrefs() {
+            try {
+                if (codeImagePrefs) return typeof codeImagePrefs === 'string' ? JSON.parse(codeImagePrefs) : codeImagePrefs;
+            } catch (_) { /* 数据损坏则忽略，回落默认 */ }
+            return {};
+        }
+        function savePrefs(p) {
+            codeImagePrefs = p;
+            try { GM_setValue(STORAGE_CODE_IMAGE_PREFS, JSON.stringify(p)); } catch (_) { /* 忽略 */ }
+        }
+
+        // ---------- 语言提取（来自 banner 文案，排除操作按钮文字） ----------
+        const OP_LABEL = /^(复制|下载|展开|收起|编辑|运行|预览|导出|copy|download|expand|collapse|edit|run)$/i;
+        function extractLang(block) {
+            const banner = block.querySelector('.md-code-block-banner-wrap');
+            if (!banner) return '';
+            for (const sp of banner.querySelectorAll('span')) {
+                const s = String(sp.textContent || '').trim();
+                if (!s || s.length > 40 || OP_LABEL.test(s)) continue;
+                return s.split(/\s+/)[0].toLowerCase();
+            }
+            return '';
+        }
+
+        // ---------- 克隆清洗（绝不改原 DOM） ----------
+        function cloneCodeBlockPre(block) {
+            if (!block) return null;
+            const clone = block.cloneNode(true);
+            const stripSvg = (root) => {
+                [...root.children].forEach(c => { if (c.tagName && c.tagName.toLowerCase() === 'svg') c.remove(); });
+            };
+            // 整条 banner（语言标签 + 官网按钮 + 折叠/导出按钮）与装饰 svg 一并剔除
+            clone.querySelectorAll('.md-code-block-banner-wrap').forEach(el => el.remove());
+            clone.querySelectorAll('.ds-fold-btn, .ds-code-export-btn, .table-internal-buttons').forEach(el => el.remove());
+            clone.removeAttribute('data-fold-processed');
+            stripSvg(clone);
+            const pre = clone.querySelector('pre');
+            if (!pre) return null;
+            // 清折叠态（仅在克隆体上操作）
+            pre.style.maxHeight = '';
+            pre.style.overflow = '';
+            pre.style.display = '';
+            pre.classList.remove('ds-fold-preview');
+            delete pre.dataset.origMaxHeight;
+            delete pre.dataset.origOverflow;
+            delete pre.dataset.origDisplay;
+            stripSvg(pre);
+            return pre;
+        }
+
+        function resolveTheme(opts) {
+            if (opts.theme === 'light') return THEME_LIGHT;
+            if (opts.theme === 'dark') return THEME_DARK;
+            return document.body.classList.contains('dark') ? THEME_DARK : THEME_LIGHT;
+        }
+
+        const isPageDark = () => document.body.classList.contains('dark');
+
+        // ---------- 页面实测 token 颜色采集 ----------
+        // 为什么需要它：官网高亮色定义在跨域样式表 / CSS-in-JS 里，cssRules 读不到，
+        // 自建色板又只能覆盖「我们想得到的」token 类型 —— 实测真机 html 代码块用的是
+        // tag / attr-name / attr-value，一度全部落在色板之外，导致 1264/1270 个
+        // 本来有颜色的 token 在导出图上掉回纯文字色。
+        // 但「当前页面正在渲染的 token」其计算色一定读得到：就地按类名采集，
+        // 既不依赖任何外部定义，也能自动覆盖官网后续新增的 token 类型。
+        // 仅用于「导出底色 == 页面当前底色」；跨主题时仍走自建色板，否则明暗会串味。
+        const TOKEN_CLS_OK = /^[A-Za-z_][\w-]*$/;
+        const RESERVED_KEYS = ['name', 'bg', 'text'];
+        function harvestTokenColors(root) {
+            const map = {};
+            if (!root || !root.querySelectorAll) return map;
+            root.querySelectorAll('.token').forEach(el => {
+                const color = getComputedStyle(el).color;
+                if (!color) return;
+                String(el.className).split(/\s+/).forEach(c => {
+                    if (!c || c === 'token' || RESERVED_KEYS.indexOf(c) >= 0) return;
+                    if (!TOKEN_CLS_OK.test(c) || c in map) return;
+                    map[c] = color;
+                });
+            });
+            return map;
+        }
+
+        // ---------- 组装合成 DOM（背景 / 卡片 / 窗口 chrome / 代码体） ----------
+        function buildShotDom(pre, opts, theme) {
+            const root = document.createElement('div');
+            root.className = 'ds-shot-root';
+            root.style.cssText = `display:inline-block;padding:${opts.padding}px;background:${bgCssOf(opts.bg)};`;
+
+            const card = document.createElement('div');
+            card.className = 'ds-shot-card';
+            // position:relative 是必需的，不是装饰：
+            // html2canvas@1.4.1 在分层渲染时，会把「未定位的 inline-block」元素的背景归到
+            // 靠后的绘制分组，导致卡片底色排到子元素背景之后 —— 卡片底色会把 macOS 三点
+            // 整块反盖掉（实测红点像素 424 → 0），且与代码长短无关。
+            // 让卡片成为定位元素即可把它归入 positioned 分组，保证「先卡片底色、后子元素」，
+            // 同时不改变任何布局与尺寸（实测节点盒与画布尺寸与修复前逐像素一致）。
+            card.style.cssText = 'display:inline-block;min-width:300px;border-radius:12px;overflow:hidden;position:relative;'
+                + `background:${theme.bg};`
+                + (opts.shadow ? 'box-shadow:0 14px 36px rgba(0,0,0,.30),0 3px 10px rgba(0,0,0,.18);' : '');
+
+            if (opts.window === 'macos') {
+                const bar = document.createElement('div');
+                bar.className = 'ds-shot-bar';
+                bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:12px 16px;';
+                ['#ff5f57', '#febc2e', '#28c840'].forEach(c => {
+                    const dot = document.createElement('span');
+                    dot.style.cssText = `width:12px;height:12px;border-radius:50%;display:block;background:${c};`;
+                    bar.appendChild(dot);
+                });
+                card.appendChild(bar);
+            }
+
+            const body = document.createElement('div');
+            body.className = 'ds-shot-body';
+            body.appendChild(pre);
+            card.appendChild(body);
+            root.appendChild(card);
+            return root;
+        }
+
+        // ---------- 组装样式（自建，不依赖官网规则） ----------
+        // liveColors：由 harvestTokenColors() 在**原 DOM** 上采到的「类名 → 计算色」。
+        // 只有「导出底色 == 页面当前底色」时才用它（完全还原官网观感）；
+        // 跨主题时忽略，改用自建色板，否则浅色 token 会被搬到深色底上。
+        function buildShotCss(opts, theme, liveColors) {
+            const palette = Object.assign({}, theme);
+            if (liveColors && (theme.name === 'dark') === isPageDark()) {
+                Object.keys(liveColors).forEach(k => { palette[k] = liveColors[k]; });
+            }
+            const tokenRules = Object.keys(palette)
+                .filter(k => RESERVED_KEYS.indexOf(k) === -1)
+                .map(k => `.ds-shot-root .token.${k}{color:${palette[k]} !important;}`)
+                .join('');
+            const gutter = opts.lineNumbers ? `
+                .ds-shot-root pre{counter-reset:ds-shot-line;}
+                .ds-shot-root pre > span{counter-increment:ds-shot-line;}
+                .ds-shot-root pre > span::before{
+                    content:counter(ds-shot-line);display:inline-block;min-width:2.1em;padding-right:1em;
+                    text-align:right;opacity:.4;
+                }` : '';
+            return `
+                *{box-sizing:border-box;}
+                html,body{margin:0;padding:0;}
+                body{display:inline-block;}
+                .ds-shot-root{display:inline-block;}
+                .ds-shot-root pre{
+                    margin:0;padding:16px;display:block;
+                    font-family:${MONO_STACK};
+                    font-size:${opts.fontSize}px;line-height:${opts.lineHeight}px;
+                    color:${theme.text};background:transparent;
+                    white-space:pre;overflow:visible;tab-size:4;
+                }
+                .ds-shot-root .token{color:${theme.text};}
+                ${tokenRules}
+                ${gutter}
+            `;
+        }
+
+        // ---------- 渲染为 canvas（离屏 iframe 隔离，复用既有表格导出手法） ----------
+        async function renderToCanvas(preEl, opts) {
+            if (!window.html2canvas) throw new Error('html2canvas 未加载');
+            const block = preEl.closest('.md-code-block') || preEl;
+            // 采色必须发生在**原 DOM** 上：克隆体已脱离文档，getComputedStyle 取不到值
+            const liveColors = harvestTokenColors(block);
+            const cleanPre = cloneCodeBlockPre(block);
+            if (!cleanPre) throw new Error('未找到代码内容');
+            const theme = resolveTheme(opts);
+            const css = buildShotCss(opts, theme, liveColors);
+            const dom = buildShotDom(cleanPre, opts, theme);
+
+            const iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:fixed;left:-99999px;top:0;width:1400px;height:900px;border:0;';
+            iframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>${css}</style></head><body>${dom.outerHTML}</body></html>`;
+            document.body.appendChild(iframe);
+            try {
+                await new Promise(resolve => { iframe.onload = resolve; setTimeout(resolve, 2000); });
+                const doc = iframe.contentDocument;
+                const node = doc && doc.querySelector('.ds-shot-root');
+                if (!node) throw new Error('渲染节点缺失');
+                return await window.html2canvas(node, { scale: opts.scale, backgroundColor: null, logging: false });
+            } finally {
+                setTimeout(() => iframe.remove(), 120);
+            }
+        }
+
+        // ---------- 输出 ----------
+        function canvasToBlob(canvas) {
+            return new Promise(res => canvas.toBlob(res, 'image/png'));
+        }
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 200);
+        }
+        const canCopyImage = () => !!(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem);
+        function copyBlob(blob) {
+            return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
+        }
+        function makeFilename(lang) {
+            const d = new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            const ts = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+            return `code-${lang || 'snippet'}-${ts}.png`;
+        }
+
+        // ---------- 弹窗 ----------
+        let _activeModal = null;
+        let _busy = false;
+
+        function closeDialog() {
+            if (_activeModal) {
+                if (_activeModal._previewHost && _activeModal._previewHost.shadowRoot) _activeModal._previewHost.shadowRoot.innerHTML = '';
+                _activeModal.remove();
+                _activeModal = null;
+            }
+            document.removeEventListener('keydown', onDialogKeydown, true);
+        }
+        function onDialogKeydown(e) {
+            if (e.key === 'Escape') { e.stopPropagation(); closeDialog(); }
+        }
+
+        function openDialog(preEl) {
+            if (!codeExportEnabled) { showToast('代码块导出已关闭，请在「脚本设置 → 代码块外观」中开启'); return; }
+            const block = preEl.closest('.md-code-block');
+            if (!block) return;
+            closeDialog();
+
+            const lang = extractLang(block);
+            const opts = Object.assign({}, DEFAULT_OPTS, loadPrefs());
+            if (!opts.theme) opts.theme = document.body.classList.contains('dark') ? 'dark' : 'light';
+
+            const modal = document.createElement('div');
+            modal.className = 'ds-ci-modal';
+            const dialog = document.createElement('div');
+            dialog.className = 'ds-ci-dialog';
+
+            // ----- 头部 -----
+            const header = document.createElement('div');
+            header.className = 'ds-ci-header';
+            const title = document.createElement('h3');
+            title.className = 'ds-ci-title';
+            title.textContent = '导出代码为图片';
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'ds-ci-close';
+            closeBtn.setAttribute('aria-label', '关闭');
+            closeBtn.textContent = '✕';
+            closeBtn.addEventListener('click', closeDialog);
+            header.appendChild(title);
+            header.appendChild(closeBtn);
+
+            // ----- 主体 -----
+            const body = document.createElement('div');
+            body.className = 'ds-ci-body';
+            const previewWrap = document.createElement('div');
+            previewWrap.className = 'ds-ci-preview-wrap';
+            body.appendChild(previewWrap);
+
+            const options = document.createElement('div');
+            options.className = 'ds-ci-options';
+            body.appendChild(options);
+
+            // ----- 页脚 -----
+            const footer = document.createElement('div');
+            footer.className = 'ds-ci-footer';
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'ds-ci-btn';
+            copyBtn.textContent = '复制图片';
+            const dlBtn = document.createElement('button');
+            dlBtn.type = 'button';
+            dlBtn.className = 'ds-ci-btn primary';
+            dlBtn.textContent = '下载 PNG';
+            footer.appendChild(copyBtn);
+            footer.appendChild(dlBtn);
+
+            dialog.appendChild(header);
+            dialog.appendChild(body);
+            dialog.appendChild(footer);
+            modal.appendChild(dialog);
+
+            // ----- 选项控件辅助 -----
+            const field = (labelText, controlEl, wide) => {
+                const f = document.createElement('div');
+                f.className = 'ds-ci-field' + (wide ? ' is-wide' : '');
+                const l = document.createElement('div');
+                l.className = 'ds-ci-label';
+                l.textContent = labelText;
+                f.appendChild(l);
+                f.appendChild(controlEl);
+                return f;
+            };
+            const seg = (items, current, onPick) => {
+                const wrap = document.createElement('div');
+                wrap.className = 'ds-ci-seg';
+                items.forEach(it => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'ds-ci-seg-btn' + (it.value === current ? ' is-active' : '');
+                    b.textContent = it.label;
+                    b.addEventListener('click', () => {
+                        wrap.querySelectorAll('.ds-ci-seg-btn').forEach(x => x.classList.remove('is-active'));
+                        b.classList.add('is-active');
+                        onPick(it.value);
+                    });
+                    wrap.appendChild(b);
+                });
+                return wrap;
+            };
+            const slider = (min, max, step, value, unit, onInput) => {
+                const wrap = document.createElement('div');
+                wrap.className = 'ds-ci-range';
+                const input = document.createElement('input');
+                input.type = 'range';
+                input.min = min; input.max = max; input.step = step; input.value = value;
+                const val = document.createElement('span');
+                val.className = 'ds-ci-range-val';
+                val.textContent = value + (unit || '');
+                input.addEventListener('input', () => { val.textContent = input.value + (unit || ''); onInput(Number(input.value)); });
+                wrap.appendChild(input);
+                wrap.appendChild(val);
+                return wrap;
+            };
+            const toggle = (labelText, checked, onChange) => {
+                const l = document.createElement('label');
+                l.className = 'ds-ci-switch';
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = !!checked;
+                input.addEventListener('change', () => onChange(input.checked));
+                const s = document.createElement('span');
+                s.textContent = labelText;
+                l.appendChild(input);
+                l.appendChild(s);
+                return l;
+            };
+
+            // ----- 选项（8 项） -----
+            // 1) 背景（色板，整行）
+            const swRow = document.createElement('div');
+            swRow.className = 'ds-ci-sw-row';
+            BG_PRESETS.forEach(p => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'ds-ci-sw' + (p.id === opts.bg ? ' is-active' : '') + (p.id === 'transparent' ? ' is-transparent' : '');
+                b.title = p.label;
+                b.setAttribute('aria-label', '背景：' + p.label);
+                if (p.id !== 'transparent') b.style.background = p.css;
+                b.addEventListener('click', () => {
+                    swRow.querySelectorAll('.ds-ci-sw').forEach(x => x.classList.remove('is-active'));
+                    b.classList.add('is-active');
+                    opts.bg = p.id;
+                    refreshPreview();
+                });
+                swRow.appendChild(b);
+            });
+            options.appendChild(field('背景', swRow, true));
+            // 2) 窗口样式 / 8) 底色
+            options.appendChild(field('窗口样式', seg(
+                [{ value: 'macos', label: 'macOS 三点' }, { value: 'none', label: '无框' }],
+                opts.window, v => { opts.window = v; refreshPreview(); }
+            )));
+            options.appendChild(field('代码底色', seg(
+                [{ value: 'light', label: '浅色底' }, { value: 'dark', label: '深色底' }],
+                opts.theme, v => { opts.theme = v; refreshPreview(); }
+            )));
+            // 3) 内边距 / 5) 字号
+            options.appendChild(field('内边距', slider(16, 80, 2, opts.padding, 'px', v => { opts.padding = v; refreshPreview(); })));
+            options.appendChild(field('字号', slider(12, 18, 1, opts.fontSize, 'px', v => { opts.fontSize = v; refreshPreview(); })));
+            // 行高 / 7) 导出倍率
+            options.appendChild(field('行高', slider(16, 30, 1, opts.lineHeight, 'px', v => { opts.lineHeight = v; refreshPreview(); })));
+            options.appendChild(field('导出倍率', seg(
+                [{ value: 1, label: '1x' }, { value: 2, label: '2x' }, { value: 3, label: '3x' }],
+                opts.scale, v => { opts.scale = v; refreshPreview(); }
+            )));
+            // 4) 投影 / 6) 行号
+            const toggles = document.createElement('div');
+            toggles.className = 'ds-ci-toggles';
+            toggles.appendChild(toggle('投影', opts.shadow, v => { opts.shadow = v; refreshPreview(); }));
+            toggles.appendChild(toggle('行号', opts.lineNumbers, v => { opts.lineNumbers = v; refreshPreview(); }));
+            options.appendChild(field('其他', toggles, true));
+
+            // ----- 预览（Shadow DOM 隔离，与导出共用同一套样式） -----
+            let previewTimer = null;
+            function refreshPreview() {
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(() => {
+                    try {
+                        renderPreview(previewWrap, preEl, opts);
+                        savePrefs(opts);
+                    } catch (err) {
+                        console.error('[代码导图] 预览失败:', err);
+                    }
+                }, 30);
+            }
+            function renderPreview(host, srcPre, o) {
+                const theme = resolveTheme(o);
+                const liveBlock = srcPre.closest('.md-code-block') || srcPre;
+                const shadow = host.shadowRoot || host.attachShadow({ mode: 'open' });
+                shadow.innerHTML = '';
+                const style = document.createElement('style');
+                style.textContent = buildShotCss(o, theme, harvestTokenColors(liveBlock));
+                const cleanPre = cloneCodeBlockPre(liveBlock);
+                const dom = buildShotDom(cleanPre, o, theme);
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'display:inline-block;overflow:hidden;';
+                wrap.appendChild(dom);
+                shadow.appendChild(style);
+                shadow.appendChild(wrap);
+                requestAnimationFrame(() => {
+                    const availW = Math.max(120, host.clientWidth - 36);
+                    const w = dom.offsetWidth || 1;
+                    const k = Math.min(1, availW / w);
+                    dom.style.transformOrigin = 'top left';
+                    dom.style.transform = `scale(${k})`;
+                    wrap.style.width = Math.round(w * k) + 'px';
+                    wrap.style.height = Math.round((dom.offsetHeight || 1) * k) + 'px';
+                });
+            }
+
+            // ----- 导出动作 -----
+            async function runExport(mode) {
+                if (_busy) return;
+                _busy = true;
+                copyBtn.disabled = true;
+                dlBtn.disabled = true;
+                const oldText = dlBtn.textContent;
+                dlBtn.textContent = '生成中…';
+                try {
+                    const canvas = await renderToCanvas(preEl, opts);
+                    const blob = await canvasToBlob(canvas);
+                    if (!blob) throw new Error('无法生成图片数据');
+                    if (mode === 'copy') {
+                        await copyBlob(blob);
+                        showToast('图片已复制到剪贴板');
+                    } else {
+                        downloadBlob(blob, makeFilename(lang));
+                        showToast('图片已下载');
+                    }
+                    closeDialog();
+                } catch (err) {
+                    console.error('[代码导图] 导出失败:', err);
+                    showToast('导出失败：' + ((err && err.message) || '未知错误'));
+                } finally {
+                    _busy = false;
+                    copyBtn.disabled = false;
+                    dlBtn.disabled = false;
+                    dlBtn.textContent = oldText;
+                }
+            }
+            dlBtn.addEventListener('click', () => runExport('download'));
+            copyBtn.addEventListener('click', () => runExport('copy'));
+            if (!canCopyImage()) { copyBtn.disabled = true; copyBtn.title = '当前环境不支持复制图片'; }
+
+            document.body.appendChild(modal);
+            _activeModal = modal;
+            _activeModal._previewHost = previewWrap;
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeDialog(); });
+            document.addEventListener('keydown', onDialogKeydown, true);
+            refreshPreview();
+        }
+
+        return { open: openDialog };
     })();
 
     // ==================== 统一 DOM 监听（合并多个 observer，添加节流） ====================

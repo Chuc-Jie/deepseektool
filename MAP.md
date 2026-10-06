@@ -1,16 +1,16 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.0.0）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.1.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
 | 项 | 值 | 说明 |
 | --- | --- | --- |
-| 运行载体 | Tampermonkey / ScriptCat userscript | 单 IIFE 主闭包 + `folderUnit` 子闭包 |
+| 运行载体 | Tampermonkey / ScriptCat userscript | 单 IIFE 主闭包 + `folderUnit` / `mdExportUnit` / `codeImageUnit` 三个可选子闭包 |
 | `@match` | `chat.deepseek.com` / `www.deepseek.com` / `deepseek.com` | 仅 DeepSeek Web 注入 |
 | `@run-at` | `document-end` | 见第 4 节：`readyState==='loading'` 挂 DOMContentLoaded，否则立即 `init()` |
 | `@grant` | `GM_addStyle` / `GM_getValue` / `GM_setValue` / `GM_registerMenuCommand` | 无网络、无跨域 GM_xhr |
-| `@require` | `html2canvas@1.4.1` | 仅 PNG 导出使用（启动不加载逻辑依赖） |
+| `@require` | `html2canvas@1.4.1` | 表格与代码块的 PNG 导出（启动不加载逻辑依赖） |
 | 状态载体 | `GM_getValue`/`GM_setValue`（每次写入即时持久化） | 设置与文件夹数据分离两键 |
 
 ## 2. 状态与存储（GM_* 键 → 全局变量镜像）
@@ -39,6 +39,8 @@
 | `deepseek_md_export_enabled` | `mdExportEnabled` | true | 对话导出为 Markdown 总开关（opt-in 关闭；关闭则菜单命令与面板入口都不可用） |
 | `deepseek_md_export_prefs` | 无（JSON 字符串） | `''` | 弹窗「记住我的选择」落库：`{includeReasoning, templateId, remember}`；**唯一**的选项来源，不回落读旧设置键 |
 | `deepseek_md_export_append_date` | `mdExportAppendDate` | true | 导出文件名附加 `-YYYY-MM-DD-HH-mm`（避免同名覆盖） |
+| `deepseek_code_export_enabled` | `codeExportEnabled` | true | 代码块「导出为图片」按钮总开关（关闭则移除全部导出按钮） |
+| `deepseek_code_image_prefs` | `codeImagePrefs` | null | 代码块导图样式记忆（JSON：背景 / 窗口样式 / 代码底色 / 内边距 / 字号 / 行高 / 导出倍率 / 投影 / 行号） |
 
 ## 3. 模块总览
 
@@ -63,6 +65,11 @@ flowchart LR
         MConv["DOM→Markdown 引擎<br/>13 条规则（无第三方库）"]
         MFlow["勾选态<br/>复选框 + 通栏控制条 + 高亮"]
     end
+    subgraph CodeImg["codeImageUnit 子闭包（v5.1.0 新增，可选）"]
+        CIBtn["导出按钮生命周期<br/>createCodeExportButton / applyCodeExportButtons"]
+        CIDialog["样式弹窗<br/>8 组控件 + Shadow DOM 实时预览"]
+        CIRender["离屏 iframe + html2canvas<br/>克隆 → 清洗 → 自建样式重排 → Canvas"]
+    end
     DOM["页面 DOM"] --> Observer["统一 MutationObserver<br/>observeDOM 分流"]
     Observer --> Fold
     Observer --> Table
@@ -71,12 +78,18 @@ flowchart LR
     GM["GM 存储"] <--> Panel
     GM <--> FData
     GM <--> MdExport
+    GM <--> CodeImg
     Panel -->|"reapply 函数"| Fold & Table & Think
+    Panel -->|"applyCodeExportButtons"| CIBtn
     Keys --> DOM
     MFlow --> MScan --> MConv
     MDialog --> MConv
     MFlow --> DOM
     MConv -->|"Blob 下载"| DOM
+    Fold -->|"createCodeExportButton"| CIBtn
+    CIBtn -->|"点击"| CIDialog
+    CIDialog --> CIRender
+    CIRender -->|"Blob 下载 / 剪贴板"| DOM
 ```
 
 ## 4. 初始化与统一 DOM 监听
@@ -248,6 +261,45 @@ DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去
 兜底名 `DeepSeek对话` → 追加 `-YYYY-MM-DD-HH-mm`（`mdExportAppendDate`，默认开）→
 `\s+`→`_`、`[<>:"/\\|?*]`→`_` → 截断 50 字。Blob 类型 `text/markdown;charset=utf-8`（**不写 BOM**）。
 
+### 5.8 代码块导出为图片（`codeImageUnit` 子闭包，v5.1.0 新增）
+
+自包含闭包，**零新增依赖 / 零新增权限**，且**不改动页面原 DOM**。
+总链路：**克隆代码块 → 清洗 → 离屏自建样式重排 → `html2canvas` 渲染 → Blob**（沿用表格导出的「克隆 + 隔离」铁律）。
+
+**按钮生命周期**
+- `createCodeExportButton(preEl)`：造按钮（`ICON_EXPORT_IMAGE` + 「导出」文字），点击 `codeImageUnit.open(preEl)`；
+- `applyCodeExportButtons(on)`：开关切换时遍历全部 `pre` 按需增删导出按钮（**只动导出按钮，不碰折叠按钮**）；
+- `addFoldButtonToCodeBlock` 内两类按钮**各自判重**（旧写法只判折叠按钮即 `return`，会漏掉导出按钮）；`deduplicateButtons` 与 `reapplyFoldToAllCodeBlocks` 均对 `['.ds-fold-btn', '.ds-code-export-btn']` **成对处理**——只删折叠按钮会让导出按钮残留、且 `append` 到末尾造成两按钮顺序错乱。
+
+**克隆清洗 `cloneCodeBlockPre(block)`**
+`cloneNode(true)` → 移除整条 `.md-code-block-banner-wrap`（语言标签 + 官方按钮 + 自绘按钮）、`.ds-fold-btn` / `.ds-code-export-btn` / `.table-internal-buttons`，剔除装饰 `<svg>`，清 `data-fold-processed` 与折叠态（`style.maxHeight/overflow/display` + `.ds-fold-preview` + `dataset.orig*`）→ **折叠态代码块也能拿到全文**。以上全部只在副本上操作。
+
+**渲染 `renderToCanvas(preEl, opts)`**
+- 组装 DOM：`.ds-shot-root`（背景 = `bgCssOf(opts.bg)` + padding）＞ `.ds-shot-card`（`theme.bg` + 可选投影）＞ 可选 `.ds-shot-bar`（macOS 三点）＞ `.ds-shot-body` ＞ 清洗后的 `<pre>`；
+- ⚠️ **`.ds-shot-card` 必须带 `position:relative`**（不是装饰，删了即复现）：`html2canvas@1.4.1` 分层渲染会把「未定位的 `inline-block`」元素的背景归到靠后的绘制分组，卡片底色因此排到子元素背景**之后**，把 macOS 三点整块反盖（实测红点像素 424 → 0，**与代码长短无关**，29 行同样复现）。定位后卡片归入 `positioned` 分组，恢复「先卡片底色、后子元素」的正确顺序，且不改变任何布局与画布尺寸。`audit-code-image.js` §6 已加静态防线守住这一条；
+- 把 `buildShotCss(opts, theme)` 与 `dom.outerHTML` 塞进**离屏 `iframe(srcdoc)`**（`left:-99999px`；1400×900），等 `iframe.onload`（兜底 2s 超时）后取 `doc.querySelector('.ds-shot-root')`，交 `html2canvas({ scale, backgroundColor:null, logging:false })`；
+- `backgroundColor:null` 让「透明」背景预设真正透明；`finally` 延时移除 iframe。
+
+**配色 `resolveTheme(opts)`**
+官网高亮是 Prism `token` **class**（无内联色）→ 染色规则由 `buildShotCss(opts, theme, liveColors)` 生成（`.ds-shot-root .token.<type>{color:…!important}`），**色源两路**：
+- `harvestTokenColors(root)`：在**原 DOM** 上按 `.token` 类名读计算色 → 「导出底色 == 页面底色」时优先采用（完全复刻官网观感，并自动覆盖官网后续新增的 token 类型）。⚠️ **必须早于 `cloneCodeBlockPre`**：克隆体已脱离文档，`getComputedStyle` 一律取不到值。
+- `THEME_LIGHT` / `THEME_DARK` 自建色板（Prism 常见类型：comment / keyword / string / attr-name / attr-value / tag / selector / atrule / function / operator / number / constant / property / punctuation …）→ 底色与页面**不一致**时兜底，防明暗串味。
+
+`opts.theme` 显式给定即用它；为空时随 `body.dark` 判明暗底（首次打开自动跟随页面，之后按记忆的选项）。预览（Shadow DOM）与导出共用同一份 `liveColors`，保证两者同色。
+
+**行号（CSS counter）**
+启用时追加 `.ds-shot-root pre{counter-reset:…}` / `pre > span{counter-increment:…}` / `span::before{content:counter(…)}`——Prism 按行分包，导出强制 `white-space:pre`（**不折行**，卡片按最长行自适应宽度），逻辑行 = 视觉行 1:1，行号天然对齐。（注：官网 `pre` 的计算样式实为 `white-space:pre-wrap`，仅因实测最宽行 829px < 内容宽 858px 才未折行。）
+
+**输出**
+- `canvasToBlob` → `downloadBlob(blob, makeFilename(lang))`，文件名 `code-<lang|snippet>-YYYYMMDD-HHmmss.png`；
+- `canCopyImage()`（`navigator.clipboard.write` + `ClipboardItem`）预检，不满足则「复制图片」按钮禁用；满足则 `copyBlob`。
+
+**弹窗 `openDialog(preEl)`**
+- 8 组控件：背景色板（8 套）/ 窗口样式（macOS 三点 · 无框）/ 代码底色（浅 · 深）/ 内边距 / 字号 / 行高（滑杆）/ 导出倍率（1x·2x·3x）/ 其他（投影 + 行号开关）；
+- 预览在 **Shadow DOM** 内渲染（`renderPreview` 复用 `buildShotCss` + `buildShotDom`），隔离官网 `.token` 规则；`requestAnimationFrame` 里按容器宽等比 `scale` 并同步 `wrap` 尺寸；
+- 任一改动 → 30ms 防抖 `refreshPreview()` → 重渲染预览 + `savePrefs(opts)` 落库 `deepseek_code_image_prefs`；
+- `_busy` 防重入（导出中禁用两按钮）；`Esc` / 点遮罩 / 关闭按钮退出，`closeDialog` 清空 shadowRoot。
+
 ## 6. 典型运行序列
 
 ```mermaid
@@ -323,5 +375,28 @@ sequenceDiagram
     E->>E: buildMarkdown()：逐键取源 → 模板装饰 → 13 条规则转换 → --- 连接
     E->>P: Blob(text/markdown) → <a download> → 文件名按 FilenameGenerator 规则
     E->>U: toast 回显生效选项（含思考过程 / 模板 / 窗口外提示）
+```
+
+### 6.2 代码块导出为图片（`codeImageUnit`，v5.1.0）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant N as 主闭包（导出按钮）
+    participant C as codeImageUnit
+    participant I as 离屏 iframe
+
+    U->>N: 点击代码块右上角「导出」
+    N->>C: open(preEl)
+    C->>C: closeDialog → extractLang → opts = DEFAULT_OPTS ⊕ loadPrefs()
+    C->>U: 弹出样式窗 + Shadow DOM 预览（首次自动跟随页面明暗）
+    U->>C: 调任一控件 → 改 opts
+    C->>C: 30ms 防抖 refreshPreview → renderPreview + savePrefs(deepseek_code_image_prefs)
+    U->>C: 点「下载 PNG」或「复制图片」
+    C->>C: cloneCodeBlockPre 克隆清洗（绝不改原 DOM）
+    C->>I: srcdoc 注入自建 CSS + 组合 DOM（背景/卡片/窗口样式/pre）
+    I->>C: iframe.onload → html2canvas(scale, backgroundColor:null)
+    C->>U: canvasToBlob → downloadBlob(makeFilename) / copyBlob
+    C->>C: closeDialog
 ```
 
