@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 4.11.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.0.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -36,6 +36,9 @@
 | `deepseek_code_bg_enhance` | `codeBgEnhance` | true | 代码块背景加深总开关（`html.ds-code-bg`） |
 | `deepseek_code_bg_level` | `codeBgLevel` | 'light' | 加深强度档位：light / medium / strong（`ds-code-bg-1/2/3`） |
 | `deepseek_table_export_rounded` | `tableExportRounded` | true | PNG 导出表格四角圆角（`destination-in` 把四角裁成透明；关则直角矩形） |
+| `deepseek_md_export_enabled` | `mdExportEnabled` | true | 对话导出为 Markdown 总开关（opt-in 关闭；关闭则菜单命令与面板入口都不可用） |
+| `deepseek_md_export_prefs` | 无（JSON 字符串） | `''` | 弹窗「记住我的选择」落库：`{includeReasoning, templateId, remember}`；**唯一**的选项来源，不回落读旧设置键 |
+| `deepseek_md_export_append_date` | `mdExportAppendDate` | true | 导出文件名附加 `-YYYY-MM-DD-HH-mm`（避免同名覆盖） |
 
 ## 3. 模块总览
 
@@ -54,6 +57,12 @@ flowchart LR
         FPanel["文件夹面板 / 树形渲染"]
         FMenu["⋯ 菜单注入 + 级联浮层"]
     end
+    subgraph MdExport["mdExportUnit 子闭包（v5.0.0 新增，可选）"]
+        MScan["稳定键 + 来源快照<br/>scanAll 全对话扫描（虚拟列表）"]
+        MDialog["两步弹窗<br/>9 套模板 + 132px 缩微预览"]
+        MConv["DOM→Markdown 引擎<br/>13 条规则（无第三方库）"]
+        MFlow["勾选态<br/>复选框 + 通栏控制条 + 高亮"]
+    end
     DOM["页面 DOM"] --> Observer["统一 MutationObserver<br/>observeDOM 分流"]
     Observer --> Fold
     Observer --> Table
@@ -61,8 +70,13 @@ flowchart LR
     Observer --> Folder
     GM["GM 存储"] <--> Panel
     GM <--> FData
+    GM <--> MdExport
     Panel -->|"reapply 函数"| Fold & Table & Think
     Keys --> DOM
+    MFlow --> MScan --> MConv
+    MDialog --> MConv
+    MFlow --> DOM
+    MConv -->|"Blob 下载"| DOM
 ```
 
 ## 4. 初始化与统一 DOM 监听
@@ -134,13 +148,105 @@ flowchart LR
 - **off（整体清理）**：`resetPinCollapseUi`（**无条件**解绑折叠点击 + 还原被折叠隐藏的原生节点与注入类名）、还原被归档隐藏的原生会话行、移除面板/标签/注入菜单项/临时样式/CSS 变量/自绘 tooltip；数据保留，再次开启可恢复。
 - **路由**：URL 会话变化才重绘树（防 observer 自激循环）；导航切换后 `folderUnit.schedule()` 由外层驱动。
 
-### 5.5 发送快捷键（Ctrl+Enter）
+### 5.6 发送快捷键（Ctrl+Enter）
 
 `document` capture `keydown`（`ctrlEnterEnabled` && 目标为 `TEXTAREA` && Enter）：
 
 - `Ctrl/Cmd+Enter` → `preventDefault+stopPropagation` 后派发**不带修饰**的 Enter（让官方按 Enter 发送语义处理），`_supressNextEnter` 吞掉自身派发的一次；
 - 纯 `Enter`（无修饰、非 Shift）→ `stopPropagation`（改为换行、不再发送）；
 - `Shift+Enter` → 不拦截（保持原生换行）。
+
+### 5.7 对话导出为 Markdown（`mdExportUnit` 子闭包，v5.0.0 新增）
+
+自包含闭包，**不引入任何第三方 Markdown 库**。总链路：**勾选 → 两步弹窗 → 内容模板 → 转换 → 下载**。
+
+**入口**：油猴菜单「导出对话」→ `beginExportFlow()`；或面板「📄 对话导出 → 开始选择」（先关面板再进勾选态）。
+
+#### 5.7.1 稳定键与来源快照（长对话能导全的根基）
+
+DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去即被 React 卸载**。因此：
+
+- **稳定键** `stableKeyOf(el)`：优先 `closest('[data-virtual-list-item-key]')` 的属性值 → `vk:<n>`；回退 `ix:<DOM 序号>`。
+- **来源快照** `sourceCache: Map<key, {key, role, src}>`，`src` 存**原始素材**
+  （assistant → `{reasoningHTML, answerHTML}`；user → `{questionHTML}`），**与导出选项解耦**——
+  「导出思考过程」等开关在导出时才生效，不污染快照。
+- `rememberMessages()` 每次都重取**当前可见**消息（保证流式内容最新），已滚过的保留旧快照。
+
+#### 5.7.2 全对话扫描 `scanAll()`
+
+1. `findScrollContainer()`：**从 `.ds-virtual-list-items` 沿祖先链向上**找第一个
+   `overflowY ∈ {auto, scroll}` 且 `scrollHeight > clientHeight + 4` 的元素；找不到回退 `document.scrollingElement`。
+   ⚠ 不可全页扫 `.ds-scroll-area` 取首个可滚动者——实测该类元素 30+ 个，首个命中的装饰容器
+   `.ds-scroll-area__gutters` **不含任何消息**，会导致扫描静默失败。
+2. 记下原 `scrollTop`；`orderList` 清空重建；显示右上角提示条（`.ds-md-notice`）；
+3. 从 0 起以 `step = max(240, ⌊0.45 × clientHeight⌋)` 逐步下滚，每步 `captureAt()`：
+   设 `scrollTop` → `waitWindowStable()`（连续两次「窗口签名」一致，上限 24 次 rAF）→
+   必要时 `ensureCodeView()`（图表 Tab 切回代码视图）→ `rememberMessages()`；
+4. 到底后再冲 3 次底部；把缓存里未入顺序表的键补到末尾；
+5. `finally`：恢复原 `scrollTop` → 再等稳定 → 刷新可见消息 → 隐藏提示条。
+
+触发时机：点「全选 / 全选提问 / 全选AI回答」时 `ensureScanned()`；点「导出选中」前再兜一次。
+非虚拟化对话（无 `.ds-virtual-list-items`）直接标记完成，不做滚动。
+
+#### 5.7.3 勾选态
+
+- 控制条 `.ds-md-controls`：**通栏贴底 + 毛玻璃**（`backdrop-filter: saturate(180%) blur(4px)` + `border-top`），
+  按钮为「全选 / 全选提问 / 全选AI回答 / 导出选中 (n) / 取消」；提示文字绝对定位在「取消」**右侧**
+  （未选中红字、有选中灰字）。
+- 选择状态存 `selectedKeys: Set<string>`（**键**，不是元素引用）→ 滚出视野不丢选中。
+- 复选框 `.ds-md-checkbox`（20×20 / 2px 边框 / 圆角 8）注入到 `.ds-message`；挂载前若
+  `getComputedStyle(el).position === 'static'` 先补 `relative`（否则 absolute 复选框会飞到页面左上角）。
+- 高亮目标：用户消息 → `resolveUserRoot()`（`.ds-collapsible-text`）；AI 消息 → `.ds-message` 自身。
+- 扫描期间 `body.ds-md-selection-scanning` 隐藏全部复选框，控制条按钮禁用。
+- `Esc` 退出（捕获阶段；模态框打开时让位给模态框）。
+
+#### 5.7.4 两步弹窗
+
+- 第 1 步「选择导出内容」：格式（Markdown）+「导出思考过程」（自绘 44×24 胶囊，默认开）；
+- 第 2 步「选择内容模板」：模板卡两列网格，上半为 **132px 缩微预览**（底部 28px 渐隐），
+  下半为名称 + 描述；页面切换时分别加 `step-slide-in` / `step-slide-back` 动画。
+- 模板清单由选中内容决定：`hasUser && !hasAi` → 问题清单类，否则问答类；两者都前置「原样输出」。
+- 「记住我的选择」仅在**第 2 步**出现；勾选后落库到 `deepseek_md_export_prefs`，下次**预填**（不跳过步骤）。
+
+#### 5.7.5 内容模板装饰
+
+9 套装饰器，产出的仍是**语义 DOM**（`h1/p/blockquote/strong`），直接喂给转换引擎：
+
+| 模板 | 用户消息侧 | AI 消息侧 |
+|---|---|---|
+| `plain` | 不动 | 不动 |
+| `conversation` | 折叠为单段 + `**提问：**` | `**回答：**` |
+| `structured` | `# n、<摘要≤15字>`；超长补「问题详情：」(灰) | `**回答（Answer）：**` + 标题降级 |
+| `knowledgeDoc` | `# n. <摘要≤60字>` | 标题降级 |
+| `rolePlay` | 折叠 + `**我说：**` | `**DeepSeek说：**` |
+| `qStructured` | `# n、摘要` + 问题详情 | — |
+| `qOutline` | `## n. 摘要` | — |
+| `qCards` | `# Qn：` + `> 问题` | — |
+| `qPlainText` | `n. 全文` | — |
+
+要点：① 取问题文本分两个函数——`fullText()` **保留换行**（供 `<br>` 分节），`oneLine()` 压空白
+（供摘要与长度判断）；② 标题降级**仅当答案体内存在 `<h1>`** 时才把所有 h1–h5 各降一级。
+
+#### 5.7.6 转换引擎（13 条规则，顺序敏感）
+
+`code-block → inline-code → math → table → heading → hr → blockquote → list → paragraph → link → image → strong → emphasis`
+
+- **代码块**：围栏自适应 `max(3, 内容最长反引号串 + 1)`，语言写在开围栏同一行；
+- **行内代码**：前后含空格时补空格包裹（CommonMark 规定）；
+- **公式**：`KaTeX` 的 `annotation[encoding="application/x-tex"]` → `data-ds-md-tex` → 行内 `$…$` / 块级 `$$\n…\n$$`；
+- **表格**：表头取首个含 `th` 的行，按最大列数补空对齐，单元格内 `|` 转义、换行折为空格；
+- **列表**：每层缩进 2 空格，续行缩进 = 缩进 + marker 长度 + 1；`li` 首行若是嵌套标记则本层 marker 独占一行；
+- **文本节点**：**含换行且 trim 后为空则丢弃**（否则 HTML 排版换行会污染输出）；
+- **剪枝**：`wrapFromSource()` 只保留「思考体 + 答案体」，其余装饰层一律丢弃——比逐个枚举待删选择器稳健得多。
+
+`normalizeContent()` 六步（各步独立 try/catch）：表格壳脱壳 → 数学 → 代码块 → 列表 → 纯文本 div→`<p>` → 噪音清理
+（引用角标按**样式特征** `position:absolute` / `opacity:0` 判定，须先于删 svg 执行）。
+
+#### 5.7.7 下载与文件名
+
+`buildFilename('md')` 的规则：
+兜底名 `DeepSeek对话` → 追加 `-YYYY-MM-DD-HH-mm`（`mdExportAppendDate`，默认开）→
+`\s+`→`_`、`[<>:"/\\|?*]`→`_` → 截断 50 字。Blob 类型 `text/markdown;charset=utf-8`（**不写 BOM**）。
 
 ## 6. 典型运行序列
 
@@ -181,3 +287,41 @@ sequenceDiagram
     M->>M: getCleanTableClone 清洗克隆
     M->>G: PNG 走隔离 iframe + html2canvas；MD 走 clipboard
 ```
+
+### 6.1 对话导出为 Markdown（`mdExportUnit`，v5.0.0）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant E as mdExportUnit
+    participant P as DeepSeek 页面（虚拟列表）
+    participant C as sourceCache（内存）
+
+    U->>E: 菜单「导出对话」/ 面板「开始选择」
+    E->>P: 注入复选框 + 控制条，body 加 ds-md-selection-active
+    Note over E,C: 每次进入都是新会话：清空 selectedKeys / sourceCache / orderList
+    E->>C: rememberMessages() 快照当前可见消息（键 = vk:<虚拟列表项键>）
+
+    U->>E: 点「全选」→ ensureScanned()
+    alt 对话被虚拟化且尚未扫描
+        E->>P: 显示右上角提示条
+        loop 从顶部按 step 逐步滚到底
+            E->>P: 设 scrollTop → 等窗口签名稳定
+            E->>P: 图表 Tab 存在则切回代码视图（click + 6×30ms 轮询）
+            E->>C: rememberMessages() 就地快照本窗口消息
+        end
+        E->>P: 恢复原 scrollTop、隐藏提示条
+    end
+    E->>U: 更新「导出选中 (n)」（n 为键数量，含窗口外）
+
+    U->>E: 点「导出选中」→ 两步弹窗
+    E->>U: 第 1 步「选择导出内容」（格式 + 导出思考过程）
+    U->>E: 点格式 → 第 2 步「选择内容模板」
+    E->>C: extractPreview() 取最多 2 组问答渲染 132px 缩微预览
+    U->>E: 点模板卡 → finish()
+    E->>E: 快照 selectedKeys → 关弹窗 → 退出勾选态（必须先快照，stopSelection 会清空）
+    E->>E: buildMarkdown()：逐键取源 → 模板装饰 → 13 条规则转换 → --- 连接
+    E->>P: Blob(text/markdown) → <a download> → 文件名按 FilenameGenerator 规则
+    E->>U: toast 回显生效选项（含思考过程 / 模板 / 窗口外提示）
+```
+

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.11.1
-// @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
+// @version      5.0.0
+// @description  一站式管理：代码块折叠、表格优化导出、对话导出为 Markdown（勾选 + 模板）、自动折叠 AI 思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -425,7 +425,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v4.11.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.0.0'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -3240,13 +3240,13 @@
     // ==================== 对话导出为 Markdown ====================
     // 对话 → Markdown 的完整导出链路。
     //
-    // 链路：提取（DeepSeek DOM → 语义 DOM）→ 规范化（公式/代码/列表/表格/噪音）
-    //       → 规则驱动转换（12 条规则，深度优先）→ 收尾归一 → Blob 下载
+    // 链路：提取（页面 DOM → 语义 DOM）→ 规范化（公式/代码/列表/表格/噪音）
+    //       → 规则驱动转换（13 条规则，深度优先）→ 模板装饰 → 收尾归一 → Blob 下载
     //
     // 若干刻意的设计取舍：
-    //   1. 自有属性前缀统一用 data-ds-md-*，与页面上其他扩展注入的属性互不干扰；
-    //   2. 不依赖对方注入的运行时属性（那是另一扩展的状态，随时可能不存在）；
-    //   3. 转换引擎为自研规则表，不引入任何第三方 Markdown 库（对方亦如此，7291 字符零依赖）。
+    //   1. 自有属性统一带 data-ds-md-* 前缀，不与页面既有属性冲突；
+    //   2. 只依赖页面自身的 DOM 结构，不依赖任何注入式的运行时状态；
+    //   3. 转换引擎为自研规则表，不引入任何第三方 Markdown 库。
     const mdExportUnit = (() => {
         // ---------- 选择器（取真实页面实测结构） ----------
         const SEL = {
@@ -3288,7 +3288,7 @@
         const isInside = (el, tags) => { const set = new Set(tags.map(t => t.toLowerCase())); let p = el.parentElement; while (p) { if (set.has(tag(p))) return true; p = p.parentElement; } return false; };
         const headingLevel = (t) => { const m = /^h([1-6])$/.exec(t); return m ? Number(m[1]) : 0; };
 
-        // ---------- 转换引擎：12 条规则（顺序敏感） ----------
+        // ---------- 转换引擎：13 条规则（顺序敏感） ----------
         // 规则表顺序决定了嵌套处理：先"吞内容"的块级，再行内。首个命中即用。
         function findCodeChild(el) {
             return [...el.children].find(c => tag(c) === 'code') || el.querySelector('code') || null;
@@ -3561,7 +3561,7 @@
         }
 
         // 代码块：提取语言 → 剥离 banner/装饰 svg → 合成 <code> 包裹
-        // 真实 DOM 的 pre 只有语法高亮 span，没有 <code>，需要自己合成（对方亦如此）。
+        // 真实 DOM 的 pre 只有语法高亮 span，没有 <code>，需要自己合成。
         const CODE_OP_LABEL = /^(复制|下载|展开|收起|编辑|运行|预览|copy|download|expand|collapse|edit|run)$/i;
         function normalizeCodeBlocks(root) {
             root.querySelectorAll(SEL.CODE_BLOCK).forEach(block => {
@@ -3719,8 +3719,8 @@
 
         // AI 答案根：取消息内第一个「不在思考区里」的 .ds-markdown。
         // 陷阱：思考过程正文自身也是 .ds-markdown，且在文档顺序上位于答案之前，
-        // 直接 querySelector('.ds-markdown') 会错拿到思考内容。对方用
-        // ".ds-markdown:not(.ds-think-content .ds-markdown)" 规避；这里用显式过滤，兼容性更好。
+        // 直接 querySelector('.ds-markdown') 会错拿到思考内容。
+        // 用显式过滤（`closest('.ds-think-content')`）而非 CSS `:not(.a .b)`，兼容性更好。
         function resolveAiContent(msgEl) {
             let all = [];
             try { all = [...msgEl.querySelectorAll(SEL.AI_CONTENT)]; } catch (e) { return null; }
@@ -4256,7 +4256,7 @@
         }
 
         // ---------- 稳定键 / 来源快照 / 全对话扫描 ----------
-        // 稳定键 / 来源快照 / 全对话扫描 —— 三者配合才能把长对话导全。
+        // 三者配合才能把长对话导全：
         //
         // 为什么必须这样做：DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息**；
         // 一旦滚过去，React 会卸载这些节点。所以
