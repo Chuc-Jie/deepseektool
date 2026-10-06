@@ -738,7 +738,7 @@
 
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('脚本设置', openControlPanel);
-    GM_registerMenuCommand('导出当前对话为 Markdown', () => {
+    GM_registerMenuCommand('导出对话', () => {
         mdExportUnit.beginExportFlow();
     });
 
@@ -1024,8 +1024,14 @@
         /* ==================== 对话导出：勾选模式 + 两步模态框 ====================
            这些元素挂在 body 上（不在 .ds-panel 内），故不继承 --dsp-* 变量，
            单独定义一组 --ds-md-* 变量并做深色主题覆盖。
-           取值参照一套统一的设计令牌（品牌色 / 圆角 / 阴影 / 动效）。 */
-        .ds-md-controls, .ds-md-modal, .ds-md-notice {
+           取值参照一套统一的设计令牌（品牌色 / 圆角 / 阴影 / 动效）。
+
+           ⚠ 变量必须定义在 **body** 上，不能只挂在 .ds-md-controls/.ds-md-modal 上：
+           勾选态的高亮（.ds-md-msg-selected）与复选框（.ds-md-cb-wrap/.ds-md-checkbox）
+           是插进消息列表的，**并不位于那些容器内部**；一旦取不到变量，var() 会失效，
+           整条声明被浏览器丢弃 —— 表现为「类名加上了但边框/阴影/背景全没有」。
+           （自定义属性会继承，故挂 body 即可覆盖全部 .ds-md-* 元素；名称带前缀，不污染页面。） */
+        body {
             --ds-md-surface: #ffffff;
             --ds-md-surface-2: #f8fafc;
             --ds-md-text: #181d26;
@@ -1041,10 +1047,13 @@
             --ds-md-overlay: rgba(248, 251, 255, .74);
             --ds-md-shadow-xs: 0 0 1px rgba(0, 0, 0, .18), 0 1px 2px rgba(45, 127, 249, .18);
             --ds-md-shadow-sm: 0 0 1px rgba(0, 0, 0, .18), 0 1px 3px rgba(45, 127, 249, .22);
+        }
+        /* 字体与文字色只作用于自有组件，绝不落到 body 上（否则会改掉整站排版） */
+        .ds-md-controls, .ds-md-modal, .ds-md-notice {
             font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
             color: var(--ds-md-text);
         }
-        body.dark .ds-md-controls, body.dark .ds-md-modal, body.dark .ds-md-notice {
+        body.dark {
             --ds-md-surface: rgba(15, 23, 34, .94);
             --ds-md-surface-2: rgba(21, 31, 46, .94);
             --ds-md-text: #eef3fb;
@@ -1058,7 +1067,11 @@
             --ds-md-shadow-sm: 0 2px 4px rgba(0, 0, 0, .34), 0 10px 24px -20px rgba(45, 127, 249, .22);
         }
         .ds-md-controls *, .ds-md-controls *::before, .ds-md-controls *::after,
-        .ds-md-modal *, .ds-md-modal *::before, .ds-md-modal *::after { box-sizing: border-box; }
+        .ds-md-modal *, .ds-md-modal *::before, .ds-md-modal *::after,
+        .ds-md-notice *, .ds-md-notice *::before, .ds-md-notice *::after { box-sizing: border-box; }
+        /* 勾选态元素只给「自身」设 box-sizing —— 不可波及后代：
+           .ds-md-msg-selected 圈住的是整条消息（含表格 / 代码块），改其后代盒模型会破坏页面排版 */
+        .ds-md-msg-selected, .ds-md-cb-wrap, .ds-md-checkbox { box-sizing: border-box; }
 
         /* 勾选态：隐藏表格内导出按钮（避免与勾选交互抢注意力，对齐插件隐藏 FAB 的做法） */
         .ds-md-selection-active .table-internal-buttons { display: none !important; }
