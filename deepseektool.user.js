@@ -1503,8 +1503,8 @@
             // 深拷贝表格并清洗注入样式（PNG/CSV/MD 共用导出主体）
             const clone = getCleanTableClone(table);
 
-            // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）
-            const styles = collectTableStyles();
+            // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）；传入源表格以便抄其单元格文字色
+            const styles = collectTableStyles(table);
 
             // 构建隔离 iframe
             iframe = document.createElement('iframe');
@@ -1577,11 +1577,23 @@
     }
 
     // 收集页面上表格所需的样式，注入 iframe
-    function collectTableStyles() {
+    function collectTableStyles(sourceTable) {
         let css = '';
 
         const isDark = document.body.classList.contains('dark');
         const mode = tableThemeMode;
+
+        // 单元格文字色：导出的 iframe 是一个没有 .ds-markdown 祖先、也不继承页面 color 的空白文档，
+        // 页面上那些 `.ds-markdown th/td` 前缀的规则在其中根本不匹配 —— 若不显式给色，深色纸底下会
+        // 落回浏览器默认黑字（深底黑字几乎不可读）。直接抄页面上该表格单元格的实际计算色最保真。
+        let thColor = '', tdColor = '';
+        try {
+            const probeTh = sourceTable && sourceTable.querySelector('th');
+            const probeTd = sourceTable && sourceTable.querySelector('td');
+            if (probeTh) thColor = getComputedStyle(probeTh).color;
+            if (probeTd) tdColor = getComputedStyle(probeTd).color;
+        } catch (_) { /* 取不到就退回主题兜底色 */ }
+        const fallbackColor = isDark ? '#e4e4e8' : '#1f2937';
 
         // 从页面提取表格相关样式（.ds-markdown 表格部分，含脚本注入的规则）
         for (const sheet of document.styleSheets) {
@@ -1613,8 +1625,9 @@
                 padding: 12px 16px; vertical-align: top;
                 font-size: 14px; line-height: 1.5;
                 white-space: normal; word-wrap: break-word;
+                color: ${tdColor || fallbackColor};
             }
-            th { font-weight: 600; }
+            th { font-weight: 600; color: ${thColor || tdColor || fallbackColor}; }
             /* 单元格内联代码的兜底样式（PNG iframe 导出图里的 code） */
             table code {
                 background: rgba(128,128,128,0.1); padding: 2px 4px;
