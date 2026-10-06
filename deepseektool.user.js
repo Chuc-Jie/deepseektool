@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.10.0
+// @version      4.11.0
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -40,6 +40,7 @@
     const STORAGE_PIN_COLLAPSIBLE = 'deepseek_pin_group_collapsible';   // 原生「置顶」分组折叠能力开关（默认关，opt-in）
     const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
     const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
+    const STORAGE_TABLE_EXPORT_ROUNDED = 'deepseek_table_export_rounded'; // PNG 导出表格四角圆角（默认开）
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -56,6 +57,7 @@
     let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
     let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
     let codeBgLevel = GM_getValue(STORAGE_CODE_BG_LEVEL, 'light');          // 加深强度（默认轻档）
+    let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -312,6 +314,11 @@
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast('列宽策略已切换');
                 }),
+                createToggleSetting('导出图片圆角', 'PNG 导出时把表格四角裁成透明圆角；关闭则与旧版一致（图片中四角为直角矩形）', tableExportRounded, checked => {
+                    tableExportRounded = checked;
+                    GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, checked);
+                    showToast(`导出图片圆角已${checked ? '开启' : '关闭'}`);
+                }),
             ] },
             { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「已思考」区域自动收起', build: () => [
                 createToggleSetting('自动折叠思考区域', 'AI 开始思考后自动收起「已思考」过程', autoCollapseThinking, checked => {
@@ -443,6 +450,7 @@
                 pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
                 codeBgEnhance = true; GM_setValue(STORAGE_CODE_BG, true);
                 codeBgLevel = 'light'; GM_setValue(STORAGE_CODE_BG_LEVEL, 'light');
+                tableExportRounded = true; GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, true);
                 applyCodeBlockBg(true, 'light');
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
@@ -1431,6 +1439,63 @@
         return clone;
     }
 
+    // 圆角矩形路径（手写 arcTo，避免依赖较新的 ctx.roundRect；半径传 [左上, 右上, 右下, 左下]）
+    function roundRectPath(ctx, x, y, w, h, r) {
+        const [tl, tr, br, bl] = r;
+        ctx.moveTo(x + tl, y);
+        ctx.lineTo(x + w - tr, y);      ctx.arcTo(x + w, y, x + w, y + tr, tr);
+        ctx.lineTo(x + w, y + h - br);  ctx.arcTo(x + w, y + h, x + w - br, y + h, br);
+        ctx.lineTo(x + bl, y + h);      ctx.arcTo(x, y + h, x, y + h - bl, bl);
+        ctx.lineTo(x, y + tl);          ctx.arcTo(x, y, x + tl, y, tl);
+        ctx.closePath();
+    }
+
+    // PNG 导出后处理：把 canvas 四角裁成透明圆角。
+    // 背景：html2canvas 会把 table 的 border-radius + overflow:hidden 裁成圆角，但被裁处露出的是画布底色
+    // （backgroundColor:'#ffffff'）→ 导出图在深色纸张/文档上是「白色直角」，看着像没有圆角。
+    // 这里保留白底（auto 主题的半透明叠加色需要纸底衬托），只把圆角之外裁成透明。
+    // 关键：html2canvas 会在返回的 canvas 上残留变换矩阵（实测 scale=3 → matrix(3,0,0,3,-48,-48)，
+    // 其中 -48 = 导出 iframe 的 body margin 16px × 3）；不先重置为单位矩阵，蒙版会被放大+平移，裁剪完全失效。
+    function applyRoundedCorners(canvas, radiiCss, elemWidthCss) {
+        if (!canvas || !elemWidthCss) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        if (!w || !h) return;
+        const k = w / elemWidthCss;   // canvas 像素 / CSS 像素（不写死 scale，兼容日后调整）
+        const lim = Math.min(w, h) / 2;
+        const [tl, tr, br, bl] = radiiCss.map(r => Math.max(0, Math.min((r || 0) * k, lim)));
+        if (!tl && !tr && !br && !bl) return;   // 表格无圆角 → 保持原样
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);     // 清掉 html2canvas 残留变换（漏掉这步裁剪会失效）
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.beginPath();
+        roundRectPath(ctx, 0, 0, w, h, [tl, tr, br, bl]);
+        ctx.fillStyle = '#000';
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // 导出图片的「纸底」色：跟随页面当前深浅，避免深色主题下深色表头压在纯白底上。
+    // auto 模式的表头/条纹是半透明叠加色（rgba(...,0.08) 之类），必须有一层不透明纸底衬托，
+    // 所以这里只接受不透明背景色：从 body 沿祖先链（含 html）取第一个不透明背景；
+    // 都取不到时按主题兜底（深 #1a1a22 / 浅 #ffffff）。
+    function getExportCanvasBg() {
+        const isOpaque = (c) => {
+            if (!c || c === 'transparent') return false;
+            const m = /^rgba?\(([^)]+)\)$/.exec(c);
+            if (!m) return true;                                   // 关键字色（如 white）视为不透明
+            const p = m[1].split(',').map(s => parseFloat(s));
+            return p.length < 4 || p[3] === 1;                     // 半透明底色不采纳（会重演整图半透明）
+        };
+        let el = document.body;
+        while (el) {
+            const bg = getComputedStyle(el).backgroundColor;
+            if (isOpaque(bg)) return bg;
+            el = el.parentElement;
+        }
+        return document.body.classList.contains('dark') ? '#1a1a22' : '#ffffff';
+    }
+
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) { alert('html2canvas 未加载'); return; }
         let iframe = null;
@@ -1461,11 +1526,20 @@
             const iframeTable = iframeDoc.querySelector('table');
             if (!iframeTable) throw new Error('iframe 中未找到表格元素');
 
+            // 截图前读取四角圆角半径与元素 CSS 宽度（iframe 尚在文档中，样式可读）
+            const tcs = (iframeDoc.defaultView || window).getComputedStyle(iframeTable);
+            const radiiCss = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius']
+                .map(p => parseFloat(tcs[p]) || 0);
+            const elemWidthCss = iframeTable.getBoundingClientRect().width;
+
             const canvas = await html2canvas(iframeTable, {
                 scale: 3,   // 提升 PNG 导出分辨率（v4.7.0）
-                backgroundColor: '#ffffff',
+                backgroundColor: getExportCanvasBg(),   // 纸底跟随页面深浅（深色页面不再压在纯白底上）
                 logging: false,
             });
+
+            // 按「导出图片圆角」开关决定是否把四角裁成透明圆角（白底保留在圆角内；须在 toBlob 之前完成）
+            if (tableExportRounded) applyRoundedCorners(canvas, radiiCss, elemWidthCss);
 
             // 导出
             canvas.toBlob(blob => {
