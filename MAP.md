@@ -282,7 +282,7 @@ DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去
 
 **配色 `resolveTheme(opts)`**
 官网高亮是 Prism `token` **class**（无内联色）→ 染色规则由 `buildShotCss(opts, theme, liveColors)` 生成（`.ds-shot-root .token.<type>{color:…!important}`），**色源两路**：
-- `harvestTokenColors(root)`：在**原 DOM** 上按 `.token` 类名读计算色 → 「导出底色 == 页面底色」时优先采用（完全复刻官网观感，并自动覆盖官网后续新增的 token 类型）。⚠️ **必须早于 `cloneCodeBlockPre`**：克隆体已脱离文档，`getComputedStyle` 一律取不到值。
+- `harvestTokenColors(root)`：在**原 DOM** 上按 `.token` 类名读计算色 → 「导出底色 == 页面底色」时优先采用（完全还原官网观感，并自动覆盖官网后续新增的 token 类型）。⚠️ **必须早于 `cloneCodeBlockPre`**：克隆体已脱离文档，`getComputedStyle` 一律取不到值。
 - `THEME_LIGHT` / `THEME_DARK` 自建色板（Prism 常见类型：comment / keyword / string / attr-name / attr-value / tag / selector / atrule / function / operator / number / constant / property / punctuation …）→ 底色与页面**不一致**时兜底，防明暗串味。
 
 `opts.theme` 显式给定即用它；为空时随 `body.dark` 判明暗底（首次打开自动跟随页面，之后按记忆的选项）。预览（Shadow DOM）与导出共用同一份 `liveColors`，保证两者同色。
