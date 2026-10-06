@@ -4314,12 +4314,28 @@
             return keys;
         }
 
-        // 找出对话的滚动容器
+        // 找出承载消息列表的滚动容器
+        // 对齐插件 module 1996 findVirtualListScrollContainer：从虚拟列表容器出发**沿祖先链向上**
+        // 找第一个 overflowY ∈ {auto,scroll} 且确实可滚动的元素。
+        // ⚠ 绝不能全页扫 .ds-scroll-area —— 实测页面上有 30+ 个（代码块横向滚动区、侧栏、以及
+        //   装饰性的 .ds-scroll-area__gutters），"第一个可滚动的"往往**根本不含消息**；
+        //   一旦滚错容器，扫描会静默地一条也采集不到。
         function findScrollContainer() {
+            let list = null;
+            try { list = document.querySelector(SEL.VIRTUAL_LIST); } catch (e) { list = null; }
+            if (list) {
+                let node = list.parentElement;
+                while (node && node !== document.body) {
+                    let oy = '';
+                    try { oy = String(getComputedStyle(node).overflowY || ''); } catch (e) { oy = ''; }
+                    if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight + 4) return node;
+                    node = node.parentElement;
+                }
+            }
+            // 回退：整页滚动（非虚拟化或列表未用内层滚动时）
             try {
-                const areas = [...document.querySelectorAll('.ds-scroll-area, [class*="ds-scroll-area"]')];
-                const scroller = areas.find(a => a.scrollHeight > a.clientHeight + 20);
-                if (scroller) return scroller;
+                const se = document.scrollingElement;
+                if (se && se.scrollHeight > se.clientHeight) return se;
             } catch (e) { /* 忽略 */ }
             return null;
         }
@@ -4505,7 +4521,6 @@
             REMEMBER: 'ds-md-remember',
             BACK: 'ds-md-back',
             ACTIONS: 'ds-md-dlg-actions',
-            COMMIT: 'ds-md-dlg-commit',
             CANCEL_DLG: 'ds-md-dlg-cancel',
             TITLE: 'ds-md-dlg-title',
             SUB: 'ds-md-dlg-sub',
