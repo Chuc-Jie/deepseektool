@@ -1,5 +1,16 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v4.11.1 (2026-10-06)
+
+### 修复
+- **导出图里的链接与行内代码样式不跟随页面**（与上版「文字色」同源：`.ds-markdown ...` 前缀规则在导出 iframe 内不匹配）：
+  - 链接退化成浏览器默认 `#0000EE` 蓝 + 下划线，与页面（主题蓝、无下划线）明显不符，深色纸底上尤其刺眼；
+  - 行内 `code` 退化成兜底的半透明灰底（深色下是偏亮灰块）、文字色也不随页面。
+  现在 `collectTableStyles(sourceTable)` 一并抄取页面上表格内 `a`（`color` + `text-decoration-line`）与 `code`（`color` + `background-color`）的实际计算样式，写进 iframe 兜底规则；取不到时链接退回 `color: inherit`，code 背景退回 `rgba(128,128,128,0.1)`。
+
+### 边界
+- 仍只影响 PNG 导出的 iframe 兜底样式；CSV / Markdown、页面内表格渲染、配色策略均不变。
+
 ## v4.11.0 (2026-10-06)
 
 ### 新增

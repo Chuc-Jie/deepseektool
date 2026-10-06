@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 4.11.0）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 4.11.1）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -110,7 +110,7 @@ flowchart LR
 - **样式应用 `applyTableStyles`**：`maxWidth` 取自 `.ds-virtual-list-visible-items.clientWidth`；按 `tableWidthMode` 三策略（均分 / 内容比例自适应 / 均分+80px 下限，超出自动回落自适应并 Toast）；配色由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；仅改直接包裹的 `.ds-scroll-area`；完成后 `opacity:1` 淡入（消除闪烁）。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
 - **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 清 fixed/宽度等内联样式 + 摘导出按钮/脚本标记）：
-  - 📸 PNG：隔离 iframe（srcdoc + `collectTableStyles` 收集页面样式与兜底配色）→ `html2canvas scale:3` → blob 下载；**纸底**由 `getExportCanvasBg()` 跟随页面深浅（沿祖先链取首个不透明背景色，兜底 深 `#1a1a22`/浅 `#ffffff`）；**文字色**由 `collectTableStyles(sourceTable)` 抄取页面表格 `th`/`td` 的实际计算色写进兜底 `color`（iframe 无 `.ds-markdown` 祖先、不继承页面 color，不显式给色会在深色纸底上落回黑字）；**圆角**受开关 `tableExportRounded` 控制 —— `applyRoundedCorners` 用 `destination-in` 把四角裁成透明（半径按 `canvas宽/元素CSS宽` 换算并 clamp，且**须先 `setTransform(1,0,0,1,0,0)` 重置** html2canvas 残留的变换矩阵，否则蒙版错位、裁剪失效）；
+  - 📸 PNG：隔离 iframe（srcdoc + `collectTableStyles` 收集页面样式与兜底配色）→ `html2canvas scale:3` → blob 下载；**纸底**由 `getExportCanvasBg()` 跟随页面深浅（沿祖先链取首个不透明背景色，兜底 深 `#1a1a22`/浅 `#ffffff`）；**文字色/链接/行内代码**由 `collectTableStyles(sourceTable)` 抄取页面表格内 `th`/`td`（color）、`a`（color + `text-decoration-line`）、`code`（color + `background-color`）的实际计算样式写进兜底规则（iframe 无 `.ds-markdown` 祖先、不继承页面 color，不显式取值会在深色纸底上落回黑字 / 默认 #0000EE 蓝链接 / 灰底 code）；**圆角**受开关 `tableExportRounded` 控制 —— `applyRoundedCorners` 用 `destination-in` 把四角裁成透明（半径按 `canvas宽/元素CSS宽` 换算并 clamp，且**须先 `setTransform(1,0,0,1,0,0)` 重置** html2canvas 残留的变换矩阵，否则蒙版错位、裁剪失效）；
   - 📄 CSV：UTF-8 BOM + 引号/逗号/换行转义；
   - 📝 MD：复制到剪贴板；保留 `code`/`**`/`*` 行内语法、`|` 转义、`<br>` 折为空格。
 - **显隐**：`.table-internal-buttons` 默认 hover 显示；`html.ds-export-always`（`setTableButtonsAlways`）强制常显。

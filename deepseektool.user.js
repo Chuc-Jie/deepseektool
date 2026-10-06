@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      4.11.0
+// @version      4.11.1
 // @description  一站式管理：代码块折叠、表格优化导出、自动折叠AI思考过程、对话文件夹分组。所有设置即时生效，选择器全面加固。
 // @tag          工具
 // @tag          优化
@@ -1583,17 +1583,33 @@
         const isDark = document.body.classList.contains('dark');
         const mode = tableThemeMode;
 
-        // 单元格文字色：导出的 iframe 是一个没有 .ds-markdown 祖先、也不继承页面 color 的空白文档，
-        // 页面上那些 `.ds-markdown th/td` 前缀的规则在其中根本不匹配 —— 若不显式给色，深色纸底下会
-        // 落回浏览器默认黑字（深底黑字几乎不可读）。直接抄页面上该表格单元格的实际计算色最保真。
-        let thColor = '', tdColor = '';
+        // 单元格文字色 / 链接 / 行内代码：导出的 iframe 是一个没有 .ds-markdown 祖先、也不继承页面
+        // color 的空白文档 —— 页面上那些 `.ds-markdown ...` 前缀的规则在其中根本不匹配。若不显式取值，
+        // 深色纸底会落回浏览器默认：黑字、#0000EE 蓝链接（带下划线）、灰底 code，与页面观感明显不符。
+        // 直接抄页面上该表格对应元素的实际计算样式最保真（取不到再按主题兜底）。
+        let thColor = '', tdColor = '', aColor = '', aDeco = '', codeColor = '', codeBg = '';
         try {
             const probeTh = sourceTable && sourceTable.querySelector('th');
             const probeTd = sourceTable && sourceTable.querySelector('td');
+            const probeA = sourceTable && sourceTable.querySelector('a');
+            const probeCode = sourceTable && sourceTable.querySelector('code');
             if (probeTh) thColor = getComputedStyle(probeTh).color;
             if (probeTd) tdColor = getComputedStyle(probeTd).color;
+            if (probeA) {
+                const sa = getComputedStyle(probeA);
+                aColor = sa.color;
+                aDeco = sa.textDecorationLine;
+            }
+            if (probeCode) {
+                const sc = getComputedStyle(probeCode);
+                codeColor = sc.color;
+                codeBg = sc.backgroundColor;
+            }
         } catch (_) { /* 取不到就退回主题兜底色 */ }
         const fallbackColor = isDark ? '#e4e4e8' : '#1f2937';
+        // code 背景：页面上取到的不透明底色优先，否则退回半透明灰（浅底上是浅灰、深底上是微亮块）
+        const codeBgCss = (!codeBg || codeBg === 'transparent' || codeBg === 'rgba(0, 0, 0, 0)')
+            ? 'rgba(128,128,128,0.1)' : codeBg;
 
         // 从页面提取表格相关样式（.ds-markdown 表格部分，含脚本注入的规则）
         for (const sheet of document.styleSheets) {
@@ -1628,10 +1644,13 @@
                 color: ${tdColor || fallbackColor};
             }
             th { font-weight: 600; color: ${thColor || tdColor || fallbackColor}; }
+            /* 链接：抄页面的实际色与下划线（iframe 内 .ds-markdown a 规则不匹配，否则落到默认 #0000EE + 下划线） */
+            a { color: ${aColor || 'inherit'};${aDeco ? ` text-decoration: ${aDeco};` : ''} }
             /* 单元格内联代码的兜底样式（PNG iframe 导出图里的 code） */
             table code {
-                background: rgba(128,128,128,0.1); padding: 2px 4px;
+                background: ${codeBgCss}; padding: 2px 4px;
                 border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em;
+                ${codeColor ? `color: ${codeColor};` : ''}
             }
             ${mode === 'auto' ? /* 自动透明叠加 */`
                 th, td { border: 1px solid rgba(128,128,128,0.2); }
