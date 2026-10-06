@@ -41,6 +41,13 @@
     const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
     const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
     const STORAGE_TABLE_EXPORT_ROUNDED = 'deepseek_table_export_rounded'; // PNG 导出表格四角圆角（默认开）
+    const STORAGE_MD_EXPORT_ENABLED = 'deepseek_md_export_enabled';       // 对话导出为 Markdown 总开关（默认开）
+    // 说明：v4.12 起「含思考过程 / 仅导出 AI 回答」不再作为设置项，改为在导出弹窗里每次询问。
+    // 因此**不得**再把旧键 deepseek_md_export_reasoning / _answer_only 读作默认值 ——
+    // 那会形成一个「用户在设置里看不见、也关不掉」的隐形开关（曾导致「全选后只导出回答」的事故）。
+    const STORAGE_MD_EXPORT_PREFS = 'deepseek_md_export_prefs';             // 弹窗「记住我的选择」落库（JSON）
+    const STORAGE_MD_EXPORT_APPEND_DATE = 'deepseek_md_export_append_date'; // 文件名附加日期（默认开，避免重名覆盖）
+    const LEGACY_MD_KEYS = ['deepseek_md_export_reasoning', 'deepseek_md_export_answer_only'];
 
     let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
     let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
@@ -58,6 +65,8 @@
     let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
     let codeBgLevel = GM_getValue(STORAGE_CODE_BG_LEVEL, 'light');          // 加深强度（默认轻档）
     let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
+    let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出 Markdown（默认开）
+    let mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true); // 文件名附加日期（默认开）
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -136,6 +145,7 @@
             { key: 'fold', icon: 'code-tags', label: '代码块折叠' },
             { key: 'codebg', icon: 'format-color-fill', label: '代码块外观' },
             { key: 'table', icon: 'table-large', label: '表格优化导出' },
+            { key: 'mdexport', icon: 'language-markdown', label: '对话导出' },
             { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
             { key: 'wide', icon: 'monitor', label: '宽屏模式' },
             { key: 'chat', icon: 'send', label: '聊天发送' },
@@ -320,6 +330,43 @@
                     showToast(`导出图片圆角已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
+            { key: 'mdexport', icon: 'language-markdown', title: '对话导出', sub: '勾选内容 → 选导出内容 → 选模板 → 导出 .md', build: () => [
+                createToggleSetting('启用对话导出', '开启后会提供「选择内容并导出」入口，以及浏览器工具栏菜单命令；关闭则整体不可用', mdExportEnabled, checked => {
+                    mdExportEnabled = checked;
+                    GM_setValue(STORAGE_MD_EXPORT_ENABLED, checked);
+                    if (!checked) mdExportUnit.stopSelection();
+                    showToast(`对话导出已${checked ? '开启' : '关闭'}`);
+                }),
+                createToggleSetting('文件名附加日期', '在文件名后追加 `-YYYY-MM-DD-HH-mm`，避免同日多次导出互相覆盖（与插件格式一致）', mdExportAppendDate, checked => {
+                    mdExportAppendDate = checked;
+                    GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, checked);
+                    showToast(checked ? '文件名将附加日期' : '文件名不带日期');
+                }, !mdExportEnabled),
+                createSettingRow('选择内容并导出', '进入勾选模式：手动勾选想导出的消息，点「导出选中 (n)」后在弹窗里选择导出内容与内容模板', (() => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'ds-md-export-run';
+                    b.textContent = '开始选择';
+                    b.addEventListener('click', () => {
+                        if (!mdExportEnabled) { showToast('请先开启「启用对话导出」'); return; }
+                        if (mdExportUnit.isSelecting()) mdExportUnit.stopSelection();
+                        overlay.remove();          // 关掉设置面板，让位给勾选态
+                        mdExportUnit.beginExportFlow();
+                    });
+                    return b;
+                })()),
+                createSettingRow('已记住的导出偏好', '上次勾选「记住我的选择」后保存的内容选项与模板；清除后弹窗将回到默认值', (() => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'ds-md-export-run';
+                    b.textContent = '清除记忆';
+                    b.addEventListener('click', () => {
+                        mdExportUnit.clearPrefs();
+                        showToast('已清除记住的导出偏好');
+                    });
+                    return b;
+                })()),
+            ] },
             { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「已思考」区域自动收起', build: () => [
                 createToggleSetting('自动折叠思考区域', 'AI 开始思考后自动收起「已思考」过程', autoCollapseThinking, checked => {
                     autoCollapseThinking = checked;
@@ -382,7 +429,7 @@
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
-                        createLinkCard('ScriptCat 主页', '安装页 · 评论区', 'https://scriptcat.org/zh-CN', 'web'),
+                        createLinkCard('ScriptCat 主页', '安装页 · 评论区', 'https://scriptcat.org/zh-CN/script-show-page/5676', 'web'),
                     ]),
                     createInfoIntro('致谢', '感谢每一位反馈与建议的用户。'),
                 ],
@@ -451,6 +498,10 @@
                 codeBgEnhance = true; GM_setValue(STORAGE_CODE_BG, true);
                 codeBgLevel = 'light'; GM_setValue(STORAGE_CODE_BG_LEVEL, 'light');
                 tableExportRounded = true; GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, true);
+                mdExportEnabled = true; GM_setValue(STORAGE_MD_EXPORT_ENABLED, true);
+                mdExportUnit.clearPrefs();                  // 清掉「记住我的选择」+ v1 遗留键
+                mdExportAppendDate = true; GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
+                mdExportUnit.stopSelection();               // 若正处勾选态则退出
                 applyCodeBlockBg(true, 'light');
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
@@ -687,6 +738,9 @@
 
     // ==================== 菜单命令 ====================
     GM_registerMenuCommand('脚本设置', openControlPanel);
+    GM_registerMenuCommand('导出当前对话为 Markdown', () => {
+        mdExportUnit.beginExportFlow();
+    });
 
     // ==================== 全局样式 ====================
     GM_addStyle(`
@@ -956,6 +1010,431 @@
             transition: background .15s;
         }
         .ds-p-btn:hover { background: var(--dsp-accent-deep); }
+
+        /* 对话导出：设置页内的执行按钮 */
+        .ds-md-export-run {
+            padding: 8px 18px; border: 1px solid var(--dsp-accent); border-radius: 6px;
+            background: transparent; color: var(--dsp-accent);
+            font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+            transition: background .15s, color .15s;
+            white-space: nowrap;
+        }
+        .ds-md-export-run:hover { background: var(--dsp-accent); color: #fff; }
+
+        /* ==================== 对话导出：勾选模式 + 两步模态框 ====================
+           这些元素挂在 body 上（不在 .ds-panel 内），故不继承 --dsp-* 变量，
+           单独定义一组 --ds-md-* 变量并做深色主题覆盖。
+           取值参照一套统一的设计令牌（品牌色 / 圆角 / 阴影 / 动效）。 */
+        .ds-md-controls, .ds-md-modal, .ds-md-notice {
+            --ds-md-surface: #ffffff;
+            --ds-md-surface-2: #f8fafc;
+            --ds-md-text: #181d26;
+            --ds-md-sub: rgba(24, 29, 38, .78);
+            --ds-md-tertiary: rgba(24, 29, 38, .58);
+            --ds-md-border: #e0e2e6;
+            --ds-md-border-strong: rgba(24, 29, 38, .18);
+            --ds-md-accent: #1b61c9;
+            --ds-md-accent-hover: #164fa8;
+            --ds-md-accent-soft: rgba(27, 97, 201, .1);
+            --ds-md-danger: #c24141;
+            --ds-md-ring: rgba(27, 97, 201, .22);
+            --ds-md-overlay: rgba(248, 251, 255, .74);
+            --ds-md-shadow-xs: 0 0 1px rgba(0, 0, 0, .18), 0 1px 2px rgba(45, 127, 249, .18);
+            --ds-md-shadow-sm: 0 0 1px rgba(0, 0, 0, .18), 0 1px 3px rgba(45, 127, 249, .22);
+            font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            color: var(--ds-md-text);
+        }
+        body.dark .ds-md-controls, body.dark .ds-md-modal, body.dark .ds-md-notice {
+            --ds-md-surface: rgba(15, 23, 34, .94);
+            --ds-md-surface-2: rgba(21, 31, 46, .94);
+            --ds-md-text: #eef3fb;
+            --ds-md-sub: rgba(238, 243, 251, .76);
+            --ds-md-tertiary: rgba(238, 243, 251, .56);
+            --ds-md-border: rgba(216, 225, 240, .14);
+            --ds-md-border-strong: rgba(216, 225, 240, .2);
+            --ds-md-accent-soft: rgba(27, 97, 201, .24);
+            --ds-md-overlay: rgba(8, 13, 20, .82);
+            --ds-md-shadow-xs: 0 0 1px rgba(0, 0, 0, .28), 0 1px 2px rgba(45, 127, 249, .24);
+            --ds-md-shadow-sm: 0 2px 4px rgba(0, 0, 0, .34), 0 10px 24px -20px rgba(45, 127, 249, .22);
+        }
+        .ds-md-controls *, .ds-md-controls *::before, .ds-md-controls *::after,
+        .ds-md-modal *, .ds-md-modal *::before, .ds-md-modal *::after { box-sizing: border-box; }
+
+        /* 勾选态：隐藏表格内导出按钮（避免与勾选交互抢注意力，对齐插件隐藏 FAB 的做法） */
+        .ds-md-selection-active .table-internal-buttons { display: none !important; }
+
+        /* 勾选态控制条 —— 通栏贴底 + 毛玻璃 */
+        .ds-md-controls {
+            position: fixed; left: 0; right: 0; bottom: 0; z-index: 10003;
+            display: flex; justify-content: center; align-items: center; gap: 12px;
+            padding: 12px;
+            background: color-mix(in srgb, var(--ds-md-surface) 82%, var(--ds-md-surface-2) 18%);
+            border-top: 1px solid var(--ds-md-border);
+            box-shadow: var(--ds-md-shadow-xs);
+            -webkit-backdrop-filter: saturate(180%) blur(4px);
+            backdrop-filter: saturate(180%) blur(4px);
+        }
+        .ds-md-controls button {
+            font: inherit; font-size: 14px; font-weight: 600;
+            padding: 10px 20px; border-radius: 12px;
+            border: 1px solid var(--ds-md-border);
+            background: var(--ds-md-surface); color: var(--ds-md-text);
+            cursor: pointer; white-space: nowrap;
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), border-color 120ms cubic-bezier(.2, 0, 0, 1), color 120ms cubic-bezier(.2, 0, 0, 1), transform 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-controls .ds-md-select-all:hover:not(:disabled),
+        .ds-md-controls .ds-md-select-user:hover:not(:disabled),
+        .ds-md-controls .ds-md-select-ai:hover:not(:disabled) {
+            background: var(--ds-md-surface-2); border-color: var(--ds-md-border-strong); box-shadow: var(--ds-md-shadow-xs);
+        }
+        .ds-md-controls button:disabled { cursor: not-allowed; opacity: .55; box-shadow: none; }
+        .ds-md-controls button:focus, .ds-md-controls button:focus-visible { outline: 0; }
+        .ds-md-controls .ds-md-export-selected {
+            background: var(--ds-md-accent); border-color: var(--ds-md-accent); color: #fff;
+            box-shadow: var(--ds-md-shadow-xs);
+        }
+        .ds-md-controls .ds-md-export-selected:hover:not(:disabled) {
+            background: var(--ds-md-accent-hover); border-color: var(--ds-md-accent-hover); box-shadow: var(--ds-md-shadow-sm);
+        }
+        .ds-md-controls .ds-md-export-selected:active:not(:disabled) { transform: scale(.98); }
+        .ds-md-controls .ds-md-export-selected:disabled {
+            background: var(--ds-md-surface-2); border-color: var(--ds-md-border); color: var(--ds-md-tertiary);
+        }
+        .ds-md-controls .ds-md-cancel-sel {
+            background: transparent; border-color: transparent; color: var(--ds-md-sub);
+        }
+        .ds-md-controls .ds-md-cancel-sel:hover { background: var(--ds-md-surface-2); }
+        /* 提示文字贴在「取消」按钮右侧 */
+        .ds-md-controls .ds-md-cancel-wrap { position: relative; display: inline-flex; align-items: center; }
+        .ds-md-controls .ds-md-sel-hint {
+            position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+            white-space: nowrap; pointer-events: none; line-height: 1;
+            font-size: 13px; font-weight: 600; color: var(--ds-md-danger, #c24141);
+        }
+        .ds-md-controls .ds-md-sel-hint.is-ok { color: var(--ds-md-sub); font-weight: 500; }
+
+        /* 扫描中：隐藏复选框（避免勾到半成品） */
+        .ds-md-selection-scanning .ds-md-cb-wrap { display: none !important; }
+
+        /* 右上角提示条（对齐插件 components/feedback/notice.css） */
+        @keyframes dsMdNoticeIn { from { opacity: 0; transform: translateX(20px) scale(.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
+        @keyframes dsMdNoticeOut { from { opacity: 1; transform: translateX(0) scale(1); } to { opacity: 0; transform: translateX(20px) scale(.95); } }
+        @keyframes dsMdNoticeSpin { to { transform: rotate(360deg); } }
+        .ds-md-notice {
+            position: fixed; top: 18px; right: 18px; z-index: 10005;
+            max-width: min(360px, calc(100vw - 24px));
+            padding: 10px 14px;
+            background: color-mix(in srgb, var(--ds-md-surface) 88%, var(--ds-md-surface-2) 12%);
+            -webkit-backdrop-filter: saturate(165%) blur(4px);
+            backdrop-filter: saturate(165%) blur(4px);
+            border: 1px solid var(--ds-md-border);
+            border-radius: 16px;
+            box-shadow: var(--ds-md-shadow-xs);
+            color: var(--ds-md-text);
+            transform-origin: right center;
+            animation: dsMdNoticeIn 280ms cubic-bezier(.16, 1, .3, 1) forwards;
+        }
+        .ds-md-notice.closing { animation: dsMdNoticeOut 180ms cubic-bezier(.2, 0, 0, 1) forwards; pointer-events: none; }
+        .ds-md-notice-content { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .ds-md-notice-spinner { width: 20px; height: 20px; flex: none; display: flex; align-items: center; justify-content: center; }
+        .ds-md-notice-ring {
+            box-sizing: border-box; width: 100%; height: 100%;
+            border: 2px solid var(--ds-md-border);
+            border-top-color: var(--ds-md-accent);
+            border-right-color: var(--ds-md-accent-soft);
+            border-radius: 50%;
+            animation: dsMdNoticeSpin .9s linear infinite;
+        }
+        .ds-md-notice-message { font-size: 14px; font-weight: 600; line-height: 1.35; letter-spacing: .1px; word-break: break-word; }
+        @media (max-width: 640px) {
+            .ds-md-notice { top: 12px; right: 12px; max-width: calc(100vw - 16px); padding: 9px 12px; border-radius: 12px; }
+            .ds-md-notice-spinner { width: 18px; height: 18px; }
+        }
+
+        /* 每条消息的复选框（右上/左上角） */
+        .ds-md-cb-wrap { position: absolute; z-index: 10; }
+        .ds-md-cb-wrap.ds-md-cb-user { top: 5px; left: 5px; }
+        .ds-md-cb-wrap.ds-md-cb-ai { top: 5px; right: 5px; }
+        .ds-md-checkbox {
+            appearance: none; -webkit-appearance: none; width: 20px; height: 20px; margin: 0;
+            border: 2px solid var(--ds-md-text); border-radius: 8px;
+            background-color: var(--ds-md-surface); cursor: pointer; position: relative;
+            transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+        .ds-md-checkbox:hover { border-color: var(--ds-md-accent); }
+        .ds-md-checkbox:checked {
+            background-color: var(--ds-md-accent); border-color: var(--ds-md-accent);
+            box-shadow: var(--ds-md-shadow-xs);
+        }
+        .ds-md-checkbox:checked::after {
+            content: "✔"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #f9fcff; font-size: 14px; line-height: 1;
+        }
+
+        /* 选中高亮（用户右对齐气泡 / AI 居中） */
+        .ds-md-msg-selected {
+            border: 2px solid var(--ds-md-border-strong) !important;
+            border-radius: 12px;
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-md-border-strong) 60%, transparent 40%);
+            background-color: color-mix(in srgb, var(--ds-md-surface-2) 82%, transparent 18%);
+            padding-top: 10px; padding-bottom: 10px;
+            position: relative; overflow: hidden; box-sizing: border-box;
+        }
+        .ds-md-msg-selected.ds-md-msg-user {
+            display: block; width: fit-content; max-width: min(850px, 100%);
+            margin-left: auto; margin-right: 0; word-wrap: break-word;
+            border-color: var(--ds-md-border) !important;
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-md-border) 72%, transparent 28%);
+            background-color: color-mix(in srgb, var(--ds-md-surface-2) 90%, transparent 10%);
+        }
+        .ds-md-msg-selected.ds-md-msg-ai {
+            max-width: 850px; padding-top: 20px; margin-left: auto; margin-right: auto;
+            word-wrap: break-word;
+            border-color: var(--ds-md-accent) !important;
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-md-accent) 62%, transparent 38%);
+            background-color: color-mix(in srgb, var(--ds-md-accent) 6%, var(--ds-md-surface-2) 94%);
+        }
+
+        /* 两步模态框 —— 对齐插件 dialog.css：780px / 24px 圆角 / 浅色毛玻璃遮罩 / 滑入动画 */
+        @keyframes dsMdOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes dsMdDialogIn { from { opacity: 0; transform: scale(.94) translateY(16px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        @keyframes dsMdStepIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes dsMdStepBack { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: translateX(0); } }
+        .ds-md-modal {
+            position: fixed; inset: 0; z-index: 10000;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--ds-md-overlay);
+            -webkit-backdrop-filter: saturate(160%) blur(4px);
+            backdrop-filter: saturate(160%) blur(4px);
+            animation: dsMdOverlayIn 180ms cubic-bezier(.2, 0, 0, 1) forwards;
+        }
+        .ds-md-dialog {
+            width: 92%; max-width: 780px; max-height: 80vh;
+            display: flex; flex-direction: column; overflow: hidden;
+            background: var(--ds-md-surface);
+            border: 1px solid var(--ds-md-border);
+            border-radius: 24px;
+            box-shadow: var(--ds-md-shadow-xs);
+            animation: dsMdDialogIn 280ms cubic-bezier(.16, 1, .3, 1) forwards;
+        }
+        .ds-md-dlg-header {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 20px 28px;
+        }
+        .ds-md-dlg-title { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .1px; color: var(--ds-md-text); }
+        .ds-md-dlg-close {
+            width: 32px; height: 32px; display: grid; place-items: center; flex: none;
+            border: 0; background: transparent; cursor: pointer; padding: 0;
+            font-size: 15px; line-height: 1; color: var(--ds-md-sub);
+            border-radius: 8px;
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-dlg-close:hover { background: var(--ds-md-surface-2); color: var(--ds-md-text); box-shadow: var(--ds-md-shadow-xs); }
+        .ds-md-dlg-close:focus, .ds-md-dlg-close:focus-visible { outline: 0; }
+        .ds-md-dlg-body { padding: 12px 32px 32px; overflow-y: auto; flex: 1; min-height: 0; }
+        .ds-md-step-content { display: flex; flex-direction: column; }
+        .ds-md-step-template.step-slide-in { animation: dsMdStepIn .3s cubic-bezier(.16, 1, .3, 1) forwards; }
+        .ds-md-step-content.step-slide-back { animation: dsMdStepBack .25s cubic-bezier(.16, 1, .3, 1) forwards; }
+        .ds-md-dlg-sub {
+            margin: 0 0 24px; text-align: center;
+            font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--ds-md-sub);
+        }
+        .ds-md-field { margin-bottom: 18px; }
+        .ds-md-field-label { font-size: 12px; font-weight: 600; color: var(--ds-md-sub); margin-bottom: 8px; letter-spacing: .02em; }
+
+        /* 格式按钮：3 列大卡（对齐插件 .format-btn：48px 图标 + 28px 内边距 + hover 上浮） */
+        .ds-md-format-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .ds-md-fmt-btn {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 28px 20px; cursor: pointer; font: inherit;
+            border: 1px solid var(--ds-md-border); border-radius: 16px;
+            background: var(--ds-md-surface-2); color: var(--ds-md-text);
+            position: relative; user-select: none;
+            transition: transform 180ms cubic-bezier(.2, 0, 0, 1), border-color 180ms cubic-bezier(.2, 0, 0, 1), background-color 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms cubic-bezier(.2, 0, 0, 1), color 180ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-fmt-btn::before {
+            content: ""; width: 48px; height: 48px; margin-bottom: 14px; border-radius: 10px;
+            background-color: #322b26;   /* Markdown 品牌色（插件 --icon-md-primary） */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffffff'%3E%3Cpath d='M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6h17.12c.79 0 1.44.63 1.44 1.41v9.18c0 .78-.65 1.41-1.44 1.41M6.81 15.19v-3.66l1.92 2.35 1.92-2.35v3.66h1.93V8.81h-1.93l-1.92 2.35-1.92-2.35H4.89v6.38h1.92M19.69 12h-1.92V8.81h-1.92V12h-1.93l2.89 3.28z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: center; background-size: 30px 30px;
+        }
+        .ds-md-fmt-btn > span { font-size: 14px; font-weight: 600; color: var(--ds-md-text); transition: color 180ms cubic-bezier(.2, 0, 0, 1); }
+        .ds-md-fmt-btn:hover, .ds-md-fmt-btn.is-active {
+            border-color: var(--ds-md-accent);
+            background: color-mix(in srgb, var(--ds-md-accent-soft) 60%, var(--ds-md-surface-2) 40%);
+            transform: translateY(-1px); box-shadow: var(--ds-md-shadow-xs);
+        }
+        .ds-md-fmt-btn:hover > span, .ds-md-fmt-btn.is-active > span { color: var(--ds-md-accent); }
+        .ds-md-fmt-btn:active { transform: translateY(0); }
+        .ds-md-fmt-btn:focus, .ds-md-fmt-btn:focus-visible { outline: 0; }
+
+        /* 页脚小开关（对齐插件 .common-toggle-switch：自绘 44×24 胶囊） */
+        .ds-md-switch {
+            appearance: none; -webkit-appearance: none;
+            position: relative; flex: none;
+            width: 44px; height: 24px; margin: 0;
+            border: 1px solid var(--ds-md-border);
+            border-radius: 12px; cursor: pointer;
+            background-color: color-mix(in srgb, var(--ds-md-border) 78%, var(--ds-md-surface) 22%);
+            transition: background-color 180ms cubic-bezier(.2, 0, 0, 1), border-color 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-switch::before {
+            content: ""; position: absolute; top: calc(50% - 9px); left: 1px;
+            width: 18px; height: 18px; border-radius: 50%;
+            background-color: var(--ds-md-surface);
+            box-shadow: var(--ds-md-shadow-xs);
+            transition: transform 180ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-switch:checked { background-color: var(--ds-md-accent); border-color: var(--ds-md-accent); }
+        .ds-md-switch:checked::before { transform: translateX(20px); }
+        .ds-md-switch:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--ds-md-ring); }
+
+        .ds-md-opt { display: inline-flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+        .ds-md-hint { font-size: 11.5px; color: var(--ds-md-tertiary); font-style: normal; font-weight: 400; }
+
+        .ds-md-back {
+            display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+            font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px 6px 8px;
+            margin: 0; cursor: pointer; border: 0; background: transparent; color: var(--ds-md-sub);
+            border-radius: 8px; transition: background-color .2s ease, color .2s ease;
+        }
+        .ds-md-back:hover { background: var(--ds-md-surface-2); color: var(--ds-md-text); }
+        .ds-md-back:focus, .ds-md-back:focus-visible { outline: 0; }
+        .ds-md-tpl-head { display: flex; align-items: center; margin-bottom: 16px; }
+        .ds-md-tpl-sub { flex: 1; padding-right: 60px; margin: 0; }   /* 右侧留白以抵消返回按钮，保持居中 */
+        /* 模板网格：固定两列（对齐插件 repeat(2,1fr)） */
+        .ds-md-template-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .ds-md-template-card {
+            position: relative; display: flex; flex-direction: column; overflow: hidden;
+            padding: 0; width: 100%; text-align: left; font: inherit; cursor: pointer;
+            border: 1px solid var(--ds-md-border); border-radius: 16px;
+            background: var(--ds-md-surface); color: var(--ds-md-text);
+            transition: border-color .25s cubic-bezier(.2, 0, 0, 1), transform .25s cubic-bezier(.2, 0, 0, 1), box-shadow .25s cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-template-card:hover { border-color: var(--ds-md-accent); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+        .ds-md-template-card:active { transform: translateY(0); }
+        .ds-md-template-card.is-remembered { border-color: var(--ds-md-accent); }
+        .ds-md-template-card.is-remembered::after {
+            content: "上次选择"; position: absolute; top: 8px; right: 8px; z-index: 2;
+            padding: 2px 7px; border-radius: 999px;
+            background: var(--ds-md-accent); color: #fff; font-size: 10px; font-weight: 600;
+        }
+
+        /* 预览区：固定 132px 高 + 底部渐隐（对齐插件 .export-template-preview） */
+        .ds-md-pv {
+            position: relative; height: 132px; padding: 12px 14px; overflow: hidden;
+            background: color-mix(in srgb, var(--ds-md-surface-2) 84%, var(--ds-md-surface) 16%);
+        }
+        .ds-md-pv::after {
+            content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28px; z-index: 1;
+            pointer-events: none;
+            background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--ds-md-surface-2) 84%, var(--ds-md-surface) 16%));
+        }
+        .ds-md-template-card:hover .ds-md-pv {
+            background: color-mix(in srgb, var(--ds-md-surface-2) 92%, var(--ds-md-surface) 8%);
+        }
+        .ds-md-template-card:hover .ds-md-pv::after {
+            background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--ds-md-surface-2) 92%, var(--ds-md-surface) 8%));
+        }
+        /* 缩微排版：整体 9px 起步，标题 11→9.5 递减（对齐插件的 preview 字号体系） */
+        .ds-md-pv-line, .ds-md-pv-c { font-size: 9px; line-height: 1.55; color: var(--ds-md-sub); }
+        .ds-md-pv-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; }
+        .ds-md-pv-line--h1 { font-size: 11px; font-weight: 800; color: var(--ds-md-text); margin-bottom: 1px; letter-spacing: -.01em; }
+        .ds-md-pv-line--bold { font-weight: 700; color: var(--ds-md-text); }
+        .ds-md-pv-line--accent { color: var(--ds-md-accent); }
+        .ds-md-pv-gap { height: 5px; }
+        .ds-md-pv-div { height: 1px; margin: 5px 0; background: var(--ds-md-border); }
+        .ds-md-pv-sec { margin-bottom: 3px; }
+        .ds-md-pv-c { overflow: hidden; }
+        .ds-md-pv-c--muted { color: var(--ds-md-sub); opacity: .78; font-size: 8.5px; }
+        .ds-md-pv-c p { margin: 2px 0; line-height: 1.5; }
+        .ds-md-pv-c blockquote, .ds-md-pv-c ul, .ds-md-pv-c ol { margin: 2px 0; padding-left: 12px; font-size: 8.5px; }
+        .ds-md-pv-c ul, .ds-md-pv-c ol { list-style-position: inside; }
+        .ds-md-pv-c li { margin: 1px 0; line-height: 1.4; }
+        .ds-md-pv-c blockquote { border-left: 2px solid var(--ds-md-accent); padding-left: 6px; }
+        .ds-md-pv-c strong, .ds-md-pv-c b { font-weight: 700; color: var(--ds-md-text); }
+        .ds-md-pv-c em, .ds-md-pv-c i { font-style: italic; }
+        .ds-md-pv-c h1, .ds-md-pv-c h2, .ds-md-pv-c h3, .ds-md-pv-c h4, .ds-md-pv-c h5, .ds-md-pv-c h6 {
+            margin: 3px 0 2px; line-height: 1.3; font-weight: 700; color: var(--ds-md-text);
+        }
+        .ds-md-pv-c h1 { font-size: 11px; }
+        .ds-md-pv-c h2 { font-size: 10.5px; }
+        .ds-md-pv-c h3 { font-size: 10px; }
+        .ds-md-pv-c h4, .ds-md-pv-c h5, .ds-md-pv-c h6 { font-size: 9.5px; }
+        .ds-md-pv-c code {
+            font-family: Consolas, Monaco, monospace; font-size: 8px;
+            padding: 1px 3px; border-radius: 2px;
+            background: color-mix(in srgb, var(--ds-md-surface-2) 88%, var(--ds-md-surface) 12%);
+        }
+        .ds-md-pv-c pre {
+            margin: 2px 0; padding: 3px 5px; border-radius: 3px;
+            font-size: 7.5px; line-height: 1.4;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            background: color-mix(in srgb, var(--ds-md-surface-2) 88%, var(--ds-md-surface) 12%);
+        }
+        .ds-md-pv-c table { font-size: 7.5px; border-collapse: collapse; margin: 2px 0; }
+        .ds-md-pv-c td, .ds-md-pv-c th { border: 1px solid var(--ds-md-border); padding: 2px 4px; }
+        .ds-md-pv-c th { font-weight: 700; background: color-mix(in srgb, var(--ds-md-surface-2) 92%, transparent 8%); }
+        .ds-md-pv-quote {
+            font-size: 8.5px; line-height: 1.5; color: var(--ds-md-sub);
+            margin: 1px 0 2px; padding: 3px 0 3px 8px;
+            border-left: 2px solid var(--ds-md-accent); border-radius: 0 3px 3px 0;
+            background: color-mix(in srgb, var(--ds-md-accent) 8%, transparent 92%);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .ds-md-pv-card {
+            margin-bottom: 5px; padding: 6px 10px;
+            border: 1px solid var(--ds-md-border); border-radius: 8px;
+            background: color-mix(in srgb, var(--ds-md-surface) 70%, var(--ds-md-surface-2) 30%);
+        }
+        .ds-md-pv-card:last-child { margin-bottom: 0; }
+
+        /* 信息区（对齐插件 .export-template-info） */
+        .ds-md-tpl-info { padding: 10px 14px 12px; border-top: 1px solid var(--ds-md-border); }
+        .ds-md-tpl-name { display: block; margin-bottom: 3px; font-size: 13px; font-weight: 600; transition: color .25s ease; }
+        .ds-md-template-card:hover .ds-md-tpl-name { color: var(--ds-md-accent); }
+        .ds-md-tpl-desc { display: block; font-size: 12px; line-height: 1.5; color: var(--ds-md-sub); transition: color .25s ease; }
+        .ds-md-template-card:hover .ds-md-tpl-desc { opacity: .92; }
+
+        /* 页脚（对齐插件 .dialog-footer / .dialog-footer-commit） */
+        .ds-md-dlg-footer {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 8px 32px 24px; flex-wrap: wrap;
+        }
+        .ds-md-footer-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .ds-md-remember {
+            display: inline-flex; align-items: center; gap: 8px; padding: 5px 0;
+            font-size: 12px; font-weight: 500; line-height: 1.35; color: var(--ds-md-tertiary); cursor: pointer;
+        }
+        .ds-md-remember[hidden] { display: none; }
+        .ds-md-remember input {
+            width: 16px; height: 16px; flex: none; margin: 0; cursor: pointer;
+            accent-color: var(--ds-md-accent);
+        }
+        .ds-md-dlg-actions[hidden] { display: none; }
+        .ds-md-dlg-cancel {
+            font: inherit; font-size: 14px; font-weight: 600;
+            padding: 10px 36px; border-radius: 12px; cursor: pointer;
+            border: 1px solid var(--ds-md-border);
+            background: var(--ds-md-surface-2); color: var(--ds-md-sub);
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), border-color 120ms cubic-bezier(.2, 0, 0, 1), color 120ms cubic-bezier(.2, 0, 0, 1), transform 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-md-dlg-cancel:hover {
+            border-color: var(--ds-md-border-strong); color: var(--ds-md-text);
+            transform: translateY(-1px); box-shadow: var(--ds-md-shadow-xs);
+        }
+        .ds-md-dlg-cancel:active { transform: translateY(0); }
+        .ds-md-dlg-cancel:focus, .ds-md-dlg-cancel:focus-visible { outline: 0; }
+
+        /* 窄屏：页脚纵向、格式与大卡单列（对齐插件 @media (max-width:640px)） */
+        @media (max-width: 640px) {
+            .ds-md-dlg-header { padding: 16px 18px; }
+            .ds-md-dlg-body { padding: 10px 18px 22px; }
+            .ds-md-dlg-footer { padding: 6px 18px 18px; flex-direction: column; align-items: stretch; }
+            .ds-md-dlg-actions { display: flex; justify-content: center; }
+            .ds-md-format-options { grid-template-columns: repeat(2, 1fr); }
+            .ds-md-template-options { grid-template-columns: 1fr; }
+        }
 
         /* 响应式：窄屏导航转横排、设置项纵向 */
         @media (max-width: 640px) {
@@ -2744,6 +3223,1819 @@
         const ov = document.getElementById('ds-control-panel-overlay');
         if (ov) { ov.remove(); setTimeout(() => openControlPanel(), 300); }
     };
+
+    // ==================== 对话导出为 Markdown ====================
+    // 对话 → Markdown 的完整导出链路。
+    //
+    // 链路：提取（DeepSeek DOM → 语义 DOM）→ 规范化（公式/代码/列表/表格/噪音）
+    //       → 规则驱动转换（12 条规则，深度优先）→ 收尾归一 → Blob 下载
+    //
+    // 若干刻意的设计取舍：
+    //   1. 自有属性前缀统一用 data-ds-md-*，与页面上其他扩展注入的属性互不干扰；
+    //   2. 不依赖对方注入的运行时属性（那是另一扩展的状态，随时可能不存在）；
+    //   3. 转换引擎为自研规则表，不引入任何第三方 Markdown 库（对方亦如此，7291 字符零依赖）。
+    const mdExportUnit = (() => {
+        // ---------- 选择器（取真实页面实测结构） ----------
+        const SEL = {
+            MESSAGE: '.ds-message',
+            AI_CONTENT: '.ds-markdown',              // AI 答案根；用户消息不含此元素 → 角色判据
+            THINK_CONTENT: '.ds-think-content',      // 思考过程正文（语义类名）
+            COLLAPSIBLE: '.ds-collapsible-text',     // 用户文本容器（语义类名）
+            CODE_BLOCK: '.md-code-block',
+            CODE_BANNER: '.md-code-block-banner-wrap', // 语言文案所在（"语言\n复制\n下载\n展开"）
+            KATEX_DISPLAY: '.katex-display',
+            KATEX: '.katex',
+            SCROLL_AREA: '.ds-scroll-area',          // 表格外层滚动壳，需脱壳
+            VIRTUAL_LIST: '.ds-virtual-list-items',        // 虚拟列表容器（存在即说明对话被虚拟化）
+            VIRTUAL_ITEM: '[data-virtual-list-item-key]',  // 虚拟列表项（消息的稳定键来源）
+        };
+        const ATTR = {
+            NODE: 'data-ds-md-node',   // 节点类型标记（同时作为"自有属性"参与 stripNoise 保护判定）
+            LEVEL: 'data-ds-md-level',
+            SECTION: 'data-ds-md-section', // question | answer —— 模板装饰的定位锚点
+            LANG: 'data-ds-md-lang',
+            TEX: 'data-ds-md-tex',
+            MATH: 'data-ds-md-math',
+        };
+        const OWN_ATTR_PREFIX = 'data-ds-md-';
+
+        // ---------- 基础工具 ----------
+        const isEl = (n) => !!n && n.nodeType === Node.ELEMENT_NODE;
+        const tag = (n) => (isEl(n) ? String(n.tagName || '').toLowerCase() : '');
+        const lf = (s) => String(s).replace(/\r\n?/g, '\n');                       // CRLF → LF
+        const stripNl = (s) => lf(s).replace(/^\n+/, '').replace(/\n+$/, '');     // 去首尾换行
+        const maxRun = (s, ch) => { let best = 0, cur = 0; for (const c of s) { if (c === ch) { cur++; if (cur > best) best = cur; } else cur = 0; } return best; };
+        // 反引号自适应：比内容中最长反引号串多 1（至少 min）。代码块内含 ``` 时否则必然被提前闭合。
+        const fenceOf = (s, min) => '`'.repeat(Math.max(min, maxRun(s, '`') + 1));
+        // 行内代码：前后含空格时补空格包裹（CommonMark 规定）
+        const inlineCodeWrap = (s) => { const f = fenceOf(s, 1); return f + ((s.startsWith(' ') || s.endsWith(' ')) ? ' ' + s + ' ' : s) + f; };
+        // 表格单元格：换行折叠为空格 + 转义竖线
+        const cellText = (s) => lf(s).replace(/\n+/g, ' ').replace(/\|/g, '\\|').trim();
+        const escLinkText = (s) => String(s).replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+        const isInside = (el, tags) => { const set = new Set(tags.map(t => t.toLowerCase())); let p = el.parentElement; while (p) { if (set.has(tag(p))) return true; p = p.parentElement; } return false; };
+        const headingLevel = (t) => { const m = /^h([1-6])$/.exec(t); return m ? Number(m[1]) : 0; };
+
+        // ---------- 转换引擎：12 条规则（顺序敏感） ----------
+        // 规则表顺序决定了嵌套处理：先"吞内容"的块级，再行内。首个命中即用。
+        function findCodeChild(el) {
+            return [...el.children].find(c => tag(c) === 'code') || el.querySelector('code') || null;
+        }
+
+        const RULE_CODE_BLOCK = {
+            name: 'code-block',
+            filter: (el) => tag(el) === 'pre' && !!findCodeChild(el),
+            replacement(el) {
+                const code = findCodeChild(el);
+                if (!code) return '';
+                const lang = String(
+                    code.getAttribute(ATTR.LANG) ?? el.getAttribute(ATTR.LANG) ?? ''
+                ).trim();
+                const body = stripNl(lf(code.textContent ?? '')).replace(/\n+$/g, '');
+                const f = fenceOf(body, 3);
+                return f + lang + '\n' + body + '\n' + f + '\n\n';
+            },
+        };
+
+        const RULE_INLINE_CODE = {
+            name: 'inline-code',
+            filter: (el) => tag(el) === 'code' && !isInside(el, ['pre']),
+            replacement(el) {
+                const t = el.textContent ?? '';
+                return t.trim() ? inlineCodeWrap(t) : '';
+            },
+        };
+
+        const RULE_MATH = {
+            name: 'math',
+            filter: (el) => {
+                const mt = el.getAttribute(ATTR.MATH);
+                const tex = el.getAttribute(ATTR.TEX);
+                return (mt === 'inline' || mt === 'block') && typeof tex === 'string' && tex.trim().length > 0;
+            },
+            replacement(el) {
+                const mt = el.getAttribute(ATTR.MATH);
+                const tex = lf(el.getAttribute(ATTR.TEX) ?? '').trim();
+                if (!tex) return '';
+                return mt === 'inline' ? '$' + tex.replace(/\n+/g, ' ') + '$' : '$$\n' + tex + '\n$$\n\n';
+            },
+        };
+
+        const RULE_TABLE = {
+            name: 'table',
+            filter: (el) => tag(el) === 'table',
+            replacement(el, _content, ctx) {
+                const rows = [...el.querySelectorAll('tr')];
+                if (!rows.length) return '';
+                const cells = (row) => [...row.children].filter(c => tag(c) === 'td' || tag(c) === 'th');
+                // 表头：首个含 th 的行；都没有则首行充作表头
+                let header = rows.find(r => cells(r).some(c => tag(c) === 'th')) || null;
+                let body;
+                if (header) body = rows.filter(r => r !== header);
+                else { header = rows[0]; body = rows.slice(1); }
+                if (!header) return '';
+                const conv = (row) => cells(row).map(c => cellText(stripNl(ctx.api.children(c, ctx.state))));
+                const hc = conv(header);
+                const bc = body.map(conv);
+                const cols = Math.max(1, hc.length, ...bc.map(r => r.length));
+                const pad = (arr) => '| ' + Array.from({ length: cols }, (_, i) => arr[i] ?? '').join(' | ') + ' |';
+                const sep = pad(Array.from({ length: cols }, () => '---'));
+                return pad(hc) + '\n' + sep + (bc.length ? '\n' + bc.map(pad).join('\n') : '') + '\n\n';
+            },
+        };
+
+        const RULE_HEADING = {
+            name: 'heading',
+            filter: (el) => headingLevel(tag(el)) > 0,
+            replacement(el, content) {
+                const lv = headingLevel(tag(el));
+                const t = stripNl(content).trim();
+                return t ? '#'.repeat(lv) + ' ' + t + '\n\n' : '';
+            },
+        };
+
+        const RULE_HR = {
+            name: 'hr',
+            filter: (el) => tag(el) === 'hr',
+            replacement: () => '---\n\n',
+        };
+
+        const RULE_BLOCKQUOTE = {
+            name: 'blockquote',
+            filter: (el) => tag(el) === 'blockquote',
+            replacement(_el, content) {
+                const s = stripNl(content).trim();
+                if (!s) return '';
+                return lf(s).split('\n').map(l => (l.trim() ? '> ' + l : '>')).join('\n') + '\n\n';
+            },
+        };
+
+        const RULE_LIST = {
+            name: 'list',
+            filter: (el) => tag(el) === 'ul' || tag(el) === 'ol' || tag(el) === 'li',
+            replacement(el, _content, ctx) {
+                const t = tag(el);
+                // 容器 ul / ol：整体缩进交给子 li 处理，这里只负责外层换行
+                if (t === 'ul' || t === 'ol') {
+                    const inner = stripNl(ctx.api.children(el, {
+                        listDepth: ctx.state.listDepth + 1,
+                        listIndent: ctx.state.listIndent,
+                    })).replace(/\n+$/g, '');
+                    if (!inner.trim()) return '';
+                    return (tag(el.parentElement) === 'li' ? '\n' : '') + inner + '\n\n';
+                }
+                // li：marker + 续行缩进对齐
+                const parent = el.parentElement;
+                let marker;
+                if (tag(parent) === 'ol') {
+                    const raw = String(parent.getAttribute('start') ?? '').trim();
+                    const n = Number.parseInt(raw, 10);
+                    const base = Number.isFinite(n) ? n : 1;
+                    const idx = [...parent.children].filter(c => tag(c) === 'li').indexOf(el);
+                    marker = (base + (idx >= 0 ? idx : 0)) + '.';
+                } else {
+                    marker = '-';
+                }
+                // 每层缩进 2 空格；续行缩进 = 缩进 + marker 长度 + 1（与首行文字左对齐）
+                const indent = ctx.state.listIndent || '  '.repeat(Math.max(0, ctx.state.listDepth - 1));
+                const contIndent = indent + ' '.repeat(marker.length + 1);
+                const inner = stripNl(ctx.api.children(el, {
+                    listDepth: ctx.state.listDepth,
+                    listIndent: contIndent,
+                })).trim();
+                if (!inner) return '';
+                const lines = lf(inner).split('\n');
+                const first = lines[0] ?? '';
+                const nested = first.startsWith(contIndent) && /^([-*+]|\d+\.)\s+/.test(first.trimStart());
+                const out = nested ? [indent + marker] : [indent + marker + ' ' + first.trim()];
+                for (let i = nested ? 0 : 1; i < lines.length; i++) {
+                    const l = lines[i] ?? '';
+                    if (!l.trim()) continue;
+                    out.push(l.startsWith(contIndent) ? l : contIndent + l.trim());
+                }
+                return out.join('\n') + '\n';
+            },
+        };
+
+        const RULE_PARAGRAPH = {
+            name: 'paragraph',
+            filter: (el) => tag(el) === 'p',
+            replacement(_el, content, ctx) {
+                const t = stripNl(content).trim();
+                if (!t) return '';
+                return ctx.state.listDepth > 0 ? t + '\n' : t + '\n\n';   // 列表内单换行，列表外双换行
+            },
+        };
+
+        const RULE_LINK = {
+            name: 'link',
+            filter: (el) => tag(el) === 'a',
+            replacement(el, content) {
+                const href = String(el.getAttribute('href') ?? '').trim();
+                const text = stripNl(content).trim() || String(el.textContent ?? '').trim() || href;
+                return href ? '[' + escLinkText(text) + '](' + href + ')' : text;
+            },
+        };
+
+        const RULE_IMAGE = {
+            name: 'image',
+            filter: (el) => tag(el) === 'img',
+            replacement(el) {
+                const src = String(el.getAttribute('src') ?? '').trim();
+                if (!/^https?:\/\//i.test(src)) return '';    // 跳过 data:/blob: 等内联大图
+                const alt = String(el.getAttribute('alt') ?? '').trim();
+                return '![' + alt.replace(/[\[\]]/g, '') + '](' + src + ')';
+            },
+        };
+
+        const RULE_STRONG = {
+            name: 'strong',
+            filter: (el) => tag(el) === 'strong' || tag(el) === 'b',
+            replacement(_el, content) {
+                const t = stripNl(content).trim();
+                return t ? '**' + t + '**' : '';
+            },
+        };
+
+        const RULE_EMPHASIS = {
+            name: 'emphasis',
+            filter: (el) => tag(el) === 'em' || tag(el) === 'i',
+            replacement(_el, content) {
+                const t = stripNl(content).trim();
+                return t ? '*' + t + '*' : '';
+            },
+        };
+
+        const RULES = [
+            RULE_CODE_BLOCK, RULE_INLINE_CODE, RULE_MATH, RULE_TABLE,
+            RULE_HEADING, RULE_HR, RULE_BLOCKQUOTE, RULE_LIST,
+            RULE_PARAGRAPH, RULE_LINK, RULE_IMAGE, RULE_STRONG, RULE_EMPHASIS,
+        ];
+
+        const INIT_STATE = { listDepth: 0, listIndent: '' };
+
+        function convertNode(api, n, state) {
+            if (n.nodeType === Node.TEXT_NODE) {
+                const v = n.nodeValue ?? '';
+                // HTML 排版换行（含换行且 trim 后为空）必须丢弃，否则 Markdown 里会留下多余空格
+                if (/[^\S\r\n]*[\r\n][^\S\r\n]*/.test(v) && v.trim() === '') return '';
+                return lf(v).replace(/\n+/g, ' ').replace(/[\t\f\v]+/g, ' ');
+            }
+            if (!isEl(n)) {
+                if (n.nodeType === Node.DOCUMENT_NODE || n.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+                    return api.children(n, state);
+                }
+                return '';
+            }
+            const t = tag(n);
+            if (t === 'script' || t === 'style') return '';
+            if (t === 'br') return '\n';
+            const ctx = { api, state };
+            const rule = RULES.find(r => { try { return r.filter(n, ctx); } catch (e) { return false; } });
+            if (!rule) return api.children(n, state);   // 无规则 → 透明穿透
+            try {
+                return rule.replacement(n, api.children(n, state), ctx);
+            } catch (e) {
+                return api.children(n, state);
+            }
+        }
+
+        const converter = {
+            children(node, state) {
+                let out = '';
+                node.childNodes.forEach(n => { out += convertNode(this, n, state); });
+                return out;
+            },
+            convert(root) {
+                const raw = convertNode(this, root, Object.assign({}, INIT_STATE));
+                // 收尾：CRLF→LF → 三个及以上换行压成两个 → 去首尾空白
+                return lf(raw).replace(/\n{3,}/g, '\n\n').trim();
+            },
+        };
+
+        // ---------- 规范化：把 DeepSeek 的 DOM 洗成引擎认识的语义 DOM ----------
+
+        // 表格外层滚动壳脱壳（.ds-scroll-area 会架空 table 的父子关系）
+        function unwrapTableShell(root) {
+            root.querySelectorAll(SEL.SCROLL_AREA).forEach(shell => {
+                const tb = shell.querySelector('table');
+                if (tb && shell.parentNode) shell.parentNode.replaceChild(tb, shell);
+            });
+        }
+
+        // KaTeX → data-ds-md-tex / data-ds-md-math（从 MathML 的 annotation 里取回原始 LaTeX 源码）
+        // 引擎只需认自有属性，与官网 KaTeX 内部结构解耦。
+        function normalizeMath(root) {
+            const mark = (el, tex, isDisplay) => {
+                const span = document.createElement('span');
+                span.setAttribute(ATTR.NODE, 'math');
+                span.setAttribute(ATTR.TEX, tex);
+                span.setAttribute(ATTR.MATH, isDisplay ? 'block' : 'inline');
+                try { el.replaceWith(span); } catch (e) { /* 已脱离文档则忽略 */ }
+            };
+            root.querySelectorAll(SEL.KATEX_DISPLAY).forEach(el => {
+                const ann = el.querySelector('annotation[encoding="application/x-tex"]');
+                const tex = String((ann && ann.textContent) || '').trim();
+                if (tex) mark(el, tex, true);
+            });
+            root.querySelectorAll(SEL.KATEX).forEach(el => {
+                if (el.closest(SEL.KATEX_DISPLAY)) return;
+                const ann = el.querySelector('annotation[encoding="application/x-tex"]');
+                let tex = String((ann && ann.textContent) || '').trim();
+                if (!tex) return;
+                tex = tex.replace(/\r\n?|\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+                mark(el, tex, false);
+            });
+        }
+
+        // 代码块：提取语言 → 剥离 banner/装饰 svg → 合成 <code> 包裹
+        // 真实 DOM 的 pre 只有语法高亮 span，没有 <code>，需要自己合成（对方亦如此）。
+        const CODE_OP_LABEL = /^(复制|下载|展开|收起|编辑|运行|预览|copy|download|expand|collapse|edit|run)$/i;
+        function normalizeCodeBlocks(root) {
+            root.querySelectorAll(SEL.CODE_BLOCK).forEach(block => {
+                const banner = block.querySelector(SEL.CODE_BANNER);
+                let lang = '';
+                if (banner) {
+                    // 双 Tab（代码/图表）→ mermaid
+                    const tabs = [...banner.querySelectorAll('div[role="tab"], .ds-segmented-button')]
+                        .map(e => String(e.textContent || '').trim().toLowerCase())
+                        .filter(Boolean);
+                    if (tabs.includes('图表') && tabs.includes('代码')) lang = 'mermaid';
+                    // 否则取 banner 内首个非操作按钮的短文本（banner 文案 = "语言\n复制\n下载\n展开"）
+                    if (!lang) {
+                        for (const sp of banner.querySelectorAll('span')) {
+                            const s = String(sp.textContent || '').trim();
+                            if (!s || s.length > 40 || CODE_OP_LABEL.test(s)) continue;
+                            lang = s.split(/\s+/)[0].trim().toLowerCase();
+                            if (lang) break;
+                        }
+                    }
+                    banner.remove();
+                }
+                [...block.children].forEach(c => { if (tag(c) === 'svg') c.remove(); });
+                const pre = block.querySelector('pre');
+                if (!pre) return;
+                [...pre.children].forEach(c => { if (tag(c) === 'svg') c.remove(); });
+                let code = pre.querySelector('code');
+                if (!code) {
+                    code = document.createElement('code');
+                    code.innerHTML = pre.innerHTML;
+                    pre.innerHTML = '';
+                    pre.appendChild(code);
+                }
+                if (lang) code.setAttribute(ATTR.LANG, lang);
+            });
+        }
+
+        // <ol> 只保留 start（其余属性归零），<li> 去掉 value
+        function normalizeLists(root) {
+            root.querySelectorAll('ol').forEach(ol => {
+                let start = 1;
+                const n = Number.parseInt(String(ol.getAttribute('start') ?? '').trim(), 10);
+                if (Number.isFinite(n)) start = n;
+                [...ol.attributes].forEach(a => ol.removeAttribute(a.name));
+                ol.setAttribute('start', String(start));
+            });
+            root.querySelectorAll('li').forEach(li => li.removeAttribute('value'));
+        }
+
+        // 纯文本 div → <p>（用户消息体没有 <p>，不补则得不到段落换行）
+        // 注意排除自有标记元素：section 容器必须保持 <div>，否则模板装饰的 insertBefore 会产出
+        // 非法的 <p> 嵌套（浏览器会重排，装饰失效）。
+        const BLOCKISH = 'table, pre, ul, ol, blockquote, hr, h1, h2, h3, h4, h5, h6, .md-code-block';
+        function isSimpleTextDiv(el) {
+            if (tag(el) !== 'div') return false;
+            try {
+                if ([...el.attributes].some(a => a.name.startsWith(OWN_ATTR_PREFIX))) return false;
+            } catch (e) { /* 忽略 */ }
+            try {
+                if (el.querySelector(BLOCKISH)) return false;
+                if (el.querySelector('div')) return false;
+                return !!String(el.textContent || '').trim();
+            } catch (e) { return false; }
+        }
+        function divToParagraph(root) {
+            // 自内向外替换，避免上层判定被下层替换结果影响
+            [...root.querySelectorAll('div')].reverse().forEach(d => {
+                if (!isSimpleTextDiv(d)) return;
+                const p = document.createElement('p');
+                p.innerHTML = d.innerHTML;
+                try { d.replaceWith(p); } catch (e) { /* 忽略 */ }
+            });
+        }
+
+        // 行内图标标记（引用角标 / 联网标识）
+        // 实测结构：<span class="_2ed5dee" style="display:inline">
+        //             <span style="opacity:0;margin:0 6.455px">-</span>        ← 隐藏占位，撑宽度
+        //             <span style="position:absolute;left:50%">…14×14 svg…</span>  ← 悬浮图标层
+        //           </span>
+        // 判据用「样式特征」而非哈希类名：含 absolute 或 opacity:0 的装饰子层，且剥掉装饰后仅剩
+        // 极短编号（或空）。这样官网改版换类名也不失效。
+        const ABS_RE = /position\s*:\s*absolute/i;
+        const ZERO_RE = /opacity\s*:\s*0(?:\.0+)?/i;
+        const styleOf = (el) => String((el && el.getAttribute && el.getAttribute('style')) || '');
+        function isCitationBadge(el) {
+            const t = tag(el);
+            if (t !== 'span' && t !== 'a') return false;
+            if (isInside(el, ['pre', 'code', 'katex'])) return false;
+            const kids = [...el.children];
+            const hasAbs = kids.some(c => ABS_RE.test(styleOf(c)));
+            const hasZero = kids.some(c => ZERO_RE.test(styleOf(c)));
+            if (!hasAbs && !hasZero) return false;
+            // 剥掉装饰子层后，剩余文本必须为空或极短的引用编号
+            const clone = el.cloneNode(true);
+            clone.querySelectorAll('svg').forEach(s => s.remove());
+            clone.querySelectorAll('*').forEach(c => {
+                const st = styleOf(c);
+                if (ABS_RE.test(st) || ZERO_RE.test(st)) { try { c.remove(); } catch (e) { /* 忽略 */ } }
+            });
+            const rest = String(clone.textContent || '').replace(/[\s\u200b\ufeff\u200c\u200d]+/g, '');
+            return rest.length <= 3;
+        }
+
+        // 噪音清理：引用角标 → 按钮/图标 → 装饰 svg → 空 span 解包
+        // 注意顺序：角标判据依赖「绝对定位层 + 装饰 svg」，必须先于删 svg 执行。
+        function stripNoise(root) {
+            [...root.querySelectorAll('a, span')].forEach(n => {
+                if (!n.parentNode) return;
+                if (!isCitationBadge(n)) return;
+                try { n.remove(); } catch (e) { /* 忽略 */ }
+            });
+            // 角标剥离后可能留下空链接（只剩 href）→ 一并清掉
+            [...root.querySelectorAll('a')].forEach(n => {
+                if (!n.parentNode) return;
+                if (String(n.textContent || '').trim()) return;
+                if (n.querySelector('img')) return;
+                try { n.remove(); } catch (e) { /* 忽略 */ }
+            });
+            root.querySelectorAll('button, [role="button"], .ds-icon').forEach(n => {
+                try { n.remove(); } catch (e) { /* 忽略 */ }
+            });
+            // 数学已抽成自有 span，其余 svg 均为装饰
+            root.querySelectorAll('svg').forEach(n => {
+                if (isInside(n, ['katex'])) return;
+                try { n.remove(); } catch (e) { /* 忽略 */ }
+            });
+            [...root.querySelectorAll('span')].forEach(n => {
+                if (!n.parentNode) return;
+                if (n.closest('.katex, .katex-display')) return;
+                const attrs = [...n.attributes].map(a => a.name);
+                if (attrs.some(a => a.startsWith(OWN_ATTR_PREFIX))) return;   // 自有标记不展开
+                if (attrs.includes('class')) return;                         // 带 class 的 span 保守保留
+                if (String(n.textContent || '').trim()) return;              // 有文字则保留
+                try {                                                        // 无 class 无属性的空 span → 解包
+                    while (n.firstChild) n.parentNode.insertBefore(n.firstChild, n);
+                    n.remove();
+                } catch (e) { /* 忽略 */ }
+            });
+        }
+
+        // 八步规范化（各自容错，单点失败不阻断其余）
+        function normalizeContent(doc, root, opts) {
+            const steps = [
+                () => unwrapTableShell(root),
+                () => normalizeMath(root),
+                () => normalizeCodeBlocks(root),
+                () => normalizeLists(root),
+                () => divToParagraph(root),
+                () => stripNoise(root),
+            ];
+            steps.forEach(fn => { try { fn(); } catch (e) { console.warn('[deepseektool] 导出规范化步骤失败：', e); } });
+        }
+
+        // ---------- 提取：DeepSeek DOM → 语义消息 ----------
+
+        // AI 答案根：取消息内第一个「不在思考区里」的 .ds-markdown。
+        // 陷阱：思考过程正文自身也是 .ds-markdown，且在文档顺序上位于答案之前，
+        // 直接 querySelector('.ds-markdown') 会错拿到思考内容。对方用
+        // ".ds-markdown:not(.ds-think-content .ds-markdown)" 规避；这里用显式过滤，兼容性更好。
+        function resolveAiContent(msgEl) {
+            let all = [];
+            try { all = [...msgEl.querySelectorAll(SEL.AI_CONTENT)]; } catch (e) { return null; }
+            for (const el of all) {
+                let inThink = false;
+                try { inThink = !!el.closest(SEL.THINK_CONTENT); } catch (e) { inThink = false; }
+                if (!inThink) return el;
+            }
+            return null;
+        }
+
+        // 思考过程正文：直接取 .ds-think-content（语义类名，实测稳定）。
+        // 注意结构陷阱：思考正文并不在折叠条的兄弟层，而是挂在折叠条容器（._245c867）的祖父层
+        // （._74c0879）下 —— 一条消息可能有多个 .ds-think-content（分片流式输出），需全部收集。
+        // 另需排除「已阅读 N 个网页」这类联网标识（同为 .ds-think-content，但不是思考过程）。
+        const WEB_READ_RE = /^已阅读\s*\d+\s*个网页$/;
+        function collectReasoningNodes(msgEl) {
+            let nodes = [];
+            try { nodes = [...msgEl.querySelectorAll(SEL.THINK_CONTENT)]; } catch (e) { return []; }
+            return nodes.filter(n => {
+                const txt = String(n.textContent || '').trim();
+                if (!txt) return false;
+                return !WEB_READ_RE.test(txt);
+            });
+        }
+
+        // 用户文本根：优先语义类名 .ds-collapsible-text，回退「直接子级中文本最长且无 AI 内容/媒体/按钮」
+        function resolveUserRoot(msgEl) {
+            const collapsible = msgEl.querySelector(SEL.COLLAPSIBLE);
+            if (collapsible) return collapsible;
+            let best = null, bestLen = 0;
+            [...msgEl.children].forEach(c => {
+                if (!isEl(c)) return;
+                try {
+                    if ([...c.querySelectorAll(SEL.AI_CONTENT)].some(x => !x.closest(SEL.THINK_CONTENT))) return;
+                } catch (e) { /* 忽略 */ }
+                if (c.querySelector('img, video, canvas, figure, button, [role="button"]')) return;
+                const len = String(c.textContent || '').trim().length;
+                if (len > bestLen) { bestLen = len; best = c; }
+            });
+            return best;
+        }
+
+        // 只保留「思考体 + 答案体」，其余（折叠条 / 操作栏 / 引用来源 / 附件缩略图 / 头像）一律丢弃。
+        // 这比逐个枚举待删选择器稳健得多 —— 官网加任何新的装饰层都不会污染输出。
+        // 产出的是**语义 DOM**（不做字符串转换），以便模板装饰阶段在其上插入 h1/p/blockquote。
+        //
+        // 拆成「来源 → 语义 DOM」两步，是因为长对话必须靠快照导出（虚拟列表会把滚过的消息卸载）：
+        // 快照存的是原始素材（HTML 串），导出时用同一个函数还原，保证两条路径产出一致。
+        function wrapFromSource(role, src, opts) {
+            if (!src) return null;
+            const wrap = document.createElement('div');
+            const fill = (host, html) => {
+                if (!html) return;
+                const tmp = document.createElement('div');
+                tmp.innerHTML = html;
+                while (tmp.firstChild) host.appendChild(tmp.firstChild);
+            };
+            if (role === 'assistant') {
+                if (opts.includeReasoning && src.reasoningHTML) {
+                    const bq = document.createElement('blockquote');
+                    fill(bq, src.reasoningHTML);
+                    if (bq.firstChild) wrap.appendChild(bq);
+                }
+                if (!src.answerHTML) return null;
+                const sec = document.createElement('div');
+                sec.setAttribute(ATTR.SECTION, 'answer');
+                fill(sec, src.answerHTML);
+                wrap.appendChild(sec);
+            } else {
+                if (!src.questionHTML) return null;
+                const sec = document.createElement('div');
+                sec.setAttribute(ATTR.SECTION, 'question');
+                fill(sec, src.questionHTML);
+                wrap.appendChild(sec);
+            }
+            normalizeContent(document, wrap, opts);
+            return wrap;
+        }
+
+        const toMarkdown = (wrap) => {
+            const md = converter.convert(wrap);
+            return md.trim() ? md.trim() : null;
+        };
+
+        // ==================== 内容模板 ====================
+        // 模板清单与装饰实现。
+        // 装饰产出语义 DOM（h1/h2/p/blockquote），正好喂给上面的转换引擎直接得到 Markdown。
+        // 模板清单里多加一项「原样输出」（无装饰），它也是本工具此前的默认行为。
+        const TEMPLATE_PLAIN = { id: 'plain', name: '原样输出', desc: '不加任何标识前缀，原样导出问答内容' };
+        const TEMPLATES = [
+            { id: 'conversation', name: '简洁对话',   desc: '简洁的问答格式，用「提问」与「回答」标识每轮对话' },
+            { id: 'structured',   name: '结构化笔记', desc: '以序号标题概括问题，附完整问题详情与标注前缀的回答' },
+            { id: 'knowledgeDoc', name: '知识文档',   desc: '将问题作为章节标题，回答作为正文，适合整理成文档' },
+            { id: 'rolePlay',     name: '角色对话',   desc: '用「我说」与「DeepSeek说」标识每轮对话，适合还原真实交流场景' },
+        ];
+        const QUESTION_TEMPLATES = [
+            { id: 'qPlainText',  name: '问题清单（纯文本）', desc: '以纯文本序号列出问题，便于复制到聊天或笔记' },
+            { id: 'qStructured', name: '问题清单（结构化）', desc: '以序号标题概括提问，附完整问题详情，适合整理问题清单' },
+            { id: 'qOutline',    name: '问题大纲',           desc: '以每个提问作为章节标题，适合梳理需求与待解决问题' },
+            { id: 'qCards',      name: '问题卡片',           desc: '以 Q1/Q2 卡片形式整理提问，适合快速回顾' },
+        ];
+
+        const secOf = (wrap, name) => wrap.querySelector('[' + ATTR.SECTION + '="' + name + '"]');
+        // 全量问题文本：**保留换行**（仅归一 CRLF）。对应插件 module 1845 的 p()。
+        // 注意不要在这个函数里压空白 —— 换行要留给调用方转成 <br>，否则多段提问会被挤成一行。
+        const fullText = (el) => String((el && (el.innerText || el.textContent)) || '').replace(/\r\n?/g, '\n').trim();
+        // 单行化：连续空白压成一个空格。对应插件的 m()，仅用于「摘要」与「长度判断」。
+        const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+        const shorten = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '...' : s; };
+        // 用新节点替换元素内容，但保留其 class / id / 其余属性
+        function replaceInner(el, nodes) {
+            const cls = el.className, id = el.id;
+            const attrs = [];
+            try { [...el.attributes].forEach(a => { if (a.name !== 'class' && a.name !== 'id') attrs.push([a.name, a.value]); }); } catch (e) { /* 忽略 */ }
+            el.innerHTML = '';
+            el.className = cls;
+            if (id) el.id = id;
+            attrs.forEach(([k, v]) => { try { el.setAttribute(k, v); } catch (e) { /* 忽略 */ } });
+            (Array.isArray(nodes) ? nodes : [nodes]).forEach(n => { if (n) el.appendChild(n); });
+        }
+        function injectBefore(el, node) {
+            if (!node) return;
+            if (el.firstChild) el.insertBefore(node, el.firstChild);
+            else el.appendChild(node);
+        }
+        // 问题正文折叠成单段（`<br>` 分节），不保留原有块级结构。对应插件的 a()
+        function collapseToParagraph(sec) {
+            const text = fullText(sec);
+            const p = document.createElement('p');
+            p.setAttribute('style', 'margin:0');
+            String(text).split('\n').forEach((line, i) => {
+                if (i > 0) p.appendChild(document.createElement('br'));
+                p.appendChild(document.createTextNode(line));
+            });
+            replaceInner(sec, p);
+        }
+        // 内容标题整体降一级（h1→h2 …），仅当内容里存在 h1 时才降
+        // 目的：让正文标题层级落在模板插入的 h1 之下
+        function demoteHeadings(sec) {
+            let hasH1 = false;
+            try { hasH1 = !!sec.querySelector('h1'); } catch (e) { hasH1 = false; }
+            if (!hasH1) return;
+            let list = [];
+            try { list = [...sec.querySelectorAll('h1, h2, h3, h4, h5, h6')]; } catch (e) { return; }
+            for (let i = list.length - 1; i >= 0; i--) {
+                const h = list[i];
+                if (!h || !h.parentNode) continue;
+                const lv = headingLevel(tag(h));
+                if (!lv || lv >= 6) continue;
+                const nh = document.createElement('h' + Math.min(lv + 1, 6));
+                try { [...h.attributes].forEach(a => nh.setAttribute(a.name, a.value)); } catch (e) { /* 忽略 */ }
+                while (h.firstChild) nh.appendChild(h.firstChild);
+                try { h.parentNode.replaceChild(nh, h); } catch (e) { /* 忽略 */ }
+            }
+        }
+        const boldLabel = (text) => {
+            const p = document.createElement('p');
+            p.setAttribute('style', 'margin:0;margin-bottom:8px');
+            const s = document.createElement('strong');
+            s.textContent = text;
+            p.appendChild(s);
+            return p;
+        };
+        // 结构化笔记 / 问题清单（结构化）：序号 h1 + 摘要，超长时补「问题详情」。对应插件的 c()
+        // 摘要用**单行化文本**判断长度与截断；「问题详情」用**保留换行**的全文（换行转 <br>）
+        function structuredHeader(sec, index, hLevel) {
+            const level = Math.min(Math.max(hLevel || 1, 1), 6);
+            const full = fullText(sec);
+            const sum = oneLine(full);
+            const box = document.createElement('div');
+            box.setAttribute('style', 'margin-bottom:8px');
+            const h = document.createElement('h' + level);
+            h.textContent = index + '、' + shorten(sum, 15);
+            box.appendChild(h);
+            if (sum.length > 15) {
+                const detail = document.createElement('div');
+                detail.setAttribute('style', 'margin-top:4px;margin-bottom:12px;color:#666');
+                const p = document.createElement('p');
+                p.setAttribute('style', 'margin:0');
+                const s = document.createElement('strong');
+                s.textContent = '问题详情：';
+                p.appendChild(s);
+                p.appendChild(document.createElement('br'));
+                const lines = full.split('\n');
+                lines.forEach((line, i) => {
+                    p.appendChild(document.createTextNode(line));
+                    if (i < lines.length - 1) p.appendChild(document.createElement('br'));
+                });
+                detail.appendChild(p);
+                box.appendChild(detail);
+            }
+            replaceInner(sec, box);
+        }
+        // 知识文档（h1）/ 问题大纲（h2）：序号标题。对应插件的 h()，标题层级由调用方传入
+        function outlineHeader(sec, index, hLevel, maxLen) {
+            const level = Math.min(Math.max(hLevel || 2, 1), 6);
+            const h = document.createElement('h' + level);
+            h.textContent = index + '. ' + shorten(oneLine(fullText(sec)), maxLen);
+            replaceInner(sec, h);
+        }
+
+        const TEMPLATE_DECORATORS = {
+            conversation: {
+                onUser: (wrap) => { const s = secOf(wrap, 'question'); if (s) { collapseToParagraph(s); injectBefore(s, boldLabel('提问：')); } },
+                onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (s) injectBefore(s, boldLabel('回答：')); },
+            },
+            structured: {
+                onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) structuredHeader(s, n, 1); },
+                onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (!s) return; injectBefore(s, boldLabel('回答（Answer）：')); demoteHeadings(s); },
+            },
+            knowledgeDoc: {
+                // 插件：h(e, idx, 1) → h1（章节标题与 structured 同级）
+                onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) outlineHeader(s, n, 1, 60); },
+                onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (s) demoteHeadings(s); },
+            },
+            rolePlay: {
+                // 插件：rolePlay.onUser = a(e) 折叠 + 「我说：」。折叠不可省，否则多段提问会破坏格式
+                onUser: (wrap) => { const s = secOf(wrap, 'question'); if (s) { collapseToParagraph(s); injectBefore(s, boldLabel('我说：')); } },
+                onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (s) injectBefore(s, boldLabel('DeepSeek说：')); },
+            },
+            qStructured: {
+                onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) structuredHeader(s, n, 1); },
+                onAi: () => { },
+            },
+            qOutline: {
+                // 插件：h(e, idx) → 默认 n=2 → h2
+                onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) outlineHeader(s, n, 2, 60); },
+                onAi: () => { },
+            },
+            qCards: {
+                onUser: (wrap, n) => {
+                    const s = secOf(wrap, 'question');
+                    if (!s) return;
+                    const box = document.createElement('div');
+                    box.setAttribute('style', 'margin-bottom:8px');
+                    const h = document.createElement('h1');
+                    h.setAttribute('style', 'margin:0;margin-bottom:4px;color:#4f46e5');
+                    h.textContent = 'Q' + n + '：';
+                    box.appendChild(h);
+                    const bq = document.createElement('blockquote');
+                    bq.setAttribute('style', 'margin:0 0 8px 0;padding:8px 16px;border-left:3px solid #4f46e5;color:#555;background:rgba(79,70,229,0.04);border-radius:0 6px 6px 0');
+                    const p = document.createElement('p');
+                    p.setAttribute('style', 'margin:0');
+                    fullText(s).split('\n').forEach((line, i, arr) => {
+                        p.appendChild(document.createTextNode(line));
+                        if (i < arr.length - 1) p.appendChild(document.createElement('br'));
+                    });
+                    bq.appendChild(p);
+                    box.appendChild(bq);
+                    replaceInner(s, box);
+                },
+                onAi: () => { },
+            },
+            qPlainText: {
+                onUser: (wrap, n) => {
+                    const s = secOf(wrap, 'question');
+                    if (!s) return;
+                    const p = document.createElement('p');
+                    p.setAttribute('style', 'margin:0');
+                    p.appendChild(document.createTextNode(n + '. '));
+                    fullText(s).split('\n').forEach((line, i) => {
+                        if (i > 0) p.appendChild(document.createElement('br'));
+                        p.appendChild(document.createTextNode(line));
+                    });
+                    replaceInner(s, p);
+                },
+                onAi: () => { },
+            },
+        };
+
+        // ==================== 模板预览 ====================
+        // 插件每张模板卡上方都有一段 132px 的「缩微排版预览」，用真实选中内容渲染，
+        // 让用户在点之前就看懂模板长什么样。这里按同样思路实现，但复用自己的标准化 DOM。
+
+        // 采集预览素材：既有问答时最多 2 组；只选提问时最多 8 条（与插件一致）
+        // 入参是记录数组 [{role, src}]，因此**已滚出视野的消息也能参与预览**。
+        function extractPreview(recs) {
+            const questions = [], answers = [];
+            const hasAi = recs.some(r => r.role === 'assistant');
+            for (const rec of recs) {
+                let wrap = null;
+                try { wrap = wrapFromSource(rec.role, rec.src, { includeReasoning: false }); } catch (e) { wrap = null; }
+                if (!wrap) continue;
+                // 剥掉自有属性与 style/class/id，只留语义标签（strong/code/table…），交给预览 CSS 接管
+                try {
+                    [...wrap.querySelectorAll('*')].forEach(n => {
+                        [...n.attributes].forEach(a => {
+                            if (a.name.startsWith(OWN_ATTR_PREFIX) || a.name === 'style' || a.name === 'class' || a.name === 'id') {
+                                n.removeAttribute(a.name);
+                            }
+                        });
+                    });
+                } catch (e) { /* 忽略 */ }
+                const html = String(wrap.innerHTML || '').trim();
+                if (!html) continue;
+                if (rec.role === 'assistant') answers.push(html); else questions.push(html);
+                if (hasAi) {
+                    if (questions.length >= 2 && answers.length >= 2) break;
+                } else if (questions.length >= 8) break;
+            }
+            return { questions, answers };
+        }
+
+        // 按纯文本长度截断但**保留 DOM 结构**（对应插件 getPreviewHtml 里的 u()）
+        function clipHtml(html, limit) {
+            if (!html) return '';
+            const holder = document.createElement('div');
+            holder.innerHTML = html;
+            if (String(holder.textContent || '').length <= limit) return html;
+            let used = 0;
+            const out = document.createElement('div');
+            const walk = (node, parent) => {
+                if (used >= limit) return false;
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const room = limit - used;
+                    const text = node.textContent || '';
+                    if (text.length > room) {
+                        parent.appendChild(document.createTextNode(text.slice(0, room) + '...'));
+                        used = limit;
+                        return false;
+                    }
+                    parent.appendChild(node.cloneNode(true));
+                    used += text.length;
+                } else if (node.nodeType === Node.ELEMENT_NODE) {
+                    const el = node.cloneNode(false);
+                    parent.appendChild(el);
+                    for (const child of node.childNodes) if (!walk(child, el)) return false;
+                }
+                return true;
+            };
+            for (const child of holder.childNodes) if (!walk(child, out)) break;
+            return out.innerHTML;
+        }
+        // 取纯文本摘要并转义（对应插件的 h()）
+        function plainHtml(html, limit) {
+            if (!html) return '';
+            const holder = document.createElement('div');
+            holder.innerHTML = html;
+            const text = String(holder.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!text) return '';
+            const cut = text.length > limit ? text.slice(0, limit) + '...' : text;
+            const esc = document.createElement('div');
+            esc.textContent = cut;
+            return esc.innerHTML;
+        }
+        const pvC = (inner, mod) => (inner ? `<div class="ds-md-pv-c${mod ? ' ' + mod : ''}">${inner}</div>` : '');
+
+        // 每套模板的缩微预览骨架（结构对齐插件，类名改用自己的 ds-md-pv-* 前缀）
+        function previewHtml(id, texts) {
+            const q = (texts && texts.questions) || [];
+            const a = (texts && texts.answers) || [];
+            const n = q[0] || '', o = q[1] || '', r = q[2] || '', i = q[3] || '', s4 = q[4] || '', s5 = q[5] || '';
+            const l = a[0] || '', d = a[1] || '';
+            const line = (cls, html) => `<div class="ds-md-pv-line${cls ? ' ' + cls : ''}">${html}</div>`;
+            const H1 = 'ds-md-pv-line--h1', BOLD = 'ds-md-pv-line--bold', ACC = 'ds-md-pv-line--accent';
+            const MUTED = 'ds-md-pv-c--muted';
+            const div = '<div class="ds-md-pv-div"></div>';
+            const gap = '<div class="ds-md-pv-gap"></div>';
+            const sec = (inner) => `<div class="ds-md-pv-sec">${inner}</div>`;
+
+            const maps = {
+                plain: () => sec(pvC(clipHtml(n, 200))) +
+                    (l ? gap + sec(pvC(clipHtml(l, 200))) : ''),
+                structured: () => sec(
+                    line(H1, '1、' + plainHtml(n, 15)) +
+                    line(BOLD, '问题详情：') +
+                    pvC(clipHtml(n, 100), MUTED) + gap +
+                    line(BOLD, '回答（Answer）：') + pvC(clipHtml(l, 150))
+                ) + (o ? div + sec(
+                    line(H1, '2、' + plainHtml(o, 15)) +
+                    line(BOLD, '问题详情：') +
+                    pvC(clipHtml(o, 100), MUTED) + gap +
+                    line(BOLD, '回答（Answer）：') + pvC(clipHtml(d, 150))
+                ) : ''),
+                conversation: () => sec(
+                    line(BOLD, '提问：') + pvC(clipHtml(n, 100), MUTED) + gap +
+                    line(BOLD, '回答：') + pvC(clipHtml(l, 200))
+                ) + (o ? div + sec(
+                    line(BOLD, '提问：') + pvC(clipHtml(o, 100), MUTED) + gap +
+                    line(BOLD, '回答：') + pvC(clipHtml(d, 200))
+                ) : ''),
+                knowledgeDoc: () => sec(
+                    line(H1, '1. ' + plainHtml(n, 40)) + pvC(clipHtml(l, 250))
+                ) + (o ? gap + sec(
+                    line(H1, '2. ' + plainHtml(o, 40)) + pvC(clipHtml(d, 250))
+                ) : ''),
+                rolePlay: () => sec(
+                    line(BOLD, '我说：') + pvC(clipHtml(n, 100), MUTED) + gap +
+                    line(BOLD, 'DeepSeek说：') + pvC(clipHtml(l, 200))
+                ) + (o ? div + sec(
+                    line(BOLD, '我说：') + pvC(clipHtml(o, 100), MUTED) + gap +
+                    line(BOLD, 'DeepSeek说：') + pvC(clipHtml(d, 200))
+                ) : ''),
+                qStructured: () => sec(
+                    line(H1, '1、' + plainHtml(n, 15)) +
+                    line(BOLD, '问题详情：') + pvC(clipHtml(n, 160), MUTED)
+                ) + (o ? div + sec(
+                    line(H1, '2、' + plainHtml(o, 15)) +
+                    line(BOLD, '问题详情：') + pvC(clipHtml(o, 160), MUTED)
+                ) : ''),
+                qOutline: () => sec(line(H1, '1. ' + plainHtml(n, 60))) +
+                    (o ? sec(line(H1, '2. ' + plainHtml(o, 60))) : '') +
+                    (r ? sec(line(H1, '3. ' + plainHtml(r, 60))) : '') +
+                    (i ? sec(line(H1, '4. ' + plainHtml(i, 60))) : '') +
+                    (s4 ? sec(line(H1, '5. ' + plainHtml(s4, 60))) : ''),
+                qCards: () => `<div class="ds-md-pv-card">` +
+                    line(ACC + ' ' + BOLD, 'Q1：') +
+                    `<div class="ds-md-pv-quote">${pvC(clipHtml(n, 140))}</div></div>` +
+                    (o ? `<div class="ds-md-pv-card">` +
+                        line(ACC + ' ' + BOLD, 'Q2：') +
+                        `<div class="ds-md-pv-quote">${pvC(clipHtml(o, 140))}</div></div>` : ''),
+                qPlainText: () => sec(
+                    line('', '1. ' + plainHtml(n, 92)) +
+                    (o ? line('', '2. ' + plainHtml(o, 92)) : '') +
+                    (r ? line('', '3. ' + plainHtml(r, 92)) : '') +
+                    (i ? line('', '4. ' + plainHtml(i, 92)) : '') +
+                    (s4 ? line('', '5. ' + plainHtml(s4, 92)) : '') +
+                    (s5 ? line('', '6. ' + plainHtml(s5, 92)) : '')
+                ),
+            };
+            const fn = maps[id];
+            return fn ? fn() : '';
+        }
+
+        // 按选中内容返回可选模板清单：
+        // 只有提问（无回答）→ 问题清单类；否则 → 问答类
+        function templatesFor(hasUser, hasAi) {
+            const base = (hasUser && !hasAi) ? QUESTION_TEMPLATES : TEMPLATES;
+            return [TEMPLATE_PLAIN].concat(base);
+        }
+
+        // 采集当前对话的记录（键驱动）。虚拟列表下会先刷新可见消息的来源快照，
+        // 已滚过的消息保留早先的快照 —— 两者合起来才是「整段对话」。
+        function collectRecords() {
+            rememberMessages();
+            // pending：已虚拟化但尚未扫描时，窗口外还有消息（扫描后即为 0）
+            let pending = 0;
+            try {
+                if (isVirtualized() && !scanDone) {
+                    const sc = findScrollContainer();
+                    if (sc && maxScrollTop(sc) > 40) pending = -1;   // -1 = 数量未知
+                }
+            } catch (e) { pending = 0; }
+            return { keys: orderedKeys(), pending };
+        }
+
+        // ---------- 文件名生成 ----------
+        const FALLBACK_TITLE = 'DeepSeek对话';
+        function resolveTitle() {
+            let t = String(document.title || '').trim();
+            const SUFFIX = ' - DeepSeek';
+            if (t.endsWith(SUFFIX)) t = t.slice(0, -SUFFIX.length).trim();
+            return t || FALLBACK_TITLE;
+        }
+        const pad2 = (n) => String(n).padStart(2, '0');
+        // 插件格式：YYYY-MM-DD-HH-mm（带时分，避免同日多次导出互相覆盖）
+        function formatExportDate(d) {
+            const t = (d instanceof Date && !Number.isNaN(d.getTime())) ? d : new Date();
+            return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}-${pad2(t.getHours())}-${pad2(t.getMinutes())}`;
+        }
+        // 空格→下划线、Windows 非法字符→下划线、截断 50 字（与插件一致）
+        function sanitizeFilename(name) {
+            return (String(name == null ? '' : name).trim() || FALLBACK_TITLE)
+                .replace(/\s+/g, '_')
+                .replace(/[<>:"/\\|?*]/g, '_')
+                .substring(0, 50);
+        }
+        function buildFilename(ext) {
+            const base = resolveTitle();
+            const stamp = mdExportAppendDate ? formatExportDate() : '';
+            return sanitizeFilename(stamp ? `${base}-${stamp}` : base) + '.' + ext;
+        }
+        function download(md, filename) {
+            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });   // 注意：Markdown 不写 BOM
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 100);
+        }
+
+        // opts: { includeReasoning, templateId, selectedKeys(Set<string>|null) }
+        // 注意：**没有**「仅导出 AI 回答」这类选项 —— 导出哪些消息由勾选态决定
+        //（对应插件第 ① 步的「全选提问 / 全选AI回答」）。在弹窗里再放一个同类开关会与之打架。
+        function buildMarkdown(opts) {
+            const o = opts && typeof opts === 'object' ? opts : {};
+            const includeReasoning = o.includeReasoning === true;
+            const templateId = o.templateId || null;
+            const sel = o.selectedKeys instanceof Set ? o.selectedKeys : null;
+
+            const { keys, pending } = collectRecords();
+            if (!keys.length) return { ok: false, error: '未找到对话消息，请确认已打开一个对话。' };
+
+            const list = sel ? keys.filter(k => sel.has(k)) : keys;
+            if (!list.length) return { ok: false, error: '没有选中的消息。' };
+
+            const recs = list.map(k => sourceCache.get(k)).filter(Boolean);
+            if (!recs.length) return { ok: false, error: '没有可导出的内容。' };
+
+            const hasUser = recs.some(r => r.role === 'user');
+            const hasAi = recs.some(r => r.role === 'assistant');
+            const dec = templateId && TEMPLATE_DECORATORS[templateId] ? TEMPLATE_DECORATORS[templateId] : null;
+
+            const parts = [];
+            let aiCount = 0, userCount = 0, reasoningFound = 0;
+            recs.forEach(rec => {
+                const wrap = wrapFromSource(rec.role, rec.src, { includeReasoning });
+                if (!wrap) return;
+                // 模板装饰：用户消息序号自增（供模板编号使用）
+                if (rec.role === 'user') userCount++;
+                if (dec) {
+                    const fn = rec.role === 'user' ? dec.onUser : dec.onAi;
+                    try { if (typeof fn === 'function') fn(wrap, userCount); } catch (e) { console.warn('[deepseektool] 模板装饰失败：', e); }
+                }
+                const md = toMarkdown(wrap);
+                if (!md) return;
+                if (rec.role === 'assistant') {
+                    aiCount++;
+                    // 「勾了导出思考过程却什么都没多」是高频困惑点 —— 统计实际命中数，交给提示层回显
+                    if (includeReasoning && rec.src && rec.src.reasoningHTML) reasoningFound++;
+                }
+                parts.push(md);
+            });
+            if (!parts.length) return { ok: false, error: '对话内容为空。' };
+            const head = '# ' + resolveTitle() + '\n\n';
+            const body = parts.join('\n\n---\n\n');
+            return { ok: true, md: head + body + '\n', count: parts.length, aiCount, pending, hasUser, hasAi, reasoningFound };
+        }
+
+        // ---------- 稳定键 / 来源快照 / 全对话扫描 ----------
+        // 稳定键 / 来源快照 / 全对话扫描 —— 三者配合才能把长对话导全。
+        //
+        // 为什么必须这样做：DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息**；
+        // 一旦滚过去，React 会卸载这些节点。所以
+        //   ① 选择状态必须按「稳定键」而非元素引用保存（否则滚出视野就丢选中）；
+        //   ② 必须在消息可见的当下就**快照**其原始素材，导出时才有东西可用。
+
+        // 稳定键：优先虚拟列表项 key（跨滚动不变），回退 DOM 序号
+        function stableKeyOf(msgEl, index) {
+            try {
+                const item = msgEl && msgEl.closest ? msgEl.closest(SEL.VIRTUAL_ITEM) : null;
+                const k = item && item.getAttribute('data-virtual-list-item-key');
+                if (k && String(k).trim()) return 'vk:' + String(k).trim();
+            } catch (e) { /* 忽略 */ }
+            const i = typeof index === 'number' ? index : msgsInDom().indexOf(msgEl);
+            return 'ix:' + (i >= 0 ? i : 0);
+        }
+        // 稳定键排序（对齐插件 7448 compareStableKeys：同前缀按数字，否则中文序）
+        function compareStableKeys(a, b) {
+            const parse = (s) => {
+                const m = /^([a-z]+):(-?\d+)$/i.exec(String(s == null ? '' : s).trim());
+                return m ? { p: m[1].toLowerCase(), n: Number(m[2]) } : null;
+            };
+            const x = parse(a), y = parse(b);
+            if (x && y && x.p === y.p) return x.n - y.n;
+            return String(a).localeCompare(String(b), 'zh-Hans-CN');
+        }
+
+        // 来源快照：只存**原始素材**（问题体 / 思考体 / 答案体的 HTML），与导出选项解耦，
+        // 这样「包含思考过程」等选项在导出时才生效，不污染快照。
+        function snapshotSource(msgEl, role) {
+            if (!msgEl) return null;
+            if (role === 'assistant') {
+                const ai = resolveAiContent(msgEl);
+                if (!ai) return null;
+                let reasoningHTML = '';
+                try {
+                    const nodes = collectReasoningNodes(msgEl);
+                    if (nodes.length) reasoningHTML = nodes.map(n => n.outerHTML).join('');
+                } catch (e) { /* 忽略 */ }
+                return { role, reasoningHTML, answerHTML: ai.outerHTML };
+            }
+            const root = resolveUserRoot(msgEl);
+            if (!root) return null;
+            return { role, questionHTML: root.outerHTML };
+        }
+
+        const sourceCache = new Map();   // key -> { key, role, src }
+        let orderList = [];              // 已发现的键，按对话顺序
+        let scanDone = false;
+
+        const noteOrder = (keys) => { keys.forEach(k => { if (k && !orderList.includes(k)) orderList.push(k); }); };
+        const orderedKeys = () => orderList.filter(k => sourceCache.has(k));
+
+        // 把当前 DOM 里的可见消息写入缓存（可见的重取，保证流式内容最新；已滚过的保留旧快照）
+        function rememberMessages() {
+            const list = msgsInDom();
+            const keys = [];
+            list.forEach((el, i) => {
+                const key = stableKeyOf(el, i);
+                const role = resolveAiContent(el) ? 'assistant' : 'user';
+                let src = null;
+                try { src = snapshotSource(el, role); } catch (e) { src = null; }
+                if (!src) return;
+                sourceCache.set(key, { key, role, src });
+                keys.push(key);
+            });
+            noteOrder(keys);
+            return keys;
+        }
+
+        // 找出对话的滚动容器
+        function findScrollContainer() {
+            try {
+                const areas = [...document.querySelectorAll('.ds-scroll-area, [class*="ds-scroll-area"]')];
+                const scroller = areas.find(a => a.scrollHeight > a.clientHeight + 20);
+                if (scroller) return scroller;
+            } catch (e) { /* 忽略 */ }
+            return null;
+        }
+        const isVirtualized = () => !!document.querySelector(SEL.VIRTUAL_LIST);
+        const maxScrollTop = (sc) => (sc ? Math.max(0, sc.scrollHeight - sc.clientHeight) : 0);
+        const nextPaint = (n) => new Promise(res => {
+            const tick = (k) => (k <= 0 ? res() : requestAnimationFrame(() => tick(k - 1)));
+            tick(Math.max(1, n || 1));
+        });
+        // 窗口签名：当前渲染出来的消息键序列（不变即视为稳定）
+        const windowSignature = () => msgsInDom().map((el, i) => stableKeyOf(el, i)).join(',');
+
+        // 等待窗口稳定：连续两次签名一致即返回（上限 24 次，对齐插件）
+        async function waitWindowStable(sc, maxTries) {
+            const tries = maxTries || 24;
+            let prev = '';
+            for (let i = 0; i < tries; i++) {
+                await nextPaint(1);
+                const sig = windowSignature();
+                if (sig && sig === prev) return true;
+                prev = sig;
+            }
+            return !!prev;
+        }
+
+        // 单步采集：滚到指定位置 → 等稳定 → 记录窗口内消息
+        async function captureAt(sc, top) {
+            sc.scrollTop = Math.max(0, Math.min(maxScrollTop(sc), Math.round(top)));
+            await waitWindowStable(sc);
+            // 图表态代码块先切回代码视图，保证快照里 pre 有内容
+            try { if (needsCodeViewSwitch(document)) await ensureCodeView(document); } catch (e) { /* 忽略 */ }
+            // 内容还没渲染出来时，多给几次机会
+            let keys = rememberMessages();
+            for (let i = 0; i < 3 && !keys.length; i++) {
+                await new Promise(r => setTimeout(r, 40));
+                await waitWindowStable(sc);
+                keys = rememberMessages();
+            }
+            return keys;
+        }
+
+        // 全对话扫描：逐步滚过整段对话，边滚边快照（对齐插件 discover() 的主循环）
+        async function scanAll() {
+            if (scanDone) return true;
+            const sc = findScrollContainer();
+            if (!sc || maxScrollTop(sc) < 40) { scanDone = true; rememberMessages(); return true; }
+            const original = sc.scrollTop;
+            const step = Math.max(240, Math.floor(0.45 * sc.clientHeight));
+            orderList = [];                       // 按滚动顺序重建对话顺序
+            showNotice('正在扫描整段对话，请稍候…');
+            if (controlsEl) controlsEl.classList.add(CLS.SCANNING);
+            document.body.classList.add(CLS.SCANNING);
+            try {
+                let pos = 0, guard = 0;
+                while (guard < 400) {
+                    guard++;
+                    const keys = await captureAt(sc, pos);
+                    if (!keys.length && pos >= maxScrollTop(sc)) break;
+                    if (pos >= maxScrollTop(sc)) break;
+                    const next = Math.min(maxScrollTop(sc), pos + step);
+                    if (next <= pos + 1) break;
+                    pos = next;
+                }
+                // 再冲几次底部，确保末尾消息被渲染
+                for (let i = 0; i < 3; i++) await captureAt(sc, maxScrollTop(sc));
+                // 兜底：把缓存里剩下没进顺序表的键按稳定键排序补到末尾
+                [...sourceCache.keys()].forEach(k => { if (!orderList.includes(k)) orderList.push(k); });
+                orderList.sort((a, b) => {
+                    const ia = orderList.indexOf(a), ib = orderList.indexOf(b);
+                    return ia - ib;
+                });
+                scanDone = true;
+                return true;
+            } finally {
+                sc.scrollTop = original;
+                await waitWindowStable(sc);
+                rememberMessages();               // 恢复视野后刷新一次可见消息
+                hideNotice();
+                if (controlsEl) controlsEl.classList.remove(CLS.SCANNING);
+                document.body.classList.remove(CLS.SCANNING);
+            }
+        }
+
+        // ---------- 图表态代码块切回「代码」视图 ----------
+        // 对齐插件 module 230：双 Tab（代码/图表）且当前不在代码视图 → 需要切换。
+        // **不需要主世界注入**：DOM 在两个 world 间共享，React 的委托监听挂在 document 上，
+        // 沙箱内 click() 派发的真实事件它能收到 —— 顺带绕开页面 CSP 拦截内联脚本的风险。
+        const TAB_SEL = 'div[role="tab"], .ds-segmented-button';
+        function getSwitchTabs(block) {
+            let tabs = [];
+            try { tabs = [...block.querySelectorAll(TAB_SEL)]; } catch (e) { return { hasCode: false, hasDiagram: false, codeSelected: false, codeTab: null }; }
+            let hasCode = false, hasDiagram = false, codeSelected = false, codeTab = null;
+            tabs.forEach(t => {
+                const text = String(t.textContent || '').trim();
+                if (!text) return;
+                const low = text.toLowerCase();
+                const sel = t.getAttribute('aria-selected') === 'true' ||
+                    (t.classList && t.classList.contains('ds-segmented-button--selected'));
+                if (text.includes('代码') || low.includes('code')) { hasCode = true; codeTab = t; if (sel) codeSelected = true; }
+                if (text.includes('图表') || low.includes('chart') || low.includes('diagram')) hasDiagram = true;
+            });
+            return { hasCode, hasDiagram, codeSelected, codeTab };
+        }
+        function needsCodeViewSwitch(scope) {
+            let blocks = [];
+            try { blocks = [...scope.querySelectorAll(SEL.CODE_BLOCK)]; } catch (e) { return false; }
+            for (const b of blocks) {
+                const t = getSwitchTabs(b);
+                if (!t.hasCode || !t.hasDiagram) continue;
+                if (!t.codeSelected) return true;
+                let hasPre = false;
+                try { hasPre = !!(b.querySelector('pre code') || b.querySelector('pre')); } catch (e) { hasPre = false; }
+                if (!hasPre) return true;
+            }
+            return false;
+        }
+        // 切回代码视图并轮询等待（对齐插件 6 × 30ms）
+        async function ensureCodeView(scope) {
+            if (!scope) return false;
+            let blocks = [];
+            try { blocks = [...scope.querySelectorAll(SEL.CODE_BLOCK)]; } catch (e) { return false; }
+            let clicked = false;
+            blocks.forEach(b => {
+                const t = getSwitchTabs(b);
+                if (!t.hasCode || !t.hasDiagram || t.codeSelected) return;
+                try { if (t.codeTab) { t.codeTab.click(); clicked = true; } } catch (e) { /* 忽略 */ }
+            });
+            if (!clicked) return false;
+            for (let i = 0; i < 6; i++) {
+                await new Promise(r => setTimeout(r, 30));
+                if (!needsCodeViewSwitch(scope)) return true;
+            }
+            return false;
+        }
+
+        // ---------- 右上角提示条（对齐插件 components/feedback/notice.css） ----------
+        let noticeEl = null;
+        function showNotice(text) {
+            hideNotice();
+            noticeEl = document.createElement('div');
+            noticeEl.className = 'ds-md-notice';
+            noticeEl.innerHTML = '<div class="ds-md-notice-content">' +
+                '<span class="ds-md-notice-spinner"><i class="ds-md-notice-ring"></i></span>' +
+                '<span class="ds-md-notice-message"></span></div>';
+            noticeEl.querySelector('.ds-md-notice-message').textContent = text;
+            document.body.appendChild(noticeEl);
+        }
+        function hideNotice() {
+            if (!noticeEl) return;
+            const el = noticeEl;
+            noticeEl = null;
+            try {
+                el.classList.add('closing');
+                setTimeout(() => { try { el.remove(); } catch (e) { /* 忽略 */ } }, 200);
+            } catch (e) { try { el.remove(); } catch (e2) { /* 忽略 */ } }
+        }
+
+        // ---------- 选择模式 ----------
+        // 勾选态：复选框注入 + 控制条 + 选中高亮。
+        const CLS = {
+            ACTIVE: 'ds-md-selection-active',
+            SCANNING: 'ds-md-selection-scanning',
+            CB_WRAP: 'ds-md-cb-wrap',
+            CB_USER: 'ds-md-cb-user',
+            CB_AI: 'ds-md-cb-ai',
+            CB: 'ds-md-checkbox',
+            SELECTED: 'ds-md-msg-selected',
+            SEL_USER: 'ds-md-msg-user',
+            SEL_AI: 'ds-md-msg-ai',
+            CONTROLS: 'ds-md-controls',
+            SELECT_ALL: 'ds-md-select-all',
+            SELECT_USER: 'ds-md-select-user',
+            SELECT_AI: 'ds-md-select-ai',
+            EXPORT_SEL: 'ds-md-export-selected',
+            CANCEL: 'ds-md-cancel-sel',
+            HINT: 'ds-md-sel-hint',
+            MODAL: 'ds-md-modal',
+            DIALOG: 'ds-md-dialog',
+            STEP_CONTENT: 'ds-md-step-content',
+            STEP_TEMPLATE: 'ds-md-step-template',
+            FMT_BTN: 'ds-md-fmt-btn',
+            TPL_CARD: 'ds-md-template-card',
+            REMEMBER: 'ds-md-remember',
+            BACK: 'ds-md-back',
+            ACTIONS: 'ds-md-dlg-actions',
+            COMMIT: 'ds-md-dlg-commit',
+            CANCEL_DLG: 'ds-md-dlg-cancel',
+            TITLE: 'ds-md-dlg-title',
+            SUB: 'ds-md-dlg-sub',
+        };
+        const selectedKeys = new Set();      // 选中的**稳定键**（不是元素引用）
+        let selectionActive = false;
+        let selObserver = null;
+        let controlsEl = null;
+        let syncTimer = null;
+        let dialogEl = null;
+        let dialogCleanup = null;
+
+        const msgsInDom = () => [...document.querySelectorAll(SEL.MESSAGE)];
+
+        function attachCheckbox(msgEl, isUser, key) {
+            if (!msgEl) return;
+            const k = key || stableKeyOf(msgEl);
+            let wrap = null, cb = null;
+            try { wrap = msgEl.querySelector('.' + CLS.CB_WRAP); } catch (e) { wrap = null; }
+            if (wrap) {
+                cb = wrap.querySelector('.' + CLS.CB);
+                wrap.classList.toggle(CLS.CB_USER, isUser);
+                wrap.classList.toggle(CLS.CB_AI, !isUser);
+            } else {
+                wrap = document.createElement('div');
+                wrap.className = CLS.CB_WRAP + ' ' + (isUser ? CLS.CB_USER : CLS.CB_AI);
+                cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = CLS.CB;
+                cb.setAttribute('aria-label', '选择此条消息');
+                cb.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    // 每次现算键：React 会重建节点，闭包里捕获的旧节点可能已脱离文档
+                    const live = stableKeyOf(msgEl);
+                    if (e.target.checked) selectedKeys.add(live); else selectedKeys.delete(live);
+                    applyHighlight(msgEl);
+                    updateControls();
+                });
+                wrap.appendChild(cb);
+                // 挂载前确保定位上下文（否则 absolute 复选框会跑到页面左上角）
+                if (getComputedStyle(msgEl).position === 'static') msgEl.style.position = 'relative';
+                msgEl.appendChild(wrap);
+            }
+            if (cb) { cb.dataset.mdKey = k; cb.checked = selectedKeys.has(k); }
+        }
+
+        function syncCheckboxes() {
+            rememberMessages();                 // 先刷新可见消息的来源快照（键驱动的前提）
+            const list = msgsInDom();
+            list.forEach((el, i) => {
+                const key = stableKeyOf(el, i);
+                attachCheckbox(el, !resolveAiContent(el), key);
+            });
+            list.forEach(applyHighlight);
+        }
+
+        function removeCheckboxes() {
+            document.querySelectorAll('.' + CLS.CB_WRAP).forEach(el => {
+                try {
+                    const msg = el.closest ? el.closest(SEL.MESSAGE) : null;
+                    if (msg) msg.style.position = '';
+                } catch (e) { /* 忽略 */ }
+                el.remove();
+            });
+            document.querySelectorAll('.' + CLS.SELECTED).forEach(el => {
+                el.classList.remove(CLS.SELECTED, CLS.SEL_USER, CLS.SEL_AI);
+                el.style.position = '';
+            });
+        }
+
+        function highlightTarget(msgEl, isUser) {
+            if (!msgEl || !isUser) return msgEl;
+            try {
+                const r = resolveUserRoot(msgEl);
+                if (r && r !== msgEl) return r;
+            } catch (e) { /* 忽略 */ }
+            return msgEl;
+        }
+        function clearHighlight(msgEl, keep) {
+            if (!msgEl || !msgEl.querySelectorAll) return;
+            const clear = (n) => {
+                if (!n || n === keep) return;
+                try { n.classList.remove(CLS.SELECTED, CLS.SEL_USER, CLS.SEL_AI); } catch (e) { /* 忽略 */ }
+            };
+            clear(msgEl);
+            try { msgEl.querySelectorAll('.' + CLS.SELECTED).forEach(clear); } catch (e) { /* 忽略 */ }
+        }
+        function applyHighlight(msgEl) {
+            if (!msgEl) return;
+            const isUser = !resolveAiContent(msgEl);
+            const on = selectedKeys.has(stableKeyOf(msgEl));
+            try {
+                const cb = msgEl.querySelector('.' + CLS.CB);
+                if (cb) cb.checked = on;
+            } catch (e) { /* 忽略 */ }
+            const t = highlightTarget(msgEl, isUser);
+            clearHighlight(msgEl, t);
+            if (!t) return;
+            t.classList.toggle(CLS.SELECTED, on);
+            t.classList.remove(CLS.SEL_USER, CLS.SEL_AI);
+            if (on) t.classList.add(isUser ? CLS.SEL_USER : CLS.SEL_AI);
+        }
+
+        function createControls() {
+            const box = document.createElement('div');
+            box.className = CLS.CONTROLS;
+            const mk = (cls, text, onClick) => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = cls;
+                b.textContent = text;
+                b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+                return b;
+            };
+            const all = mk(CLS.SELECT_ALL, '全选', () => { void selectAll(); });
+            const user = mk(CLS.SELECT_USER, '全选提问', () => { void selectByRole('user'); });
+            const ai = mk(CLS.SELECT_AI, '全选AI回答', () => { void selectByRole('assistant'); });
+            const exp = mk(CLS.EXPORT_SEL, '导出选中 (0)', () => { void exportSelected(); });
+            const cancel = mk(CLS.CANCEL, '取消', () => stopSelection());
+            const hint = document.createElement('div');
+            hint.className = CLS.HINT;
+            hint.textContent = '可手动勾选想要导出的内容';
+            const tail = document.createElement('div');
+            tail.className = 'ds-md-cancel-wrap';
+            tail.appendChild(cancel);
+            tail.appendChild(hint);
+            box.appendChild(all);
+            box.appendChild(user);
+            box.appendChild(ai);
+            box.appendChild(exp);
+            box.appendChild(tail);
+            return box;
+        }
+
+        let busyCount = 0;   // 进行中的扫描次数（>0 时禁用控制条按钮）
+        function updateControls() {
+            if (!controlsEl) return;
+            const total = orderedKeys().length;
+            const n = selectedKeys.size;
+            const q = (s) => controlsEl.querySelector('.' + s);
+            const expBtn = q(CLS.EXPORT_SEL);
+            const allBtn = q(CLS.SELECT_ALL);
+            const userBtn = q(CLS.SELECT_USER);
+            const aiBtn = q(CLS.SELECT_AI);
+            const hint = q(CLS.HINT);
+            const busy = busyCount > 0;
+            if (hint) {
+                hint.textContent = n > 0 ? '可手动勾选想要导出的内容' : '当前页无对话内容';
+                hint.classList.toggle('is-ok', n > 0);   // 有选中 → 灰字提示；无选中 → 红字警告
+            }
+            [allBtn, userBtn, aiBtn].forEach(b => { if (b) b.disabled = busy || total === 0; });
+            if (expBtn) {
+                expBtn.textContent = `导出选中 (${n})`;
+                expBtn.disabled = busy || n <= 0;
+            }
+            if (allBtn) allBtn.textContent = (n > 0 && n === total) ? '取消全选' : '全选';
+        }
+
+        // 需要时先扫全对话（虚拟列表下才真正滚动；短对话直接标记完成）
+        async function ensureScanned() {
+            if (scanDone) return true;
+            if (!isVirtualized()) { scanDone = true; rememberMessages(); return true; }
+            busyCount++;
+            updateControls();
+            try {
+                return await scanAll();
+            } catch (e) {
+                console.warn('[deepseektool] 扫描对话失败：', e);
+                return false;
+            } finally {
+                busyCount = Math.max(0, busyCount - 1);
+                syncCheckboxes();
+                updateControls();
+            }
+        }
+
+        async function selectAll() {
+            await ensureScanned();
+            const keys = orderedKeys();
+            const willSelect = selectedKeys.size < keys.length;
+            selectedKeys.clear();
+            if (willSelect) keys.forEach(k => selectedKeys.add(k));
+            syncCheckboxes();
+            updateControls();
+        }
+        async function selectByRole(role) {
+            await ensureScanned();
+            selectedKeys.clear();
+            orderedKeys().forEach(k => {
+                const rec = sourceCache.get(k);
+                if (rec && rec.role === role) selectedKeys.add(k);
+            });
+            syncCheckboxes();
+            updateControls();
+        }
+
+        function startObserver() {
+            stopObserver();
+            selObserver = new MutationObserver(muts => {
+                let need = false;
+                for (const m of muts) {
+                    if (m.type !== 'childList' || !m.addedNodes.length) continue;
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        // 只认「新增了消息或含消息的子树」；复选框自身注入不会命中 → 不自激
+                        if ((node.matches && node.matches(SEL.MESSAGE)) ||
+                            (node.querySelector && node.querySelector(SEL.MESSAGE))) { need = true; break; }
+                    }
+                    if (need) break;
+                }
+                if (!need) return;
+                clearTimeout(syncTimer);
+                syncTimer = setTimeout(() => { if (selectionActive) { syncCheckboxes(); updateControls(); } }, 150);
+            });
+            selObserver.observe(document.body, { childList: true, subtree: true });
+        }
+        function stopObserver() {
+            clearTimeout(syncTimer);
+            syncTimer = null;
+            if (selObserver) { try { selObserver.disconnect(); } catch (e) { /* 忽略 */ } selObserver = null; }
+        }
+
+        function startSelection() {
+            if (selectionActive) return true;
+            if (!msgsInDom().length) { showToast('当前页无对话内容'); return false; }
+            selectionActive = true;
+            // 每次进入都是全新会话：清空上轮的键、顺序与快照（避免跨对话残留）
+            selectedKeys.clear();
+            sourceCache.clear();
+            orderList = [];
+            scanDone = false;
+            busyCount = 0;
+            document.body.classList.add(CLS.ACTIVE);
+            syncCheckboxes();
+            controlsEl = createControls();
+            document.body.appendChild(controlsEl);
+            updateControls();
+            startObserver();
+            document.addEventListener('keydown', onSelectionKey, true);
+            return true;
+        }
+
+        function onSelectionKey(e) {
+            if (!selectionActive) return;
+            if (e.key !== 'Escape') return;
+            if (document.querySelector('.' + CLS.MODAL)) return;   // 模态框打开时 Esc 归模态框处理
+            e.stopPropagation();
+            stopSelection();
+        }
+
+        function stopSelection() {
+            if (!selectionActive) return;
+            selectionActive = false;
+            selectedKeys.clear();
+            document.body.classList.remove(CLS.ACTIVE, CLS.SCANNING);
+            document.removeEventListener('keydown', onSelectionKey, true);
+            stopObserver();
+            hideNotice();
+            removeCheckboxes();
+            if (controlsEl) { try { controlsEl.remove(); } catch (e) { /* 忽略 */ } controlsEl = null; }
+        }
+
+        // ---------- 模态框（两步：导出内容 → 内容模板） ----------
+        // 两步弹窗。本工具只有 Markdown 一种格式，故步 1 只列格式
+        // 不作为分叉条件（点格式即进入步 2），并把「记住我的选择」用于**预填**而非跳过模板步。
+        // 弹窗选项的唯一来源：用户上次勾了「记住我的选择」才生效；否则一律走硬编码默认值。
+        // 绝不回落读旧设置键 —— 那会让一个已从设置面板移除的开关继续隐形生效。
+        // 默认「导出思考过程 = 开」。
+        const DEFAULT_INCLUDE_REASONING = true;
+        const ALL_TEMPLATE_IDS = new Set(
+            [TEMPLATE_PLAIN.id].concat(TEMPLATES.map(t => t.id), QUESTION_TEMPLATES.map(t => t.id))
+        );
+        function currentPrefs() {
+            let saved = null;
+            try { saved = JSON.parse(GM_getValue(STORAGE_MD_EXPORT_PREFS, '') || 'null'); } catch (e) { saved = null; }
+            // 只有用户真的勾过「记住我的选择」才会有落库值；没有就用默认
+            const hasSaved = !!saved && typeof saved === 'object';
+            const s = hasSaved ? saved : {};
+            return {
+                includeReasoning: typeof s.includeReasoning === 'boolean' ? s.includeReasoning : DEFAULT_INCLUDE_REASONING,
+                templateId: ALL_TEMPLATE_IDS.has(s.templateId) ? s.templateId : TEMPLATE_PLAIN.id,
+                remember: s.remember === true,
+            };
+        }
+        function savePrefs(p) {
+            try { GM_setValue(STORAGE_MD_EXPORT_PREFS, JSON.stringify(p)); } catch (e) { /* 忽略 */ }
+        }
+        // 清除记忆 = 清掉「记住我的选择」+ 一并归零 v1 遗留键（否则老用户会一直被隐形开关影响）
+        function clearPrefs() {
+            try { GM_setValue(STORAGE_MD_EXPORT_PREFS, ''); } catch (e) { /* 忽略 */ }
+            LEGACY_MD_KEYS.forEach(k => { try { GM_setValue(k, false); } catch (e) { /* 忽略 */ } });
+        }
+        const templateNameOf = (id) => {
+            if (!id) return '';
+            if (id === TEMPLATE_PLAIN.id) return TEMPLATE_PLAIN.name;
+            const hit = TEMPLATES.concat(QUESTION_TEMPLATES).find(t => t.id === id);
+            return hit ? hit.name : '';
+        };
+
+        function openDialog() {
+            // 从缓存取记录（可能包含已滚出视野的消息）—— 这正是长对话能导全的原因
+            const recs = orderedKeys().filter(k => selectedKeys.has(k)).map(k => sourceCache.get(k)).filter(Boolean);
+            if (!recs.length) { showToast('请先选择要导出的消息'); return; }
+            closeDialog();
+
+            const hasUser = recs.some(r => r.role === 'user');
+            const hasAi = recs.some(r => r.role === 'assistant');
+            const nUser = recs.filter(r => r.role === 'user').length;
+            const nAi = recs.length - nUser;
+            const prefs = currentPrefs();
+            const tplList = templatesFor(hasUser, hasAi);
+            const previewTexts = extractPreview(recs);   // 模板卡缩微预览的素材（最多 2 组问答）
+
+            const modal = document.createElement('div');
+            modal.className = CLS.MODAL;
+            modal.innerHTML = `
+                <div class="${CLS.DIALOG}" role="dialog" aria-modal="true" aria-label="导出为 Markdown">
+                    <div class="ds-md-dlg-header">
+                        <h2 class="${CLS.TITLE}">选择导出内容</h2>
+                        <button type="button" class="ds-md-dlg-close" aria-label="关闭">✕</button>
+                    </div>
+                    <div class="ds-md-dlg-body">
+                        <div class="ds-md-step ${CLS.STEP_CONTENT}">
+                            <p class="${CLS.SUB}">即将导出 ${recs.length} 条消息（提问 ${nUser} 条 · 回答 ${nAi} 条）：</p>
+                            <div class="ds-md-field">
+                                <div class="ds-md-field-label">导出格式</div>
+                                <div class="ds-md-format-options">
+                                    <button type="button" class="${CLS.FMT_BTN} is-active" data-format="md">Markdown</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ds-md-step ${CLS.STEP_TEMPLATE}" style="display:none">
+                            <div class="ds-md-tpl-head">
+                                <button type="button" class="${CLS.BACK}">‹ 返回</button>
+                                <p class="${CLS.SUB} ds-md-tpl-sub">点击所需模板即可导出：</p>
+                            </div>
+                            <div class="ds-md-template-options"></div>
+                        </div>
+                    </div>
+                    <div class="ds-md-dlg-footer">
+                        <div class="ds-md-footer-left">
+                            <label class="ds-md-opt"><input type="checkbox" class="ds-md-switch ds-md-chk-reasoning"><span>导出思考过程</span><em class="ds-md-hint">需页面上展开过「已思考」</em></label>
+                            <label class="${CLS.REMEMBER}"><input type="checkbox" class="ds-md-chk-remember"><span>记住我的选择，后续不再询问</span></label>
+                        </div>
+                        <div class="${CLS.ACTIONS}">
+                            <button type="button" class="${CLS.CANCEL_DLG}">重新选择</button>
+                        </div>
+                    </div>
+                </div>`;
+
+            const q = (s) => modal.querySelector('.' + s);
+            const stepContent = q(CLS.STEP_CONTENT);
+            const stepTemplate = q(CLS.STEP_TEMPLATE);
+            const titleEl = q(CLS.TITLE);
+            const subEl = q(CLS.SUB);
+            const tplSub = modal.querySelector('.ds-md-tpl-sub');
+            const tplBox = modal.querySelector('.ds-md-template-options');
+            const rememberWrap = q(CLS.REMEMBER);
+            const rememberChk = modal.querySelector('.ds-md-chk-remember');
+            const actions = q(CLS.ACTIONS);
+            const reasoningChk = modal.querySelector('.ds-md-chk-reasoning');
+            const backBtn = q(CLS.BACK);
+
+            // 预填（来自上次「记住我的选择」）
+            reasoningChk.checked = prefs.includeReasoning;
+            rememberChk.checked = prefs.remember;
+
+            const readOpts = () => ({
+                includeReasoning: !!reasoningChk.checked,
+                templateId: null,
+            });
+
+            const persist = (templateId) => {
+                if (!rememberChk.checked) return;
+                const o = readOpts();
+                savePrefs({ includeReasoning: o.includeReasoning, templateId, remember: true });
+            };
+
+            const finish = (templateId) => {
+                const o = readOpts();
+                o.templateId = templateId;
+                persist(templateId);
+                // 必须先快照选中键：stopSelection() 会 clear() 掉 selectedKeys
+                const snapshot = new Set(selectedKeys);
+                closeDialog();
+                stopSelection();
+                runExport(o, snapshot);
+            };
+
+            const showContentStep = (animate) => {
+                stepContent.style.display = '';
+                stepTemplate.style.display = 'none';
+                titleEl.textContent = '选择导出内容';
+                subEl.textContent = `即将导出 ${recs.length} 条消息（提问 ${nUser} 条 · 回答 ${nAi} 条）：`;
+                actions.hidden = false;
+                rememberWrap.hidden = true;    // 与插件一致：步 1 还没选模板，无可记住的内容
+                modal.querySelector('.' + CLS.DIALOG).classList.remove('is-template-step');
+                // 仅「从模板步返回」时播滑入动画（首次打开不播）
+                if (animate) {
+                    stepContent.classList.add('step-slide-back');
+                    requestAnimationFrame(() => stepContent.classList.remove('step-slide-back'));
+                }
+            };
+            const showTemplateStep = () => {
+                stepContent.style.display = 'none';
+                stepTemplate.style.display = '';
+                titleEl.textContent = '选择内容模板';
+                if (tplSub) tplSub.textContent = '点击所需模板即可导出：';
+                actions.hidden = true;
+                rememberWrap.hidden = false;
+                modal.querySelector('.' + CLS.DIALOG).classList.add('is-template-step');
+                // 模板清单已按选中内容（是否只有提问）确定，与步 1 的选项无关
+                renderTemplates();
+                stepTemplate.classList.add('step-slide-in');
+                requestAnimationFrame(() => stepTemplate.classList.remove('step-slide-in'));
+            };
+
+            function renderTemplates() {
+                tplBox.innerHTML = '';
+                tplList.forEach(t => {
+                    const card = document.createElement('button');
+                    card.type = 'button';
+                    card.className = CLS.TPL_CARD;
+                    card.dataset.template = t.id;
+                    if (t.id === prefs.templateId) card.classList.add('is-remembered');
+                    // 结构对齐插件：上半 = 132px 缩微预览，下半 = 名称 + 描述
+                    const pv = document.createElement('div');
+                    pv.className = 'ds-md-pv';
+                    pv.innerHTML = previewHtml(t.id, previewTexts);
+                    const info = document.createElement('div');
+                    info.className = 'ds-md-tpl-info';
+                    const nm = document.createElement('span');
+                    nm.className = 'ds-md-tpl-name';
+                    nm.textContent = t.name;
+                    const ds = document.createElement('span');
+                    ds.className = 'ds-md-tpl-desc';
+                    ds.textContent = t.desc;
+                    info.appendChild(nm);
+                    info.appendChild(ds);
+                    card.appendChild(pv);
+                    card.appendChild(info);
+                    card.addEventListener('click', () => finish(t.id));
+                    tplBox.appendChild(card);
+                });
+            }
+
+            modal.querySelectorAll('.' + CLS.FMT_BTN).forEach(btn => {
+                btn.addEventListener('click', () => showTemplateStep());
+            });
+            backBtn.addEventListener('click', () => showContentStep(true));
+            q(CLS.CANCEL_DLG).addEventListener('click', () => { closeDialog(); });   // 回到选择态（不退出）
+            modal.querySelector('.ds-md-dlg-close').addEventListener('click', () => { closeDialog(); });
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeDialog(); });
+
+            const onKey = (e) => { if (e.key === 'Escape') closeDialog(); };
+            document.addEventListener('keydown', onKey);
+            dialogCleanup = () => document.removeEventListener('keydown', onKey);
+
+            var _dialogInner = modal.querySelector('.' + CLS.DIALOG);
+            showContentStep();
+            document.body.appendChild(modal);
+            dialogEl = modal;
+            return true;
+        }
+
+        function closeDialog() {
+            if (dialogCleanup) { try { dialogCleanup(); } catch (e) { /* 忽略 */ } dialogCleanup = null; }
+            if (dialogEl) { try { dialogEl.remove(); } catch (e) { /* 忽略 */ } dialogEl = null; }
+        }
+
+        async function exportSelected() {
+            if (!selectedKeys.size) { showToast('请先选择要导出的消息'); return false; }
+            // 导出前确保已扫全（长对话下窗口外的消息只有扫过才有内容）
+            await ensureScanned();
+            // 图表态代码块切回代码视图并刷新快照 —— 否则 pre 为空，导出会丢代码
+            try {
+                if (needsCodeViewSwitch(document)) {
+                    showNotice('正在切换代码视图…');
+                    await ensureCodeView(document);
+                    hideNotice();
+                    rememberMessages();
+                }
+            } catch (e) { hideNotice(); }
+            if (!selectedKeys.size) { showToast('请先选择要导出的消息'); return false; }
+            return openDialog();
+        }
+
+        function runExport(o, selSet) {
+            let r;
+            try {
+                r = buildMarkdown({
+                    includeReasoning: o.includeReasoning,
+                    templateId: o.templateId,
+                    selectedKeys: selSet instanceof Set ? selSet : new Set(selectedKeys),
+                });
+            } catch (e) {
+                console.error('[deepseektool] 导出 Markdown 失败：', e);
+                showToast('导出失败：' + (e && e.message ? e.message : '未知错误'));
+                return false;
+            }
+            if (!r.ok) { showToast(r.error); return false; }
+            download(r.md, buildFilename('md'));
+            // 把实际生效的选项写进提示 —— 「怎么少了内容」这类疑问必须一眼可见，而不是静默发生
+            let tip = `已导出 ${r.count} 条消息为 Markdown`;
+            const extras = [];
+            if (o.includeReasoning) extras.push('含思考过程');
+            const tplName = templateNameOf(o.templateId);
+            if (tplName) extras.push('模板：' + tplName);
+            if (extras.length) tip += `（${extras.join(' · ')}）`;
+            // 勾了「导出思考过程」但一条都没取到 → 明确告知原因，不要静默无声
+            if (o.includeReasoning && !r.reasoningFound) {
+                tip += '；未发现「已思考」内容，需先在页面上展开过才会被导出';
+            }
+            if (r.pending < 0) tip += '；对话较长，建议先点「全选」扫描后再导出';
+            showToast(tip, (o.includeReasoning && !r.reasoningFound) || r.pending < 0 ? 5200 : 4200);
+            return true;
+        }
+
+        // 菜单命令入口：直接进入勾选态
+        function beginExportFlow() {
+            if (!mdExportEnabled) { showToast('对话导出已关闭，请在「脚本设置 → 对话导出」中开启'); return false; }
+            return startSelection();
+        }
+
+        return {
+            beginExportFlow, startSelection, stopSelection, exportSelected, clearPrefs,
+            buildMarkdown, isSelecting: () => selectionActive,
+            SEL, ATTR,
+        };
+    })();
 
     // ==================== 统一 DOM 监听（合并多个 observer，添加节流） ====================
     let _domObserver = null;
