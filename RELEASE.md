@@ -14,6 +14,16 @@
 | 新增小功能 / 小开关 | **minor** | `4.11.1 → 4.12.0` |
 | 修 bug / 改文案 / 调样式 | **patch** | `4.11.1 → 4.11.2` |
 
+> ⚠️ **铁律：版本号提升必须与它要发布的那份代码改动在同一次推送里。**
+>
+> `release.yml` 的防重复守卫是「该版本号的 GitHub Release 是否已存在」（`gh release view v<version>`）。
+> 若**先推「版本号 + 文档」、再推实际代码改动**，Release 会在第一次推送时就按该版本号生成并锁定，
+> 之后同版本号的推送会被判 `changed=false` **静默跳过**（**工作流仍显示绿色成功**）——
+> 后续改动**永远进不了任何 Release**。
+>
+> 判据（推送前自问）：**「这次推的东西里，有改动 `deepseektool.user.js` 的内容吗？」**
+> 有 → `@version` 必须同步 +1，且与代码改动在**同一次提交**里。
+
 ---
 
 ## 一、版本号同步（**5 处，缺一不可**）
@@ -139,4 +149,6 @@ grep -l "<新功能关键词>" README.md CHANGELOG.md MAP.md scriptcat-descripti
 | 只改工作区忘了改历史 | 提交过的内容会留在 `.git` 里；需重写历史并清掉 `refs/original` 与 reflog 才真正消失 |
 | 以为「本地 `git log` 干净」= 远程也干净 | 已推送的提交需 `--force-with-lease` 覆盖；`refs/remotes/origin/*` 在 force-push + fetch 前仍指向旧状态 |
 | 提交信息里写了「为什么要改」的过程 | 提交信息只描述**改了什么**；涉及内部流程的信息放 gitignore 内的文档 |
+| **版本号先推、代码改动后推** | Release 会按先推的版本号抢先创建（tag 指向旧提交），后推的同版本号改动被守卫**静默跳过**（工作流仍绿）。2026-10-07 实际发生：`v5.1.0` 的 tag 指向 `ead1fa5`，而按钮换位提交 `46f4bff` 比 Release 晚 13 分钟 → 只能靠升 `v5.1.1` 补救。**版本号必须与代码改动同一次推送**（见 §〇） |
+| 查远程 tag / Release 用了 `git ls-remote` | 本机 https 走 schannel 会报 `CRYPT_E_NO_REVOCATION_CHECK` 而失败。改用 **`gh`**（自带 HTTP 栈）：`gh release list -R <owner>/<repo>`、`gh api repos/<owner>/<repo>/git/ref/tags/<tag>` |
 
