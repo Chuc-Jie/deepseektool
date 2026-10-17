@@ -19,6 +19,7 @@ check(/function getTableContentSignature/.test(src), '流式文本签名存在')
 check(/characterData:\s*true/.test(src), 'MutationObserver 监听 characterData');
 check(/node\.nodeType === Node\.TEXT_NODE[\s\S]{0,160}closest\('\.ds-markdown table'\)/.test(src), '表格内新增文本节点也触发重测');
 check(/m\.target[\s\S]{0,220}closest\('\.ds-markdown table'\)/.test(src), '表格内删除节点也触发重测');
+check(/for \(const row of table\.rows\)[\s\S]{0,240}if \(n > cols\) cols = n/.test(src), '列数按所有行最大列数归一化');
 check(/data-internal-buttons-added'\) === 'true'/.test(src), '表格按钮热更新判重');
 check(/function getTableCellFixed/.test(src), '动态单元格固定开销');
 check(/restoreButtonHostPosition/.test(src), '按钮宿主 position 恢复');
@@ -114,6 +115,13 @@ const n3 = measureColumnNaturals(t3, 3);
 check(n3 && n3[0] > 25 && n3[0] < 40, 'colspan 第一列按均摊（30px）', n3 && n3[0]);
 check(n3 && n3[1] > 25 && n3[1] < 40, 'colspan 第二列按均摊，而不是整体前移到第一列', n3 && n3[1]);
 check(n3 && n3[2] > 5 && n3[2] < 20, 'colspan 后的第三列仍对位', n3 && n3[2]);
+
+// 后续行比首行多出一格：列数归一化后，多出的列必须参与测量
+const t4 = document.createElement('table');
+t4.innerHTML = '<tbody><tr><td>a</td><td>b</td><td>c</td></tr>'
+    + '<tr><td>1</td><td>2</td><td>3</td><td>extra content</td></tr></tbody>';
+const n4 = measureColumnNaturals(t4, 4);
+check(n4 && n4[3] > 0, '超出首行的单元格参与列宽测量', n4 && n4[3]);
 
 // ---------- PNG 列宽换算 ----------
 console.log('\n【PNG 列宽换算】');

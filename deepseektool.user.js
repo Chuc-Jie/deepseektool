@@ -2610,12 +2610,18 @@
     function applyTableStyles(table) {
         // 流式构建中可能只出现了 <table> 还没有任何单元格：此时无从对齐列宽，直接跳过。
         // 指纹状态机会在单元格出现后（指纹变化）重新调度，不会永久漏处理。
-        const firstRow = table.rows[0];
-        if (!firstRow || !firstRow.cells.length) return;
+        if (!table.rows.length) return;
 
-        // 列数按首行展开 colspan；Markdown 表格通常等于 cells.length
+        // 列数按「所有行」的最大列数（含 colspan）计算，而不是只看首行。
+        // 有些异常表格的后续行会多出一个单元格；若按首行列数落盘，多出的单元格
+        // 在 table-layout:fixed 下会拿到 0 宽，内容被 overflow:hidden 裁掉（实测 35px）。
+        // 按最大列数归一化后，多出的列也参与列宽分配，内容不再被无声裁切。
         let cols = 0;
-        for (const cell of firstRow.cells) cols += (cell.colSpan || 1);
+        for (const row of table.rows) {
+            let n = 0;
+            for (const cell of row.cells) n += (cell.colSpan || 1);
+            if (n > cols) cols = n;
+        }
         if (!cols) return;
 
         const avail = getTableAvailableWidth(table);
