@@ -6099,7 +6099,12 @@
             if (guardSessionChange()) return false;
             if (!selectedKeys.size) { showToast('请先选择要导出的消息'); return false; }
             // 导出前确保已扫全（长对话下窗口外的消息只有扫过才有内容）
-            await ensureScanned();
+            const scanned = await ensureScanned();
+            if (!scanned) {
+                // 会话切换时 guardSessionChange 已给出提示并清空选择；只有普通扫描失败才补一条。
+                if (selectedKeys.size) showToast('扫描未完成，已取消导出');
+                return false;
+            }
             // 图表态代码块切回代码视图并刷新快照 —— 否则 pre 为空，导出会丢代码
             try {
                 if (needsCodeViewSwitch(document)) {
