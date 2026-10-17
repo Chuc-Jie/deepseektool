@@ -2229,8 +2229,12 @@
         }
 
         if (rest > 0 && fill) {
-            const total = natural.reduce((a, b) => a + b, 0) || 1;
-            for (let i = 0; i < cols; i++) widths[i] += rest * (natural[i] / total);
+            // 剩余空间**均分**，而不是按 natural 权重摊。
+            // 走到这里说明每列都已满足「单行放下」，富余只是观感；
+            // 按 nat 加权会把内容差异放大——长表头（nat=211、正文仅 42）那列会吃掉大部分富余，
+            // 实测 3 列表变成 [116, 603, 91]，中间一列空得离谱。均分后为 [218, 387, 204]。
+            const per = rest / cols;
+            for (let i = 0; i < cols; i++) widths[i] += per;
             rest = 0;
         }
         return { widths, overflow: false, squeezed: false, rest };
