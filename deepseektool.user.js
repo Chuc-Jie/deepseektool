@@ -899,7 +899,7 @@
     // 宽屏宽度按档位写进 --ds-wide-max-width（CSS 侧只做 var() 覆盖，见宽屏规则）。
     // 可用宽度变化时表格必须重算：① 开关切换；② 档位切换（宽屏开着时数值变了）。
     // 宽屏关着时改档位不改布局，不必重算 —— 故 prevPx 只在 on 时参与比较。
-    function applyWideScreen(on) {
+    function applyWideScreen(on, opts) {
         const html = document.documentElement;
         const level = WIDE_LEVELS[wideScreenLevel] || WIDE_LEVELS[WIDE_LEVEL_DEFAULT];
         const nextPx = level.px + 'px';
@@ -910,7 +910,8 @@
         html.style.setProperty('--ds-wide-max-width', nextPx);
         // 消息区最大宽度 840（官网默认）↔ 档位值，正文与表格的可用宽度随之变化；
         // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算。
-        if (changed) invalidateTableLayout();
+        // init() 后续本来就会 processAllTables()，用 skipInvalidate 跳过首轮重复重排。
+        if (changed && !(opts && opts.skipInvalidate)) invalidateTableLayout();
     }
 
     // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
@@ -6782,7 +6783,7 @@
     function init() {
         applyTableThemeClass(tableThemeMode);
         applyTableHeadAlign(tableHeadAlign);
-        applyWideScreen(wideScreen);
+        applyWideScreen(wideScreen, { skipInvalidate: true });   // 后续 processAllTables 会统一首轮重排
         setTableButtonsAlways(tableButtonsAlways);
         applyCodeBlockBg(codeBgEnhance, codeBgLevel);
         cleanupLegacyWrappers();
