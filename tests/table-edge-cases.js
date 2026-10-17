@@ -17,6 +17,7 @@ const check = (cond, msg, extra) => {
 console.log('\n【静态守卫】');
 check(/function getTableContentSignature/.test(src), '流式文本签名存在');
 check(/characterData:\s*true/.test(src), 'MutationObserver 监听 characterData');
+check(/node\.nodeType === Node\.TEXT_NODE[\s\S]{0,160}closest\('\.ds-markdown table'\)/.test(src), '表格内新增文本节点也触发重测');
 check(/data-internal-buttons-added'\) === 'true'/.test(src), '表格按钮热更新判重');
 check(/function getTableCellFixed/.test(src), '动态单元格固定开销');
 check(/restoreButtonHostPosition/.test(src), '按钮宿主 position 恢复');

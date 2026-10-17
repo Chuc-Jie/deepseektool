@@ -6757,6 +6757,13 @@
                 }
                 if (m.type !== 'childList' || !m.addedNodes.length) continue;
                 for (const node of m.addedNodes) {
+                    // 流式输出也可能「追加一个新的文本节点」而不是修改旧 nodeValue；
+                    // 文本节点没有 matches/closest 元素方法，必须单独处理。
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        const p = node.parentElement;
+                        if (p && p.closest('.ds-markdown table')) hasNewTables = true;
+                        continue;
+                    }
                     if (node.nodeType !== Node.ELEMENT_NODE) continue;
 
                     // 表格内新增任何元素（流式输出的文本包裹层）也要触发重测；
