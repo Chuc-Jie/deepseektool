@@ -2309,7 +2309,18 @@
                 } else if (child.nodeType === Node.ELEMENT_NODE) {
                     if (child.tagName === 'BR') { flush(); continue; }
                     const st = styleOf(child);
-                    const childW = measureNode(child) + st.padX + st.borderX;
+                    const tag = String(child.tagName || '').toUpperCase();
+                    // 替换元素没有可用文本，必须取自身尺寸；否则图片列会按 0 宽计算，
+                    // 被压到 TABLE_COL_MIN 之下。naturalWidth 对 srcset/高密度图已是 CSS px。
+                    let replacedW = 0;
+                    if (tag === 'IMG') replacedW = child.naturalWidth || child.width || 0;
+                    else if (tag === 'VIDEO') replacedW = child.videoWidth || child.offsetWidth || 0;
+                    else if (tag === 'CANVAS') replacedW = child.width || child.offsetWidth || 0;
+                    else if (tag === 'IFRAME') replacedW = child.offsetWidth || 0;
+                    else if (tag === 'SVG') replacedW = child.getBoundingClientRect().width || 0;
+                    const childW = replacedW > 0
+                        ? replacedW + st.padX + st.borderX
+                        : measureNode(child) + st.padX + st.borderX;
                     // 块级元素独占一行；inline / inline-block / inline-flex 继续并排累加。
                     const inline = st.display === 'inline' || st.display === 'inline-block'
                         || st.display === 'inline-flex' || st.display === 'contents';
