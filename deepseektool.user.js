@@ -2388,7 +2388,10 @@
             for (const cell of row.cells) {
                 const span = Math.max(1, cell.colSpan || 1);
                 if (col >= cols) break;
-                if (cell.textContent) {
+                // 图片 / 视频单元格没有文本，但必须参与测量；只看 textContent 会把整列当空。
+                const hasContent = !!cell.textContent
+                    || !!cell.querySelector('img,video,canvas,iframe,svg');
+                if (hasContent) {
                     const w = measureNode(cell) + 1.5;
                     if (span === 1) {
                         if (w > natural[col]) natural[col] = w;
