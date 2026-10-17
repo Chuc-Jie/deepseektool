@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.6.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.6.2）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -150,6 +150,8 @@ flowchart LR
 - **表头对齐 `applyTableHeadAlign`**：默认 `auto` 不写任何 `text-align`，保留 Markdown 的 `:--:` / `--:` 语义；仅当用户选「水平居中」时挂 `html.ds-table-head-center`，由 CSS `html.ds-table-head-center .ds-markdown th { text-align:center !important }` 接管（只作用于表头，不动单元格；弹窗预览与导出不受影响，PNG 导出在 `collectTableStyles` 里补同一规则保持一致）。
 - **空表格防护**：首行无单元格时直接返回（流式首帧常见），指纹变化后会自动重新处理。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
+- **宽度失效 `invalidateTableLayout`（v5.6.2）**：表宽与列宽都是**绝对 px 快照**，容器容量一变就会溢出；而指纹只含 `rows:cells`，**宽度变化不在指纹内**，已 `done` 的表格会被 `processAllTables` 直接 `return`。故可用宽度变化时必须显式失效：`_tableFingerprints.delete(t)` → `processAllTables()`（走「首次见到」分支立即重排）→ `syncTableButtonPositions()`。调用点两处：`applyWideScreen`（消息区 1000 ↔ 840，实测 `.ds-markdown` 912 ↔ 752，用 `changed` 判断避免初始化多跑一轮）、`resize`（窗口 / 浏览器缩放 / 侧栏收放）。
+  ⚠ **只调 `processAllTables()` 而不清指纹 = 什么都没做**：`resize` 回调曾长期这样空转（2026-10-17 审计定位）。DOM 观察器也救不了：它是 `observe(body, {childList:true})`，不监听 attributes，且宽屏 class 挂在 `<html>` 上。
 - **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 摘导出按钮/脚本标记 + 清 fixed/宽度/`min-width` 等内联样式）。
   **PNG 传 `{keepColGroup:true}` 保留列宽**，再用 `scaleCloneColumns(clone, srcW, targetW)` 把列宽从页面宽度等比换算到导出宽度（逐列取整、误差补到最后一列，保证 Σcol 精确等于目标宽；上限 `TABLE_EXPORT_MAX_WIDTH=1200`）——导出图的列宽分配与页面一致。CSV/MD 仍移除 `<colgroup>`（只读文本）：
   - 📸 PNG：隔离 iframe（srcdoc + `collectTableStyles` 收集页面样式与兜底配色）→ `html2canvas scale:3` → blob 下载；**纸底**由 `getExportCanvasBg()` 跟随页面深浅（沿祖先链取首个不透明背景色，兜底 深 `#1a1a22`/浅 `#ffffff`）；**文字色/链接/行内代码**由 `collectTableStyles(sourceTable)` 抄取页面表格内 `th`/`td`（color）、`a`（color + `text-decoration-line`）、`code`（color + `background-color`）的实际计算样式写进兜底规则（iframe 无 `.ds-markdown` 祖先、不继承页面 color，不显式取值会在深色纸底上落回黑字 / 默认 #0000EE 蓝链接 / 灰底 code）；**圆角**受开关 `tableExportRounded` 控制 —— `applyRoundedCorners` 用 `destination-in` 把四角裁成透明（半径按 `canvas宽/元素CSS宽` 换算并 clamp，且**须先 `setTransform(1,0,0,1,0,0)` 重置** html2canvas 残留的变换矩阵，否则蒙版错位、裁剪失效）；

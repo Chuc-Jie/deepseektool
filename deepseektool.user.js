@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.6.1
+// @version      5.6.2
 // @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
@@ -487,7 +487,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.6.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.6.2'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -825,7 +825,13 @@
     }
 
     function applyWideScreen(on) {
-        document.documentElement.classList.toggle('ds-wide-screen', on);
+        const html = document.documentElement;
+        const changed = html.classList.contains('ds-wide-screen') !== !!on;
+        html.classList.toggle('ds-wide-screen', on);
+        // 消息区最大宽度 1000 ↔ 840（实测），正文与表格的可用宽度随之增减 160px。
+        // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算 —— 否则关闭宽屏后表格溢进右侧留白。
+        // changed 判断避免初始化时多跑一轮（init 随后还会执行 processAllTables）。
+        if (changed) invalidateTableLayout();
     }
 
     // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
@@ -3091,6 +3097,17 @@
     function scheduleTableProcess() {
         clearTimeout(_tableDebounceTimer);
         _tableDebounceTimer = setTimeout(processAllTables, TABLE_DEBOUNCE_MS);
+    }
+
+    // 可用宽度变了（宽屏切换 / 窗口缩放 / 浏览器缩放 / 侧栏收放）→ 所有表格必须按新宽度重算。
+    // 列宽与表宽都是**绝对 px 快照**（table.style.width + <colgroup> 逐列 px），一旦容器容量变化，
+    // 旧快照就会溢出。而指纹只含「行数:单元格数」，宽度变化不在指纹里 —— processAllTables 会对
+    // 已完成的表格直接 return。故这里先清掉 done 标记，让它们走「首次见到」分支立即重排。
+    // ⚠ 若只调 processAllTables 而不清指纹，等于什么都没做（resize 回调曾因此长期空转）。
+    function invalidateTableLayout() {
+        document.querySelectorAll('.ds-markdown table').forEach(t => _tableFingerprints.delete(t));
+        processAllTables();
+        syncTableButtonPositions();
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
@@ -6546,12 +6563,11 @@
         }
         observeDOM();
 
-        // resize 节流处理表格
+        // resize 节流处理表格：窗口尺寸变化同样会改变可用宽度，必须让表格重新落宽
         window.addEventListener('resize', () => {
             clearTimeout(window._resizeFix);
             window._resizeFix = setTimeout(() => {
-                processAllTables();
-                syncTableButtonPositions();
+                invalidateTableLayout();
             }, 100);
         });
     }
