@@ -156,7 +156,10 @@ flowchart LR
   - 📄 CSV：UTF-8 BOM + 引号/逗号/换行转义；
   - 📝 MD：复制到剪贴板；保留 `code`/`**`/`*` 行内语法、`|` 转义、`<br>` 折为空格。
 - **显隐**：`.table-internal-buttons` 默认 hover 显示；`html.ds-export-always`（`setTableButtonsAlways`）强制常显。
-- **按钮跟随可视区 `syncTableButtonPositions`**：按钮是 `absolute; right:12`（贴表格右边缘），表格横向溢出后会被推到滚动容器之外。该函数在滚动（document capture）、重排、resize 后按 rAF 合帧，把按钮组平移 `translateX(scrollLeft − overflow)`，使其恒停在可视区右下角 12px 处；`overflow` 必须用 `scrollWidth − clientWidth`（用 `table.offsetWidth − clientWidth` 会因滚动壳的 padding 差出几百 px：实测 923 vs 1388）。
+- **按钮位置 `positionTableButtons`**：按钮组挂在**消息体 `.ds-markdown`** 上（不能放在 `<table>` 内——表格的 `overflow:hidden` 会把「表格之外」的部分裁掉）。`left = min(表格右边缘, 消息区宽度)`、`top = 表格底部 − 按钮组高度`：
+  「内容紧凑」时贴表格右边缘（仍在消息区内）、「铺满整行」时停在消息区边界（视觉上在消息区外）、表格横向溢出时也不越过边界（按钮始终可见）。
+  ⚠ 只设 `left/top`，**必须同时把 `right/bottom` 清成 auto**，否则 absolute 元素被双向拉伸（实测按钮组高度 112 → 629）。
+- **悬停域 `bindTableButtonHover`**：按钮在表格之外，`table:hover` 覆盖不到按钮区，鼠标穿过 12px 间隙时会丢失悬停 → 按钮消失。做法：把「表格 + 按钮组（其 `padding-left:12px` 即桥接区）」合并成一个悬停域，用 `is-visible` 类控制显隐，隐藏延迟 140ms 吸收指针短暂越界。
 
 ### 5.4 AI 思考过程自动折叠
 

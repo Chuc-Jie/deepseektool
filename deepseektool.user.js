@@ -746,17 +746,17 @@
 
     function toggleTableButtons(enabled) {
         document.querySelectorAll('.ds-markdown table').forEach(table => {
-            const btnContainer = table.querySelector('.table-internal-buttons');
+            const bc = _btnsOfTable.get(table);
             if (enabled) {
-                if (!btnContainer) {
+                if (!bc || !bc.isConnected) {
                     table.removeAttribute('data-internal-buttons-added');
                     addButtonsToTable(table);
                 }
-            } else {
-                if (btnContainer) {
-                    btnContainer.remove();
-                    table.removeAttribute('data-internal-buttons-added');
-                }
+            } else if (bc) {
+                bc.remove();
+                _btnsOfTable.delete(table);
+                _tableOfBtns.delete(bc);
+                table.removeAttribute('data-internal-buttons-added');
             }
         });
     }
@@ -1666,15 +1666,18 @@
             background-color: rgba(79,70,229,0.1) !important;
         }
 
-        /* 导出按钮 — 公共布局 */
+        /* 导出按钮 — 公共布局（left/top 由 JS 按表格几何设置，悬浮在表格右下角之外） */
         .table-internal-buttons {
-            position: absolute; bottom: 12px; right: 12px;
+            position: absolute;
             display: flex; flex-direction: column; gap: 8px; z-index: 10;
+            /* 左侧 12px 既是视觉间隙，也是**悬停桥接区**：
+               按钮在表格之外，鼠标穿过间隙时若没有这块 padding 就会丢失悬停、按钮消失 */
+            padding-left: 12px;
             opacity: 0; visibility: hidden; transition: opacity 0.2s, visibility 0.2s;
             pointer-events: none;
         }
-        .ds-markdown table:hover .table-internal-buttons,
-        .table-internal-buttons:hover { opacity: 1; visibility: visible; pointer-events: auto; }
+        /* 显隐由 JS 合并「表格悬停」与「按钮组悬停」两个域后加类，见 bindTableButtonHover */
+        .table-internal-buttons.is-visible { opacity: 1; visibility: visible; pointer-events: auto; }
         /* 恒显开关：开启后导出按钮始终可见，不再依赖悬停 */
         html.ds-export-always .table-internal-buttons { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }
         .internal-export-btn {
@@ -2789,8 +2792,22 @@
         return t;
     }
 
+    // 按钮组挂在**消息体**上而不是 <table> 内：
+    //   ① 表格有 overflow:hidden（圆角裁剪），放在表格内部的「外部」部分会被裁掉；
+    //   ② absolute 相对表格定位只能贴表格边界内侧，做不到「表格右下角之外」。
+    const _btnsOfTable = new WeakMap();   // table → 按钮容器
+    const _tableOfBtns = new WeakMap();   // 按钮容器 → table
+
     function addButtonsToTable(table) {
-        if (!tableButtonsEnabled || table.getAttribute('data-internal-buttons-added') === 'true') return;
+        if (!tableButtonsEnabled) return;
+        const existing = _btnsOfTable.get(table);
+        if (existing && existing.isConnected) return;   // 已挂且仍在文档中
+        if (existing) existing.remove();
+
+        const host = table.closest('.ds-markdown') || table.parentElement;
+        if (!host) return;
+        if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+
         table.setAttribute('data-internal-buttons-added', 'true');
         const bc = document.createElement('div');
         bc.className = 'table-internal-buttons';
@@ -2817,37 +2834,62 @@
         const mdBtn  = makeExportBtn('📝', 'language-markdown', '导出为 Markdown', () => exportTableAsMD(table));
 
         bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
-        table.appendChild(bc);
-        syncTableButtonPositions();
+        host.appendChild(bc);
+        _btnsOfTable.set(table, bc);
+        _tableOfBtns.set(bc, table);
+        bindTableButtonHover(table, bc);
+        positionTableButtons(table, bc);
     }
 
-    // 导出按钮跟随可视区：按钮是 absolute right:12（贴表格右边缘），
-    // 表格一旦横向溢出，按钮就被推到滚动容器之外，必须先滚到最右才看得见。
-    // 这里在滚动/重排后把按钮组反向平移，使其始终停在**可视区**右下角：
-    //   overflow = scrollWidth − clientWidth（真实可滚范围，不能用 table.offsetWidth 代替：
-    //              滚动壳带 padding 时两者会差出几百 px，实测 923 vs 1388）
-    //   tx = scrollLeft − overflow
-    // 不溢出时 tx = 0（保持原位置）。用 rAF 合帧，避免滚动时每帧多次重排。
+    // 悬停控制：按钮在表格之外，紧靠 `table:hover` 无法覆盖按钮区，
+    // 鼠标穿过 12px 间隙时会瞬间丢失悬停 → 按钮消失、点不到。
+    // 这里把「表格」与「按钮组（含其 padding 桥接区）」合并成一个悬停域，
+    // 并用 140ms 延迟隐藏吸收短暂的指针越界。
+    function bindTableButtonHover(table, bc) {
+        let hideTimer = null;
+        const show = () => { clearTimeout(hideTimer); bc.classList.add('is-visible'); };
+        const hide = () => {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => bc.classList.remove('is-visible'), 140);
+        };
+        table.addEventListener('mouseenter', show);
+        table.addEventListener('mouseleave', hide);
+        bc.addEventListener('mouseenter', show);
+        bc.addEventListener('mouseleave', hide);
+    }
+
+    // 位置：表格右下角之外。left 取 min(表格右边缘, 消息区宽度) ——
+    //   内容紧凑时贴表格右边缘；铺满时停在消息区边界（视觉上在消息区外）；
+    //   表格横向溢出时也不越过消息区，按钮始终可见。
+    function positionTableButtons(table, bc) {
+        const host = bc.parentElement;
+        if (!host || !table.isConnected) return;
+        // 只由 left/top 控制：若同时存在 right/bottom（旧样式或残留），absolute 元素会被拉伸，
+        // 实测 offsetHeight 从 112 变 629，按钮组位置全错。
+        bc.style.right = 'auto';
+        bc.style.bottom = 'auto';
+        const tr = table.getBoundingClientRect();
+        const mr = host.getBoundingClientRect();
+        const hostW = host.clientWidth || mr.width;
+        const left = Math.min(tr.right - mr.left, hostW);
+        const h = bc.offsetHeight || 112;   // 3×32 + 2×8，未完成布局时兜底
+        bc.style.left = Math.round(left) + 'px';
+        bc.style.top = Math.round(tr.bottom - mr.top - h) + 'px';
+    }
+
+    // 批量重排按钮位置（rAF 合帧）：表格宽/高变化、窗口 resize 后调用。
+    // 位置由 positionTableButtons 按几何计算，横向滚动时 left 已被 min 收敛到消息区边界，无需监听 scroll。
     let _btnSyncRaf = null;
     function syncTableButtonPositions() {
         if (_btnSyncRaf) return;
         _btnSyncRaf = requestAnimationFrame(() => {
             _btnSyncRaf = null;
             document.querySelectorAll('.table-internal-buttons').forEach(bc => {
-                const table = bc.parentElement;
-                if (!table) return;
-                const host = table.closest('.ds-scroll-area');
-                if (!host) return;
-                const overflow = host.scrollWidth - host.clientWidth;
-                if (overflow > 0) {
-                    bc.style.transform = 'translateX(' + (host.scrollLeft - overflow) + 'px)';
-                } else if (bc.style.transform) {
-                    bc.style.transform = '';
-                }
+                const table = _tableOfBtns.get(bc);
+                if (table && table.isConnected) positionTableButtons(table, bc);
             });
         });
     }
-    document.addEventListener('scroll', syncTableButtonPositions, true);
 
     // 表格指纹追踪：记录每个表格的稳定计数，连续 2 次指纹不变即视为稳定
     const _tableFingerprints = new WeakMap();  // table → { fp, count, firstSeen }
