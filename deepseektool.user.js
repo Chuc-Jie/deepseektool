@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.6.2
-// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
+// @version      5.7.0
+// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（三档宽度）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -37,6 +37,15 @@
     const STORAGE_TABLE_OVERFLOW = 'deepseek_table_overflow';       // 列过多时：scroll / squeeze
     const LEGACY_TABLE_WIDTH_MODE = 'deepseek_table_width_mode';    // 旧键：只做一次性迁移，之后不再读取
     const STORAGE_WIDE_SCREEN = 'deepseek_wide_screen';
+    const STORAGE_WIDE_LEVEL = 'deepseek_wide_screen_level';        // 宽屏档位：standard / wide / wider（默认 standard）
+    // 宽屏三档：以「官方默认 840px」为基线，standard 即历史上的 1000px（+160），
+    // 另两档把增量翻倍 / 三倍。数值是**绝对上限**，可用宽度不足时会被 100% 封顶（窄窗口下三档趋同）。
+    const WIDE_LEVELS = {
+        standard: { px: 1000, label: '标准（+160px）' },
+        wide:     { px: 1160, label: '较宽（+320px）' },
+        wider:    { px: 1320, label: '最宽（+480px）' },
+    };
+    const WIDE_LEVEL_DEFAULT = 'standard';
     const STORAGE_FOLDER_MANAGER = 'deepseek_folder_manager_enabled';   // 对话文件夹管理总开关（默认关）
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
@@ -75,6 +84,8 @@
     let tableFill = GM_getValue(STORAGE_TABLE_FILL, 'fill');            // 默认铺满整行
     let tableOverflow = GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll');  // 默认横向滚动
     let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
+    let wideScreenLevel = GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT);
+    if (!WIDE_LEVELS[wideScreenLevel]) wideScreenLevel = WIDE_LEVEL_DEFAULT;   // 脏值兜底
     let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
     let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
     let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
@@ -442,13 +453,23 @@
                     showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}（新产生的思考生效）`);
                 }),
             ] },
-            { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区扩展至全宽，减少左右留白', build: () => [
+            { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区加宽，三档宽度可选', build: () => [
                 createToggleSetting('启用宽屏布局', '消息区扩展至全宽，减少左右留白', wideScreen, checked => {
                     wideScreen = checked;
                     GM_setValue(STORAGE_WIDE_SCREEN, checked);
                     applyWideScreen(checked);
                     showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
                 }),
+                createSelectSetting('宽屏宽度', '官方默认 840px，三档分别在它之上 +160 / +320 / +480px；窗口较窄时受可用宽度限制，三档会趋同', [
+                    { value: 'standard', label: WIDE_LEVELS.standard.label },
+                    { value: 'wide', label: WIDE_LEVELS.wide.label },
+                    { value: 'wider', label: WIDE_LEVELS.wider.label },
+                ], wideScreenLevel, value => {
+                    wideScreenLevel = value;
+                    GM_setValue(STORAGE_WIDE_LEVEL, value);
+                    applyWideScreen(wideScreen);      // 宽屏开着时立即生效；关着时只记档位
+                    showToast(`宽屏宽度：${WIDE_LEVELS[value].label}`);
+                }, () => !wideScreen),
             ] },
             { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送与快捷键', build: () => [
                 createToggleSetting('Ctrl+Enter 发送', '改为 Ctrl+Enter 发送、Enter 换行；关闭时恢复官方（Enter 发送 / Shift+Enter 换行）', ctrlEnterEnabled, checked => {
@@ -487,7 +508,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.6.2'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.0'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -557,6 +578,7 @@
                 tableFill = 'fill'; GM_setValue(STORAGE_TABLE_FILL, 'fill');
                 tableOverflow = 'scroll'; GM_setValue(STORAGE_TABLE_OVERFLOW, 'scroll');
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
+                wideScreenLevel = WIDE_LEVEL_DEFAULT; GM_setValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT);
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
                 tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
                 pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
@@ -824,13 +846,20 @@
         document.documentElement.classList.toggle('ds-table-head-center', mode === 'center');
     }
 
+    // 宽屏宽度按档位写进 --ds-wide-max-width（CSS 侧只做 var() 覆盖，见宽屏规则）。
+    // 可用宽度变化时表格必须重算：① 开关切换；② 档位切换（宽屏开着时数值变了）。
+    // 宽屏关着时改档位不改布局，不必重算 —— 故 prevPx 只在 on 时参与比较。
     function applyWideScreen(on) {
         const html = document.documentElement;
-        const changed = html.classList.contains('ds-wide-screen') !== !!on;
-        html.classList.toggle('ds-wide-screen', on);
-        // 消息区最大宽度 1000 ↔ 840（实测），正文与表格的可用宽度随之增减 160px。
-        // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算 —— 否则关闭宽屏后表格溢进右侧留白。
-        // changed 判断避免初始化时多跑一轮（init 随后还会执行 processAllTables）。
+        const level = WIDE_LEVELS[wideScreenLevel] || WIDE_LEVELS[WIDE_LEVEL_DEFAULT];
+        const nextPx = level.px + 'px';
+        const prevPx = html.style.getPropertyValue('--ds-wide-max-width').trim();
+        const wasOn = html.classList.contains('ds-wide-screen');
+        const changed = wasOn !== !!on || (!!on && prevPx !== nextPx);
+        html.classList.toggle('ds-wide-screen', !!on);
+        html.style.setProperty('--ds-wide-max-width', nextPx);
+        // 消息区最大宽度 840（官网默认）↔ 档位值，正文与表格的可用宽度随之变化；
+        // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算。
         if (changed) invalidateTableLayout();
     }
 
@@ -1628,9 +1657,11 @@
             .ds-setting-ctrl input[type="number"] { width: 100%; }
         }
 
-        /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分 */
+        /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分。
+           数值不写死：JS 按档位写 --ds-wide-max-width（standard 1000 / wide 1160 / wider 1320），
+           这里只负责把官网的 --message-list-max-width 覆盖成它 —— 档位切换无需刷新页面。 */
         html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
-            --message-list-max-width: 1000px !important;
+            --message-list-max-width: var(--ds-wide-max-width, 1000px) !important;
         }
 
         /* 表格样式 — 公共布局（不涉及颜色，所有模式共用） */

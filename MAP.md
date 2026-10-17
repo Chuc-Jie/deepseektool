@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.6.2）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.7.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -31,7 +31,8 @@
 | `deepseek_table_fill` | `tableFill` | 'fill' | 表格宽度：fill（铺满）/ compact（内容紧凑） |
 | `deepseek_table_overflow` | `tableOverflow` | 'scroll' | 列过多时：scroll（横向滚动）/ squeeze（压缩进容器） |
 | ~~`deepseek_table_width_mode`~~ | — | — | **旧键，仅一次性迁移**：equal→均分，auto/equal-minwidth/未设置→智能 |
-| `deepseek_wide_screen` | `wideScreen` | false | 宽屏模式（`--message-list-max-width:1000px`） |
+| `deepseek_wide_screen` | `wideScreen` | false | 宽屏模式总开关（`html.ds-wide-screen`） |
+| `deepseek_wide_screen_level` | `wideScreenLevel` | 'standard' | 宽屏宽度档位：standard 1000px / wide 1160px / wider 1320px（官方默认 840px，即 +160/+320/+480） |
 | `deepseek_ctrl_enter` | `ctrlEnterEnabled` | false | Ctrl+Enter 发送快捷键 |
 | `deepseek_folder_manager_enabled` | `folderManagerEnabled` | false | 对话文件夹总开关（opt-in） |
 | `deepseek_folder_manager_data_v2` | `data`（folderUnit 内） | `{folders:[],links:{},expanded:{},collapsed:false}` | 文件夹/归属/树展开态/面板折叠态（独立键） |
@@ -368,6 +369,24 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 `ctrl-bg↔surface` / `content-bg↔surface-2` 属语义不同（弹窗=遮罩上的半透明玻璃层，面板=实色分层容器），
 深色必然不等，审计只打印对照不断言。
 
+### 5.10 宽屏宽度档位（`applyWideScreen` + `WIDE_LEVELS`，v5.7.0）
+
+- **机制**：官网用 `--message-list-max-width` 控制消息列表最大宽度（实测默认 **840px**），
+  `.ds-virtual-list-items` 靠 `padding-left/right: calc((100% - var(--message-list-max-width)) / 2)` 居中留白。
+  脚本只在 `html.ds-wide-screen` 下把该变量覆盖成 `var(--ds-wide-max-width, 1000px)`，
+  具体数值由 `applyWideScreen` 按档位写进 `html` 的内联 `--ds-wide-max-width`。
+  **不写死像素**，档位切换无需刷新页面。
+- **三档**（`WIDE_LEVELS`）：`standard` 1000（+160）/ `wide` 1160（+320）/ `wider` 1320（+480）。
+  默认 `standard` = 历史行为，升级后老用户看到的宽度不变。
+- **生效边界（重要）**：数值是**绝对上限**而非相对增量，
+  净增 = `min(可用宽, 档位值) − min(可用宽, 840)`。
+  可用宽 ≤ 840 时默认态已无留白可收，三档趋同 —— 实测 1102 视口（可用 753）时宽屏净增仅 1px，
+  1252 视口（可用 991）时 +151。窄窗口下「宽屏无效」是设计使然，不是缺陷。
+- **重算联动**：档位切换同样改变可用宽度，故 `applyWideScreen` 在「class 状态变化」或
+  「宽屏开启且数值变化」时调用 `invalidateTableLayout()`；宽屏关着时改档位不改布局，不触发重算。
+- **面板依赖**：「宽屏宽度」下拉依赖「启用宽屏布局」，关开关即置灰（`refreshPanelDeps` 即时重算）；
+  「恢复默认设置」把档位写回 `standard`。
+
 ## 6. 典型运行序列
 
 ```mermaid
@@ -381,7 +400,7 @@ sequenceDiagram
     Note over P,G: 页面加载
     P->>M: document-end / DOMContentLoaded → init()
     M->>G: 读取全部设置键（GM_getValue）
-    M->>P: 套用 html 主题/宽屏/恒显类 + 全量扫描既有 pre/table/思考
+    M->>P: 套用 html 主题/宽屏 class + --ds-wide-max-width 档位/恒显类 + 全量扫描既有 pre/table/思考
     alt 文件夹已开启
         M->>F: on() + schedule()
         F->>P: 注入面板 / 标签 / ⋯ 菜单 / 归档隐藏
