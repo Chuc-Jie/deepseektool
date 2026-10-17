@@ -3083,6 +3083,12 @@
         return rows + ':' + cells;
     }
 
+    // 结构指纹只能发现「新增行/单元格」，发现不了流式输出中最常见的「单元格文本变长」。
+    // 文本长度签名专门用于已 done 的表格：文本变化时重测列宽，但不重置结构稳定计数。
+    function getTableContentSignature(table) {
+        return String(table.textContent || '').length;
+    }
+
     function processAllTables() {
         let anyUnstable = false;
         const now = Date.now();
@@ -3096,20 +3102,34 @@
 
                 if (!state) {
                     // 首次见到：立即应用并标记完成
-                    _tableFingerprints.set(table, { fp, count: STABLE_COUNT_NEEDED, firstSeen: now, done: true });
+                    _tableFingerprints.set(table, {
+                        fp,
+                        sig: getTableContentSignature(table),
+                        count: STABLE_COUNT_NEEDED,
+                        firstSeen: now,
+                        done: true,
+                    });
                     applyTableStyles(table);
                     addButtonsToTable(table);
                     return;
                 }
 
                 if (state.done) {
-                    // 已稳定应用过，指纹未变则跳过
-                    if (fp === state.fp) return;
-                    // 指纹变了（流式输出新增行/列），重置重新等待
-                    state.fp = fp;
-                    state.count = 0;
-                    state.done = false;
-                    anyUnstable = true;
+                    if (fp !== state.fp) {
+                        // 结构变了（流式输出新增行/列），重置重新等待
+                        state.fp = fp;
+                        state.count = 0;
+                        state.done = false;
+                        anyUnstable = true;
+                        return;
+                    }
+                    // 结构未变但文本变长（AI 流式填充单元格）：立即重测列宽。
+                    // 只更新签名、保持 done，避免每次文本增长都重新走「稳定等待」。
+                    const sig = getTableContentSignature(table);
+                    if (sig !== state.sig) {
+                        state.sig = sig;
+                        applyTableStyles(table);
+                    }
                     return;
                 }
 
@@ -3128,6 +3148,7 @@
                     // 达到稳定阈值或超时兜底：应用样式并标记完成
                     state.count = STABLE_COUNT_NEEDED;
                     state.done = true;
+                    state.sig = getTableContentSignature(table);
                     if (timedOut) state.firstSeen = now;   // 重置计时，防止永久超时
                     applyTableStyles(table);
                     addButtonsToTable(table);
@@ -6543,9 +6564,20 @@
             let folderNeedsRescan = false;   // 对话文件夹：出现新的会话链接/三点菜单时刷新
 
             for (const m of mutations) {
+                // 流式输出时单元格文本可能只触发 characterData，不产生 childList。
+                // 只关心表格内的文本变化，避免代码高亮等高频更新引起无谓重排。
+                if (m.type === 'characterData') {
+                    const p = m.target.parentElement;
+                    if (p && p.closest('.ds-markdown table')) hasNewTables = true;
+                    continue;
+                }
                 if (m.type !== 'childList' || !m.addedNodes.length) continue;
                 for (const node of m.addedNodes) {
                     if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+                    // 表格内新增任何元素（流式输出的文本包裹层）也要触发重测；
+                    // 仅靠下面「table/tr/td」匹配会漏掉 <span> 之类的包裹节点。
+                    if (!hasNewTables && node.closest && node.closest('.ds-markdown table')) hasNewTables = true;
 
                     // 代码块检测
                     if (!hasNewCodeBlocks) {
@@ -6588,7 +6620,7 @@
             if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
             if (folderNeedsRescan) folderUnit.schedule();
         });
-        _domObserver.observe(document.body, { childList: true, subtree: true });
+        _domObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 
     // ==================== 初始化 ====================
