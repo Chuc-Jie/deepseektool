@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.1.1
-// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格优化及 PNG/CSV/Markdown 导出、对话导出为 Markdown（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
+// @version      5.2.0
+// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格优化及 PNG/CSV/Markdown 导出、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -41,7 +41,7 @@
     const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
     const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
     const STORAGE_TABLE_EXPORT_ROUNDED = 'deepseek_table_export_rounded'; // PNG 导出表格四角圆角（默认开）
-    const STORAGE_MD_EXPORT_ENABLED = 'deepseek_md_export_enabled';       // 对话导出为 Markdown 总开关（默认开）
+    const STORAGE_MD_EXPORT_ENABLED = 'deepseek_md_export_enabled';       // 对话导出总开关（Markdown / JSON，默认开）
     const STORAGE_CODE_EXPORT_ENABLED = 'deepseek_code_export_enabled';   // 代码块「导出为图片」按钮总开关（默认开）
     const STORAGE_CODE_IMAGE_PREFS = 'deepseek_code_image_prefs';         // 代码块导图样式偏好（JSON，记住上次选择）
     // 说明：v4.12 起「含思考过程 / 仅导出 AI 回答」不再作为设置项，改为在导出弹窗里每次询问。
@@ -67,7 +67,7 @@
     let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
     let codeBgLevel = GM_getValue(STORAGE_CODE_BG_LEVEL, 'light');          // 加深强度（默认轻档）
     let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
-    let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出 Markdown（默认开）
+    let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出（Markdown / JSON，默认开）
     let mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true); // 文件名附加日期（默认开）
     let codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);    // 代码块导图按钮（默认开）
     let codeImagePrefs = GM_getValue(STORAGE_CODE_IMAGE_PREFS, null);          // 导图样式偏好（对象或 JSON 字符串）
@@ -345,7 +345,7 @@
                     showToast(`导出图片圆角已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
-            { key: 'mdexport', icon: 'language-markdown', title: '对话导出', sub: '勾选内容 → 选导出内容 → 选模板 → 导出 .md', build: () => [
+            { key: 'mdexport', icon: 'language-markdown', title: '对话导出', sub: '勾选内容 → 选格式（Markdown / JSON）→ 导出 .md / .json', build: () => [
                 createToggleSetting('启用对话导出', '开启后会提供「选择内容并导出」入口，以及浏览器工具栏菜单命令；关闭则整体不可用', mdExportEnabled, checked => {
                     mdExportEnabled = checked;
                     GM_setValue(STORAGE_MD_EXPORT_ENABLED, checked);
@@ -357,7 +357,7 @@
                     GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, checked);
                     showToast(checked ? '文件名将附加日期' : '文件名不带日期');
                 }, !mdExportEnabled),
-                createSettingRow('选择内容并导出', '进入勾选模式：手动勾选想导出的消息，点「导出选中 (n)」后在弹窗里选择导出内容与内容模板', (() => {
+                createSettingRow('选择内容并导出', '进入勾选模式：手动勾选想导出的消息，点「导出选中 (n)」后在弹窗里选择导出格式（Markdown / JSON），Markdown 再选内容模板', (() => {
                     const b = document.createElement('button');
                     b.type = 'button';
                     b.className = 'ds-md-export-run';
@@ -440,7 +440,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.1.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.2.0'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -1285,8 +1285,8 @@
         .ds-md-field { margin-bottom: 18px; }
         .ds-md-field-label { font-size: 12px; font-weight: 600; color: var(--ds-md-sub); margin-bottom: 8px; letter-spacing: .02em; }
 
-        /* 格式按钮：3 列大卡（48px 图标 + 28px 内边距 + hover 上浮） */
-        .ds-md-format-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        /* 格式按钮：与格式数等宽的大卡（48px 图标 + 28px 内边距 + hover 上浮） */
+        .ds-md-format-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
         .ds-md-fmt-btn {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             padding: 28px 20px; cursor: pointer; font: inherit;
@@ -1302,6 +1302,12 @@
             background-repeat: no-repeat; background-position: center; background-size: 30px 30px;
         }
         .ds-md-fmt-btn > span { font-size: 14px; font-weight: 600; color: var(--ds-md-text); transition: color 180ms cubic-bezier(.2, 0, 0, 1); }
+        /* JSON 图标：花括号描边（同尺寸同圆角，只换底色与字形，视觉权重与 Markdown 对齐） */
+        .ds-md-fmt-btn[data-format="json"]::before {
+            background-color: #2b3947;   /* JSON 冷灰底色 */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4C7.5 4 7 5.5 7 8v1.5c0 1.4-.9 2.5-2.5 2.5 1.6 0 2.5 1.1 2.5 2.5V16c0 2.5.5 4 3 4'/%3E%3Cpath d='M14 4c2.5 0 3 1.5 3 4v1.5c0 1.4.9 2.5 2.5 2.5-1.6 0-2.5 1.1-2.5 2.5V16c0 2.5-.5 4-3 4'/%3E%3C/svg%3E");
+            background-size: 26px 26px;
+        }
         .ds-md-fmt-btn:hover, .ds-md-fmt-btn.is-active {
             border-color: var(--ds-md-accent);
             background: color-mix(in srgb, var(--ds-md-accent-soft) 60%, var(--ds-md-surface-2) 40%);
@@ -1469,13 +1475,13 @@
         .ds-md-dlg-cancel:active { transform: translateY(0); }
         .ds-md-dlg-cancel:focus, .ds-md-dlg-cancel:focus-visible { outline: 0; }
 
-        /* 窄屏（≤640px）：页脚纵向、格式与大卡单列 */
+        /* 窄屏（≤640px）：页脚纵向、模板大卡单列（两列格式卡在 340px 宽度内仍可并排） */
         @media (max-width: 640px) {
             .ds-md-dlg-header { padding: 16px 18px; }
             .ds-md-dlg-body { padding: 10px 18px 22px; }
             .ds-md-dlg-footer { padding: 6px 18px 18px; flex-direction: column; align-items: stretch; }
             .ds-md-dlg-actions { display: flex; justify-content: center; }
-            .ds-md-format-options { grid-template-columns: repeat(2, 1fr); }
+            .ds-md-fmt-btn { padding: 20px 14px; }
             .ds-md-template-options { grid-template-columns: 1fr; }
         }
 
@@ -3427,11 +3433,12 @@
         if (ov) { ov.remove(); setTimeout(() => openControlPanel(), 300); }
     };
 
-    // ==================== 对话导出为 Markdown ====================
-    // 对话 → Markdown 的完整导出链路。
+    // ==================== 对话导出（Markdown / JSON） ====================
+    // 对话 → Markdown / JSON 的完整导出链路。
     //
     // 链路：提取（页面 DOM → 语义 DOM）→ 规范化（公式/代码/列表/表格/噪音）
     //       → 规则驱动转换（13 条规则，深度优先）→ 模板装饰 → 收尾归一 → Blob 下载
+    // JSON 走同一条提取与转换管线，只是把结果装进「一条消息一条记录」的结构，不再套模板。
     //
     // 若干刻意的设计取舍：
     //   1. 自有属性统一带 data-ds-md-* 前缀，不与页面既有属性冲突；
@@ -4389,8 +4396,8 @@
             const room = FILENAME_MAX - stamp.length - 1;
             return sanitizeFilename(base, room > 0 ? room : FILENAME_MAX) + '-' + stamp + '.' + ext;
         }
-        function download(md, filename) {
-            const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });   // 注意：Markdown 不写 BOM
+        function download(text, filename, mime) {
+            const blob = new Blob([text], { type: mime || 'text/markdown;charset=utf-8' });   // 不写 BOM：Markdown / JSON 都按 UTF-8 原文
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -4448,6 +4455,63 @@
             const head = '# ' + resolveTitle() + '\n\n';
             const body = parts.join('\n\n---\n\n');
             return { ok: true, md: head + body + '\n', count: parts.length, aiCount, pending, hasUser, hasAi, reasoningFound };
+        }
+
+        // ---------- JSON 导出 ----------
+        // 每条消息一条记录，content 为 Markdown 文本（保留代码块 / 表格 / 公式），
+        // reasoning 单独成字段 —— 消费方不必再靠分隔符或前缀去拆内容。
+        const JSON_SCHEMA = 'deepseektool.export.v1';
+        function reasoningMarkdown(src) {
+            if (!src || !src.reasoningHTML) return '';
+            const box = document.createElement('div');
+            box.innerHTML = src.reasoningHTML;
+            normalizeContent(document, box, {});
+            return toMarkdown(box) || '';
+        }
+        function buildJson(opts) {
+            const o = opts && typeof opts === 'object' ? opts : {};
+            const includeReasoning = o.includeReasoning === true;
+            const sel = o.selectedKeys instanceof Set ? o.selectedKeys : null;
+
+            const { keys, pending } = collectRecords();
+            if (!keys.length) return { ok: false, error: '未找到对话消息，请确认已打开一个对话。' };
+            const list = sel ? keys.filter(k => sel.has(k)) : keys;
+            if (!list.length) return { ok: false, error: '没有选中的消息。' };
+
+            const messages = [];
+            let reasoningFound = 0;
+            list.forEach(k => {
+                const rec = sourceCache.get(k);
+                if (!rec) return;
+                const wrap = wrapFromSource(rec.role, rec.src, { includeReasoning: false });
+                if (!wrap) return;
+                const content = toMarkdown(wrap);
+                if (!content) return;
+                const item = { index: messages.length, role: rec.role, content };
+                if (rec.role === 'assistant' && includeReasoning) {
+                    const reasoning = reasoningMarkdown(rec.src);
+                    if (reasoning) { item.reasoning = reasoning; reasoningFound++; }
+                }
+                messages.push(item);
+            });
+            if (!messages.length) return { ok: false, error: '对话内容为空。' };
+
+            const payload = {
+                schema: JSON_SCHEMA,
+                contentFormat: 'markdown',   // content / reasoning 都是 Markdown 文本，消费方按此解析
+                title: resolveTitle(),
+                url: String(location.href || ''),
+                exportedAt: new Date().toISOString(),
+                messageCount: messages.length,
+                messages,
+            };
+            return {
+                ok: true,
+                text: JSON.stringify(payload, null, 2) + '\n',
+                count: messages.length,
+                pending,
+                reasoningFound,
+            };
         }
 
         // ---------- 稳定键 / 来源快照 / 全对话扫描 ----------
@@ -5076,7 +5140,7 @@
             const modal = document.createElement('div');
             modal.className = CLS.MODAL;
             modal.innerHTML = `
-                <div class="${CLS.DIALOG}" role="dialog" aria-modal="true" aria-label="导出为 Markdown">
+                <div class="${CLS.DIALOG}" role="dialog" aria-modal="true" aria-label="导出对话内容">
                     <div class="ds-md-dlg-header">
                         <h2 class="${CLS.TITLE}">选择导出内容</h2>
                         <button type="button" class="ds-md-dlg-close" aria-label="关闭">✕</button>
@@ -5087,7 +5151,8 @@
                             <div class="ds-md-field">
                                 <div class="ds-md-field-label">导出格式</div>
                                 <div class="ds-md-format-options">
-                                    <button type="button" class="${CLS.FMT_BTN} is-active" data-format="md">Markdown</button>
+                                    <button type="button" class="${CLS.FMT_BTN} is-active" data-format="md"><span>Markdown</span></button>
+                                    <button type="button" class="${CLS.FMT_BTN}" data-format="json"><span>JSON</span></button>
                                 </div>
                             </div>
                         </div>
@@ -5146,8 +5211,21 @@
             const finish = (templateId) => {
                 const o = readOpts();
                 o.templateId = templateId;
+                o.format = 'md';
                 persist(templateId);
                 // 必须先快照选中键：stopSelection() 会 clear() 掉 selectedKeys
+                const snapshot = new Set(selectedKeys);
+                closeDialog();
+                stopSelection();
+                runExport(o, snapshot);
+            };
+
+            // JSON 是结构化数据，没有「内容模板」这一层 → 点格式即导出，不进步 2。
+            // 因此这里**不写偏好**：remember 开关在步 1 是隐藏的，落库等于让看不见的控件改写记忆。
+            const finishJson = () => {
+                const o = readOpts();
+                o.templateId = null;
+                o.format = 'json';
                 const snapshot = new Set(selectedKeys);
                 closeDialog();
                 stopSelection();
@@ -5211,8 +5289,12 @@
                 });
             }
 
+            // 格式卡：Markdown 进步 2 选内容模板；JSON 就地导出
             modal.querySelectorAll('.' + CLS.FMT_BTN).forEach(btn => {
-                btn.addEventListener('click', () => showTemplateStep());
+                btn.addEventListener('click', () => {
+                    if (btn.dataset.format === 'json') { finishJson(); return; }
+                    showTemplateStep();
+                });
             });
             backBtn.addEventListener('click', () => showContentStep(true));
             q(CLS.CANCEL_DLG).addEventListener('click', () => { closeDialog(); });   // 回到选择态（不退出）
@@ -5253,19 +5335,32 @@
         }
 
         function runExport(o, selSet) {
+            const isJson = !!o && o.format === 'json';
+            const picked = selSet instanceof Set ? selSet : new Set(selectedKeys);
             let r;
             try {
-                r = buildMarkdown({
-                    includeReasoning: o.includeReasoning,
-                    templateId: o.templateId,
-                    selectedKeys: selSet instanceof Set ? selSet : new Set(selectedKeys),
-                });
+                r = isJson
+                    ? buildJson({ includeReasoning: o.includeReasoning, selectedKeys: picked })
+                    : buildMarkdown({ includeReasoning: o.includeReasoning, templateId: o.templateId, selectedKeys: picked });
             } catch (e) {
-                console.error('[deepseektool] 导出 Markdown 失败：', e);
+                console.error('[deepseektool] 导出失败：', e);
                 showToast('导出失败：' + (e && e.message ? e.message : '未知错误'));
                 return false;
             }
             if (!r.ok) { showToast(r.error); return false; }
+            if (isJson) {
+                download(r.text, buildFilename('json'), 'application/json;charset=utf-8');
+                // 把实际生效的选项写进提示 —— 「怎么少了内容」这类疑问必须一眼可见，而不是静默发生
+                let jtip = `已导出 ${r.count} 条消息为 JSON`;
+                if (o.includeReasoning) {
+                    jtip += r.reasoningFound
+                        ? '（含思考过程，见 reasoning 字段）'
+                        : '；未发现「已思考」内容，需先在页面上展开过才会被导出';
+                }
+                if (r.pending < 0) jtip += '；对话较长，建议先点「全选」扫描后再导出';
+                showToast(jtip, (o.includeReasoning && !r.reasoningFound) || r.pending < 0 ? 5200 : 4200);
+                return true;
+            }
             download(r.md, buildFilename('md'));
             // 把实际生效的选项写进提示 —— 「怎么少了内容」这类疑问必须一眼可见，而不是静默发生
             let tip = `已导出 ${r.count} 条消息为 Markdown`;
@@ -5291,7 +5386,7 @@
 
         return {
             beginExportFlow, startSelection, stopSelection, exportSelected, clearPrefs,
-            buildMarkdown, isSelecting: () => selectionActive,
+            buildMarkdown, buildJson, isSelecting: () => selectionActive,
             SEL, ATTR,
         };
     })();

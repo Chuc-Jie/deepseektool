@@ -1,5 +1,34 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v5.2.0 (2026-10-17)
+
+### 新增 · 对话导出为 JSON
+
+- 弹窗第 1 步由单张 Markdown 卡改为**两张格式卡**（`data-format="md" / "json"`）：Markdown 仍进第 2 步选
+  9 套内容模板；**JSON 没有模板层，点格式卡即导出**，不进步 2。
+- 输出结构 `{ schema: "deepseektool.export.v1", contentFormat: "markdown", title, url, exportedAt,
+  messageCount, messages }`；`messages` 逐条为 `{ index, role, content, reasoning? }`。
+- `content` / `reasoning` 都是 Markdown 文本，复用同一条「提取 → 六步规范化 → 13 条规则转换」管线；
+  思考过程**独立成字段**（`reasoningMarkdown()` 不包 `blockquote`，故不带 `>` 前缀），不再混在正文里。
+- 序列化 `JSON.stringify(payload, null, 2) + '\n'`；UTF-8 无 BOM；MIME `application/json;charset=utf-8`；
+  文件名 `标题-YYYY-MM-DD-HH-mm.json`，与 Markdown 共用「时间戳先占位、标题让出空间」的截断规则。
+- **JSON 路径不写偏好**：步 1 的「记住我的选择」是隐藏的（无可记忆项），此时落库等于让看不见的控件改写记忆。
+- 视觉：格式网格 3 列 → 2 列；JSON 卡为花括号描边图标（`#2b3947` 底 + 26px）；窄屏只压内边距，两卡保持并排。
+  格式卡文字补 `<span>`——CSS 里 `.ds-md-fmt-btn > span`（hover / active 转 accent 色）早已写好，
+  但标记里从来没有 span，该规则此前是死代码。
+
+### 修正 · 导出选择链路（v5.1.1 之后累积，本次一并发布）
+
+- **勾选态提示判据**：由「已选条数」改为「页面是否有内容」，消除「当前页无对话内容」红字与眼前消息并存的矛盾；
+  「全选 / 取消全选」文案改按「已全选且扫描完成」判定。
+- **文件名时间戳**：先给 `-YYYY-MM-DD-HH-mm` 占位再截断标题，长标题不再把时间戳挤掉（「避免同日覆盖」恢复生效）。
+- **切换对话守卫**：记录 `location` 中的会话 id，勾选态下检测到会话变化即清空 `selectedKeys` / `sourceCache` /
+  `orderList` 并退出勾选态、toast 告知；修复跨会话缓存混导（实测能把两段对话拼进一次导出）。
+- **偏好清除**：取消「记住我的选择」时真正写入空值清掉旧偏好——原实现只做「不写入」，上一轮的 `remember:true`
+  会继续生效，形成用户看不见也关不掉的隐形状态。
+
+> 未新增存储键 / `@grant` / `@require` / `@match`；Markdown 导出行为与 v5.1.1 一致（除上述四处修正）。
+
 ## v5.1.1 (2026-10-07)
 
 ### 调整 · 按钮位置与面板导航

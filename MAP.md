@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.1.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.2.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -36,7 +36,7 @@
 | `deepseek_code_bg_enhance` | `codeBgEnhance` | true | 代码块背景加深总开关（`html.ds-code-bg`） |
 | `deepseek_code_bg_level` | `codeBgLevel` | 'light' | 加深强度档位：light / medium / strong（`ds-code-bg-1/2/3`） |
 | `deepseek_table_export_rounded` | `tableExportRounded` | true | PNG 导出表格四角圆角（`destination-in` 把四角裁成透明；关则直角矩形） |
-| `deepseek_md_export_enabled` | `mdExportEnabled` | true | 对话导出为 Markdown 总开关（opt-in 关闭；关闭则菜单命令与面板入口都不可用） |
+| `deepseek_md_export_enabled` | `mdExportEnabled` | true | 对话导出总开关（Markdown / JSON；opt-in 关闭，关闭则菜单命令与面板入口都不可用） |
 | `deepseek_md_export_prefs` | 无（JSON 字符串） | `''` | 弹窗「记住我的选择」落库：`{includeReasoning, templateId, remember}`；**唯一**的选项来源，不回落读旧设置键 |
 | `deepseek_md_export_append_date` | `mdExportAppendDate` | true | 导出文件名附加 `-YYYY-MM-DD-HH-mm`（避免同名覆盖） |
 | `deepseek_code_export_enabled` | `codeExportEnabled` | true | 代码块「导出为图片」按钮总开关（关闭则移除全部导出按钮） |
@@ -59,9 +59,9 @@ flowchart LR
         FPanel["文件夹面板 / 树形渲染"]
         FMenu["⋯ 菜单注入 + 级联浮层"]
     end
-    subgraph MdExport["mdExportUnit 子闭包（v5.0.0 新增，可选）"]
+    subgraph MdExport["mdExportUnit 子闭包（v5.0.0 新增 / v5.2.0 增 JSON，可选）"]
         MScan["稳定键 + 来源快照<br/>scanAll 全对话扫描（虚拟列表）"]
-        MDialog["两步弹窗<br/>9 套模板 + 132px 缩微预览"]
+        MDialog["导出弹窗<br/>Markdown / JSON 格式卡 + 9 套模板 + 132px 缩微预览"]
         MConv["DOM→Markdown 引擎<br/>13 条规则（无第三方库）"]
         MFlow["勾选态<br/>复选框 + 通栏控制条 + 高亮"]
     end
@@ -169,9 +169,10 @@ flowchart LR
 - 纯 `Enter`（无修饰、非 Shift）→ `stopPropagation`（改为换行、不再发送）；
 - `Shift+Enter` → 不拦截（保持原生换行）。
 
-### 5.7 对话导出为 Markdown（`mdExportUnit` 子闭包，v5.0.0 新增）
+### 5.7 对话导出（`mdExportUnit` 子闭包，v5.0.0 新增 / v5.2.0 增 JSON）
 
-自包含闭包，**不引入任何第三方 Markdown 库**。总链路：**勾选 → 两步弹窗 → 内容模板 → 转换 → 下载**。
+自包含闭包，**不引入任何第三方 Markdown 库**。总链路：**勾选 → 弹窗选格式 →（Markdown：内容模板）→ 转换 → 下载**。
+两种产物共用同一条提取与转换管线：Markdown 拼成一份文档，JSON 装成「一条消息一条记录」的结构。
 
 **入口**：油猴菜单「导出对话」→ `beginExportFlow()`；或面板「📄 对话导出 → 开始选择」（先关面板再进勾选态）。
 
@@ -213,13 +214,15 @@ DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去
 - 扫描期间 `body.ds-md-selection-scanning` 隐藏全部复选框，控制条按钮禁用。
 - `Esc` 退出（捕获阶段；模态框打开时让位给模态框）。
 
-#### 5.7.4 两步弹窗
+#### 5.7.4 格式卡与弹窗两步
 
-- 第 1 步「选择导出内容」：格式（Markdown）+「导出思考过程」（自绘 44×24 胶囊，默认开）；
-- 第 2 步「选择内容模板」：模板卡两列网格，上半为 **132px 缩微预览**（底部 28px 渐隐），
+- 第 1 步「选择导出内容」：两张格式卡（Markdown / JSON，`data-format` 区分）+「导出思考过程」（自绘 44×24 胶囊，默认开）；
+- **Markdown** → 第 2 步「选择内容模板」：模板卡两列网格，上半为 **132px 缩微预览**（底部 28px 渐隐），
   下半为名称 + 描述；页面切换时分别加 `step-slide-in` / `step-slide-back` 动画。
+- **JSON** → 无模板层，点格式卡即 `finishJson()` 就地导出（不进步 2、不写偏好）。
 - 模板清单由选中内容决定：`hasUser && !hasAi` → 问题清单类，否则问答类；两者都前置「原样输出」。
 - 「记住我的选择」仅在**第 2 步**出现；勾选后落库到 `deepseek_md_export_prefs`，下次**预填**（不跳过步骤）。
+  JSON 路径**不落库**：该开关在步 1 是隐藏的，此时写入等于让用户看不见的控件改写记忆。
 
 #### 5.7.5 内容模板装饰
 
@@ -257,9 +260,27 @@ DeepSeek 用虚拟列表渲染，**只渲染可视窗口内的消息，滚过去
 
 #### 5.7.7 下载与文件名
 
-`buildFilename('md')` 的规则：
+`buildFilename(ext)` 两种格式共用（`ext` = `md` / `json`）：
 兜底名 `DeepSeek对话` → 追加 `-YYYY-MM-DD-HH-mm`（`mdExportAppendDate`，默认开）→
-`\s+`→`_`、`[<>:"/\\|?*]`→`_` → 截断 50 字。Blob 类型 `text/markdown;charset=utf-8`（**不写 BOM**）。
+`\s+`→`_`、`[<>:"/\\|?*]`→`_` → 截断 50 字（时间戳先占位，标题让出空间）。Blob 类型由 `download(text, filename, mime)` 传入：
+Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`（**均不写 BOM**）。
+
+#### 5.7.8 JSON 导出（v5.2.0）
+
+`buildJson({ includeReasoning, selectedKeys })` → `{ ok, text, count, pending, reasoningFound }`。
+
+```json
+{ "schema": "deepseektool.export.v1", "contentFormat": "markdown",
+  "title": "…", "url": "…", "exportedAt": "<ISO 时间>", "messageCount": 2,
+  "messages": [ { "index": 0, "role": "user", "content": "…" },
+                { "index": 1, "role": "assistant", "content": "…", "reasoning": "…" } ] }
+```
+
+- `content`：`wrapFromSource(role, src, { includeReasoning: false })` → `toMarkdown()`，与 Markdown 导出的正文同源；
+- `reasoning`：仅当 `role === 'assistant'`、开关打开且转换后非空时写入（`reasoningMarkdown(src)` 复用
+  `normalizeContent` + 转换器，但**不包 `blockquote`**，故不带 `>` 前缀）；空串不写键；
+- 序列化 `JSON.stringify(payload, null, 2) + '\n'`；`index` 为输出顺序号（跳过的空消息不占号）；
+- `reasoningFound` 以「真的取到 reasoning 文本」计（Markdown 侧以 `src.reasoningHTML` 是否存在计，更宽松）。
 
 ### 5.8 代码块导出为图片（`codeImageUnit` 子闭包，v5.1.0 新增）
 
@@ -341,7 +362,7 @@ sequenceDiagram
     M->>G: PNG 走隔离 iframe + html2canvas；MD 走 clipboard
 ```
 
-### 6.1 对话导出为 Markdown（`mdExportUnit`，v5.0.0）
+### 6.1 对话导出（`mdExportUnit`，v5.0.0 / JSON 于 v5.2.0）
 
 ```mermaid
 sequenceDiagram
@@ -367,14 +388,23 @@ sequenceDiagram
     end
     E->>U: 更新「导出选中 (n)」（n 为键数量，含窗口外）
 
-    U->>E: 点「导出选中」→ 两步弹窗
-    E->>U: 第 1 步「选择导出内容」（格式 + 导出思考过程）
-    U->>E: 点格式 → 第 2 步「选择内容模板」
-    E->>C: extractPreview() 取最多 2 组问答渲染 132px 缩微预览
-    U->>E: 点模板卡 → finish()
+    U->>E: 点「导出选中」→ 弹窗第 1 步
+    E->>U: 「选择导出内容」（Markdown / JSON 两张格式卡 + 导出思考过程）
+    alt 选 Markdown
+        U->>E: 点 Markdown 卡 → 第 2 步「选择内容模板」
+        E->>C: extractPreview() 取最多 2 组问答渲染 132px 缩微预览
+        U->>E: 点模板卡 → finish()
+    else 选 JSON（无模板层）
+        U->>E: 点 JSON 卡 → finishJson()
+    end
     E->>E: 快照 selectedKeys → 关弹窗 → 退出勾选态（必须先快照，stopSelection 会清空）
-    E->>E: buildMarkdown()：逐键取源 → 模板装饰 → 13 条规则转换 → --- 连接
-    E->>P: Blob(text/markdown) → <a download> → 文件名按 FilenameGenerator 规则
+    alt Markdown
+        E->>E: buildMarkdown()：逐键取源 → 模板装饰 → 13 条规则转换 → --- 连接
+        E->>P: Blob(text/markdown) → <a download> → 文件名按 FilenameGenerator 规则
+    else JSON
+        E->>E: buildJson()：逐键取源 → 转换 → { index, role, content, reasoning? } 组装
+        E->>P: Blob(application/json) → <a download> → 文件名按 FilenameGenerator 规则
+    end
     E->>U: toast 回显生效选项（含思考过程 / 模板 / 窗口外提示）
 ```
 
