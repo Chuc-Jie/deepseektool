@@ -154,6 +154,9 @@
     }, true);
     // ==================== 统一控制面板 ====================
     function openControlPanel() {
+        // 面板重建（如恢复默认设置）后回到上次所在分区，避免导航被打回第一页。
+        // 挂在函数对象上而不是模块级变量：测试 harness 只提取本函数体，模块级变量会缺失。
+        openControlPanel._lastPage = openControlPanel._lastPage || 'fold';
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
         if (existingOverlay) existingOverlay.remove();
         // 面板每次重建 → 上一轮登记的依赖项作废（否则会持有已移除的节点）
@@ -558,15 +561,16 @@
 
         /* ===== 分区切换 ===== */
         function showPage(key) {
+            openControlPanel._lastPage = key;
             pages.forEach(p => p.classList.toggle('active', p.dataset.page === key));
             navBtns.forEach(b => b.classList.toggle('active', b.dataset.target === key));
         }
         navBtns.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.target)));
-        showPage('fold');   // 默认展开第一分区
+        showPage(openControlPanel._lastPage);   // 首次为第一分区；恢复默认重建后回到原分区
 
         footer.querySelector('#ds-panel-close-btn').addEventListener('click', () => overlay.remove());
         footer.querySelector('#ds-panel-reset').addEventListener('click', () => {
-            if (confirm('确定恢复所有设置为默认值？')) {
+            if (confirm('确定恢复所有设置为默认值？\n\n文件夹分组数据会保留；对话导出记忆与代码导图样式偏好会清除。')) {
                 foldThreshold = 20; GM_setValue(STORAGE_FOLD_THRESHOLD, 20);
                 previewLines = 0; enablePreviewLines = false; GM_setValue(STORAGE_PREVIEW_LINES, 0);
                 tableButtonsEnabled = true; GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
@@ -589,6 +593,7 @@
                 mdExportUnit.clearPrefs();                  // 清掉「记住我的选择」+ v1 遗留键
                 mdExportAppendDate = true; GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
                 codeExportEnabled = true; GM_setValue(STORAGE_CODE_EXPORT_ENABLED, true);
+                codeImagePrefs = null; GM_setValue(STORAGE_CODE_IMAGE_PREFS, null);   // 导图样式偏好也回到默认
                 mdExportUnit.stopSelection();               // 若正处勾选态则退出
                 applyCodeBlockBg(true, 'light');
                 applyCodeExportButtons(true);               // 导出按钮默认开 → 即时补回已移除的按钮
@@ -605,6 +610,8 @@
                 reapplyThinkingSections();
                 document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                 showToast('已恢复默认设置');
+                // 保留 300ms 让「已恢复」toast 在面板重建前可见；导航位置由 _lastPanelPage 保留，
+                // 不会再被打回第一页。
                 overlay.remove();
                 setTimeout(() => openControlPanel(), 300);
             }
