@@ -2283,28 +2283,47 @@
                 letterSpacing: parseFloat(cs.letterSpacing) || 0,
                 padX: (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0),
                 borderX: (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0),
+                display: cs.display,
             };
             styleCache.set(key, v);
             return v;
         };
 
         let activeFont = '';
-        // 递归累加：文本节点用「父元素」字体；元素节点加上自身的 padding/border（如 code）
+        // 按「行」累加：<br> 与块级子元素结束当前行，最终取最长行。
+        // 旧实现把 <br> 直接 continue、其余文本继续累加，等于把多行宽度相加，
+        // 含硬换行的单元格会被显著高估（注释写的是「换行取最长行」，实现却相反）。
         const measureNode = node => {
-            let w = 0;
+            let maxLine = 0;
+            let line = 0;
+            const flush = () => {
+                if (line > maxLine) maxLine = line;
+                line = 0;
+            };
             for (const child of node.childNodes) {
                 if (child.nodeType === Node.TEXT_NODE) {
                     const st = styleOf(node);
                     if (st.font !== activeFont) { ctx.font = st.font; activeFont = st.font; }
                     const t = child.textContent;
-                    if (t) w += ctx.measureText(t).width + st.letterSpacing * Math.max(0, t.length - 1);
+                    if (t) line += ctx.measureText(t).width + st.letterSpacing * Math.max(0, t.length - 1);
                 } else if (child.nodeType === Node.ELEMENT_NODE) {
-                    if (child.tagName === 'BR') continue;   // 换行取最长行，不影响单行宽度
+                    if (child.tagName === 'BR') { flush(); continue; }
                     const st = styleOf(child);
-                    w += measureNode(child) + st.padX + st.borderX;
+                    const childW = measureNode(child) + st.padX + st.borderX;
+                    // 块级元素独占一行；inline / inline-block / inline-flex 继续并排累加。
+                    const inline = st.display === 'inline' || st.display === 'inline-block'
+                        || st.display === 'inline-flex' || st.display === 'contents';
+                    if (inline) {
+                        line += childW;
+                    } else {
+                        flush();
+                        if (childW > maxLine) maxLine = childW;
+                        flush();
+                    }
                 }
             }
-            return w;
+            flush();
+            return maxLine;
         };
 
         const natural = new Array(cols).fill(0);
