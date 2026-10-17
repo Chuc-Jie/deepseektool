@@ -2165,48 +2165,59 @@
         return natural;
     }
 
-    // 水填充分配（单位：内容宽度，不含 TABLE_CELL_FIXED）：
-    //   1) 每列先给到「够用」——内容窄的按内容给（不浪费），内容宽的给到舒适宽度；
-    //   2) 剩余空间按 natural 升序补足，短列先满足；
-    //   3) 还有剩余：铺满模式按需求权重摊回各列，紧凑模式保留（表格随内容收窄）。
+    // 列宽分配（单位：内容宽度，不含 TABLE_CELL_FIXED）：
+    //   预算够：每列直接拿到「单行放下」所需的 natural 宽度，富余按需求摊掉（铺满模式）。
+    //   预算不够：用 **max-min fair（二分水位）** 均衡分配 —— 让「最窄的列尽可能宽」，
+    //     而不是「短列吃饱、最长列停在初始值」。
+    //     实测：3 列表 nat≈[275, 600, 439]、预算 810 时，旧的「短列优先补满」会给出
+    //     [275, 96, 439]，问题列每行折 7 行；改为二分水位后约 [270, 270, 270]，
+    //     每列折 1~2 行，整表高度明显下降（行高由最高的单元格决定，饿死一列的代价是整表变高）。
     // 放不下时：scroll 交给横向滚动（保可读），squeeze 等比缩进容器（保持无滚动条）。
     function planColumnWidths(natural, cols, budget, opts) {
         const fill = !!(opts && opts.fill);
         const overflowMode = (opts && opts.overflow) || 'scroll';
         if (!cols) return { widths: [], overflow: false, squeezed: false };
 
-        // 初始：贴合内容（不超过舒适宽）。**这里刻意不预先抬到可读下限**——
-        // 预算紧张时，下限会把空间从真正需要的长列手里抢走：10 列表实测 10×42 = 420
-        // 占掉 550 预算的 76%，导致「风险与依赖说明」等长表头反而补不够而折行。
-        // 下限改为「把长列都喂饱之后还有余量」时才施加（见下方第 ② 步）。
-        const widths = natural.map(x => Math.max(1, Math.min(x, TABLE_COL_COMFORT)));
-        const used = widths.reduce((a, b) => a + b, 0);
+        // 溢出判定基准：受舒适宽约束的需求（单列超过 96 的部分不参与判定，
+        // 否则表里只要有一列超长就会误触发滚动）
+        const demand = natural.reduce((s, x) => s + Math.min(x, TABLE_COL_COMFORT), 0);
 
-        if (used > budget) {
+        if (demand > budget) {
             // 溢出容差：只超出一点点时（实测 10 列表 580 vs 572，差 8px）若立刻切成滚动，
             // 观感会从「紧凑 890px」突跳到「1605px + 滚动条」，而正文换行数并不减少。
-            // 故超出 8% 以上才认为「压缩会明显不可读」，否则先压缩吸收波动。
-            if (overflowMode === 'scroll' && used > budget * TABLE_OVERFLOW_TOLERANCE) {
+            // 故超出 8% 以上才认为「压缩会明显不可读」，否则在预算内均衡分配。
+            if (overflowMode === 'scroll' && demand > budget * TABLE_OVERFLOW_TOLERANCE) {
                 const wide = natural.map(x => Math.min(TABLE_COL_MAX, Math.max(x, TABLE_COL_COMFORT)));
                 return { widths: wide, overflow: true, squeezed: false };
             }
-            const k = budget / used;
-            return { widths: widths.map(x => Math.max(1, x * k)), overflow: false, squeezed: true };
+            if (overflowMode === 'squeeze') {
+                const k = budget / demand;
+                return {
+                    widths: natural.map(x => Math.max(1, Math.min(x, TABLE_COL_COMFORT) * k)),
+                    overflow: false,
+                    squeezed: true,
+                };
+            }
         }
 
-        let rest = budget - used;
-        const order = Array.from({ length: cols }, (_, i) => i).sort((a, b) => natural[a] - natural[b]);
-
-        // ① 先补到「单行放下」所需的 natural 宽度（短列优先，把小缺口先填掉）
-        for (const i of order) {
-            const need = natural[i] - widths[i];
-            if (need <= 0) continue;
-            if (need <= rest) { widths[i] = natural[i]; rest -= need; }
-            else { widths[i] += rest; rest = 0; break; }
+        // max-min fair：二分水位 λ，使 Σ min(natural_i, λ) 逼近 budget。
+        // 短列（natural < λ）拿满自己的内容宽度；长列共享 λ —— 各列的「压缩程度」一致，
+        // 折行数自然接近，整表高度最小。
+        let lo = 0;
+        let hi = natural.reduce((a, b) => Math.max(a, b), 1);
+        for (let it = 0; it < 40; it++) {
+            const mid = (lo + hi) / 2;
+            let sum = 0;
+            for (let i = 0; i < cols; i++) sum += Math.min(natural[i], mid);
+            if (sum < budget) lo = mid; else hi = mid;
         }
+        const widths = natural.map(x => Math.max(1, Math.min(x, lo)));
+        let rest = budget - widths.reduce((a, b) => a + b, 0);
 
-        // ② 仍有剩余：把过窄的列抬到可读下限（序号之类不再被压成一条缝）
         if (rest > 0) {
+            // 剩余很少（二分残差）或需求本就小于预算：先把过窄的列抬到可读下限，
+            // 再按需求权重摊掉（铺满模式）。
+            const order = Array.from({ length: cols }, (_, i) => i).sort((a, b) => natural[a] - natural[b]);
             for (const i of order) {
                 const gap = TABLE_COL_MIN - widths[i];
                 if (gap <= 0) continue;
@@ -2217,7 +2228,6 @@
             }
         }
 
-        // ③ 铺满模式：剩余按需求权重摊掉
         if (rest > 0 && fill) {
             const total = natural.reduce((a, b) => a + b, 0) || 1;
             for (let i = 0; i < cols; i++) widths[i] += rest * (natural[i] / total);
