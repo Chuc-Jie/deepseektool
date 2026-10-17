@@ -138,22 +138,25 @@ flowchart LR
 
 ### 5.3 表格优化与导出
 
-- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` 按单元格实际字体逐格测量，得到每列「单行自然宽度」（不能用字符数当权重：实测中文 14.00px/字、英文 8.23px/字，等权会低估中文列 41%）；再按「每列 `max(可读下限, min(natural, 舒适宽))` → 剩余按 natural 升序补足短列 → 铺满则按需求权重摊余」三段落盘。常量置顶：`TABLE_CELL_FIXED=34`、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`。
+- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` 按单元格实际字体逐格测量，得到每列「单行自然宽度」。测量必须计入两项易漏量：**`letter-spacing`**（表头 0.02em，漏算会让「仅一列/左对齐/负责人」差 0.1~0.3px 就折行）与 **1px 亚像素余量**。分配三段落盘：① 初始 `min(natural, 96)`（**不预抬可读下限**——预算紧张时下限会抢走长列的空间，10 列实测 10×42 占掉 550 预算的 76%）；② 按 natural 升序补到单行放下；③ 仍有剩余才把过窄列抬到 42px，最后铺满模式按需求权重摊余。溢出容差 `1.08`：超出预算 8% 以上才切横向滚动，否则压缩吸收临界抖动（实测 580 vs 572 的 8px 差异会导致「890px 紧凑」突跳成「1605px + 滚动条」）。常量置顶：`TABLE_CELL_FIXED=34`、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`、`TABLE_OVERFLOW_TOLERANCE=1.08`。
 - **落盘与控制 `applyTableStyles`**：列宽写进 `<colgroup><col>`（**`<col>` 的 width 在 `table-layout:fixed` 下按 border-box 计算，必须写「内容宽 + 34」**，否则整表被浏览器等比放大）；`table.style.width` 由 JS 内联控制（CSS 的 `width:100%` 只是首帧兜底，**不能加 `!important`**，否则盖掉紧凑/滚动模式的 px）。均分模式写百分比 `<col>`，与旧版「td 百分比」视觉等价。
 - **三种取向**：`tableWidthAlgo`（智能/均分）× `tableFill`（铺满/紧凑）× `tableOverflow`（滚动/压缩）。均分下后两者无意义（面板置灰）。
-- **横向滚动条：给官网自绘条上色，绝不写 `::-webkit-scrollbar`**。官网 `.ds-scroll-area` 已是 `overflow-x:auto` + `scrollbar-width:none`（原生条被隐藏，实测 `offsetHeight−clientHeight = 0`），横向滚动由官网自绘的 `.ds-scroll-area__horizontal-bar`（8px）承担——它能随 `colgroup` 变化自动显示/隐藏、并按可滚比例更新宽度，**但默认完全透明**（实测 `bar → horizontal-gutter → gutters → host` 全链路 `rgba(0,0,0,0)`，无边框无阴影），即「看不见但可拖拽」。
-  因此 `.ds-table-scroll-host` 只做一件事：给这条已有元素上色（`rgba(128,128,128,.34)` + `border-radius:999px`，hover `.52`、active 强调色），**不新增节点**。
-  ⚠ **绝不能写 `::-webkit-scrollbar`**：该伪元素一旦出现就会唤醒被 `scrollbar-width:none` 隐藏的原生条（实测 0 → 15px），于是两条并存；且原生条在「内容变窄但 overflow 计算值不变」时不撤除，表现为「切回压缩后滚动条仍在、点一下才消失」——这正是用户报的那个 bug 的根因。
+- **横向滚动：官网有两代结构，分别处理**。
+  ① **`.markdown-table-wrapper`**（新）：表格过宽时官网自动套一层，`overflow-x:auto` + **原生滚动条**（实测 `sbH=15px`）。它是表格专用容器、纵向不溢出（`scrollHeight === clientHeight`），因此可以直接用 `::-webkit-scrollbar` 美化（只声明 `height`，实测 15 → 9px），宽度约束由官网负责，不改它的 `max-width`。
+  ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**默认全透明**）。只能给自绘条上色（`rgba(128,128,128,.34)` + `999px` 圆角），**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
+  容器选择用 `table.closest('.markdown-table-wrapper')` 优先，回退 `.ds-scroll-area`；两种类名 `.ds-table-scroll-wrapper` / `.ds-table-scroll-host` 分开，避免把 webkit 规则误加到老容器上。
 - **溢出兜底 `setTableScrollHost`**：只给该表格最近的 `.ds-scroll-area` 加 `max-width:100%`（让超宽表格真正溢出而不是把壳撑大），退出时还原原值并复位 `scrollLeft`。不改 `overflow`、不挂类名。
 - **配色**：由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；完成后 `opacity:1` 淡入（消除闪烁）。
 - **表头对齐 `applyTableHeadAlign`**：默认 `auto` 不写任何 `text-align`，保留 Markdown 的 `:--:` / `--:` 语义；仅当用户选「水平居中」时挂 `html.ds-table-head-center`，由 CSS `html.ds-table-head-center .ds-markdown th { text-align:center !important }` 接管（只作用于表头，不动单元格；弹窗预览与导出不受影响，PNG 导出在 `collectTableStyles` 里补同一规则保持一致）。
 - **空表格防护**：首行无单元格时直接返回（流式首帧常见），指纹变化后会自动重新处理。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
-- **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 移除 `<colgroup>` + 清 fixed/宽度/`min-width` 等内联样式 + 摘导出按钮/脚本标记）：
+- **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 摘导出按钮/脚本标记 + 清 fixed/宽度/`min-width` 等内联样式）。
+  **PNG 传 `{keepColGroup:true}` 保留列宽**，再用 `scaleCloneColumns(clone, srcW, targetW)` 把列宽从页面宽度等比换算到导出宽度（逐列取整、误差补到最后一列，保证 Σcol 精确等于目标宽；上限 `TABLE_EXPORT_MAX_WIDTH=1200`）——导出图的列宽分配与页面一致。CSV/MD 仍移除 `<colgroup>`（只读文本）：
   - 📸 PNG：隔离 iframe（srcdoc + `collectTableStyles` 收集页面样式与兜底配色）→ `html2canvas scale:3` → blob 下载；**纸底**由 `getExportCanvasBg()` 跟随页面深浅（沿祖先链取首个不透明背景色，兜底 深 `#1a1a22`/浅 `#ffffff`）；**文字色/链接/行内代码**由 `collectTableStyles(sourceTable)` 抄取页面表格内 `th`/`td`（color）、`a`（color + `text-decoration-line`）、`code`（color + `background-color`）的实际计算样式写进兜底规则（iframe 无 `.ds-markdown` 祖先、不继承页面 color，不显式取值会在深色纸底上落回黑字 / 默认 #0000EE 蓝链接 / 灰底 code）；**圆角**受开关 `tableExportRounded` 控制 —— `applyRoundedCorners` 用 `destination-in` 把四角裁成透明（半径按 `canvas宽/元素CSS宽` 换算并 clamp，且**须先 `setTransform(1,0,0,1,0,0)` 重置** html2canvas 残留的变换矩阵，否则蒙版错位、裁剪失效）；
   - 📄 CSV：UTF-8 BOM + 引号/逗号/换行转义；
   - 📝 MD：复制到剪贴板；保留 `code`/`**`/`*` 行内语法、`|` 转义、`<br>` 折为空格。
 - **显隐**：`.table-internal-buttons` 默认 hover 显示；`html.ds-export-always`（`setTableButtonsAlways`）强制常显。
+- **按钮跟随可视区 `syncTableButtonPositions`**：按钮是 `absolute; right:12`（贴表格右边缘），表格横向溢出后会被推到滚动容器之外。该函数在滚动（document capture）、重排、resize 后按 rAF 合帧，把按钮组平移 `translateX(scrollLeft − overflow)`，使其恒停在可视区右下角 12px 处；`overflow` 必须用 `scrollWidth − clientWidth`（用 `table.offsetWidth − clientWidth` 会因滚动壳的 padding 差出几百 px：实测 923 vs 1388）。
 
 ### 5.4 AI 思考过程自动折叠
 

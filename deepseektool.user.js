@@ -1583,12 +1583,29 @@
             text-align: center !important;
         }
         .ds-markdown tbody tr { transition: background-color 0.2s !important; }
-        /* 横向滚动条：绝不写 ::-webkit-scrollbar —— 该伪元素一旦出现就会唤醒被官网
-           scrollbar-width:none 隐藏的原生滚动条（实测 0 → 15px），与官网自绘条并存，
-           且原生条在「内容变窄但 overflow 不变」时不撤除（会残留到用户交互）。
-           官网 .ds-scroll-area 自带 .ds-scroll-area__horizontal-bar（8px，随溢出自动显隐、
-           宽度按可滚比例更新、可拖拽），但它默认完全透明（实测全链路 rgba(0,0,0,0)）。
-           这里只给这条已有元素上色，且仅作用于挂了 ds-table-scroll-host 的容器。 */
+        /* 横向滚动条 —— 按官网的两代容器分别处理。
+           ① 新结构 .markdown-table-wrapper：表格专用容器、纵向不溢出，用的是**原生**滚动条
+              （实测 15px），可以直接用 ::-webkit-scrollbar 美化（只声明 height，不声明 width）。
+           ② 老结构 .ds-scroll-area：官网已设 scrollbar-width:none 隐藏原生条，并自绘
+              .ds-scroll-area__horizontal-bar（8px，默认全透明）。这里只给它上色，
+              **绝不能**在这个容器上写 ::-webkit-scrollbar（会唤醒被隐藏的原生条，实测 0 → 15px）。 */
+        .ds-table-scroll-wrapper::-webkit-scrollbar { height: 10px; }
+        .ds-table-scroll-wrapper::-webkit-scrollbar-track { background: transparent; }
+        .ds-table-scroll-wrapper::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+        .ds-table-scroll-wrapper::-webkit-scrollbar-corner { background: transparent; }
+        .ds-table-scroll-wrapper::-webkit-scrollbar-thumb {
+            background: rgba(128,128,128,0.34);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+        .ds-table-scroll-wrapper:hover::-webkit-scrollbar-thumb {
+            background: rgba(128,128,128,0.52); background-clip: padding-box;
+        }
+        .ds-table-scroll-wrapper::-webkit-scrollbar-thumb:active {
+            background: rgba(79,70,229,0.62); background-clip: padding-box;
+        }
+
         .ds-table-scroll-host .ds-scroll-area__horizontal-bar {
             background: rgba(128,128,128,0.34) !important;
             border-radius: 999px !important;
@@ -2076,7 +2093,9 @@
     const TABLE_CELL_FIXED = 34;
     const TABLE_COL_MIN = 42;        // 任何列的可读下限（≈3 个汉字）
     const TABLE_COL_COMFORT = 96;    // 目标可读宽度（≈6.8 个汉字）
+    const TABLE_OVERFLOW_TOLERANCE = 1.08;  // 超出预算 8% 以上才切横向滚动，吸收临界抖动
     const TABLE_COL_MAX = 240;       // 滚动模式下单列上限，避免一列吃掉整行
+    const TABLE_EXPORT_MAX_WIDTH = 1200;  // PNG 导出的 CSS 宽度上限（scale 3 → 最宽 3600px 画布）
 
     let _measureCtx = null;
     function getMeasureCtx() {
@@ -2089,19 +2108,26 @@
     // 逐格实测文本宽度，返回每列「单行自然宽度」（px）。
     // 不能用 textContent.length 当权重：实测中文 14.00px/字、英文 8.23px/字（1.70:1），
     // 等权计数会把中文列系统性低估约 41%，甚至给出方向相反的分配。
+    // 注意两个必须计入的量：
+    //   ① letter-spacing —— 表头有 0.02em（14px 下 0.28px/字），漏算会让「仅一列/左对齐/负责人」
+    //      这类表头差 0.1~0.3px 就被折断（实测 deficit 0.07~0.16px）；
+    //   ② 1px 亚像素余量 —— 字体 hinting 与取整会把「刚好放下」变成「差一点」。
     function measureColumnNaturals(table, cols) {
         const ctx = getMeasureCtx();
         const cells = table.querySelectorAll('th,td');
         if (!ctx || !cells.length || !cols) return null;
         // 表头与正文的字体不同（600 / 400），按标签各取一次计算样式，避免每格强制重算
-        const fontCache = { TH: null, TD: null };
-        const fontFor = el => {
+        const cache = { TH: null, TD: null };
+        const styleFor = el => {
             const key = el.tagName === 'TH' ? 'TH' : 'TD';
-            if (!fontCache[key]) {
+            if (!cache[key]) {
                 const cs = getComputedStyle(el);
-                fontCache[key] = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+                cache[key] = {
+                    font: cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily,
+                    letterSpacing: parseFloat(cs.letterSpacing) || 0,
+                };
             }
-            return fontCache[key];
+            return cache[key];
         };
         let activeFont = '';
         const natural = new Array(cols).fill(0);
@@ -2110,9 +2136,11 @@
             if (idx < 0 || idx >= cols) continue;
             const text = cell.textContent;
             if (!text) continue;
-            const f = fontFor(cell);
-            if (f !== activeFont) { ctx.font = f; activeFont = f; }
-            const w = ctx.measureText(text).width;
+            const st = styleFor(cell);
+            if (st.font !== activeFont) { ctx.font = st.font; activeFont = st.font; }
+            const w = ctx.measureText(text).width
+                + st.letterSpacing * Math.max(0, text.length - 1)
+                + 1.5;   // 亚像素余量：canvas 度量与真实排版有 hinting 差异，实测 1px 仍会差一丝折行
             if (w > natural[idx]) natural[idx] = w;
         }
         return natural;
@@ -2128,14 +2156,18 @@
         const overflowMode = (opts && opts.overflow) || 'scroll';
         if (!cols) return { widths: [], overflow: false, squeezed: false };
 
-        // 初始：内容窄的列按内容给（不浪费），但不能低于可读下限；
-        // 内容宽的列先给到舒适宽度，剩余空间再补
-        const widths = natural.map(x => Math.max(TABLE_COL_MIN, Math.min(x, TABLE_COL_COMFORT)));
+        // 初始：贴合内容（不超过舒适宽）。**这里刻意不预先抬到可读下限**——
+        // 预算紧张时，下限会把空间从真正需要的长列手里抢走：10 列表实测 10×42 = 420
+        // 占掉 550 预算的 76%，导致「风险与依赖说明」等长表头反而补不够而折行。
+        // 下限改为「把长列都喂饱之后还有余量」时才施加（见下方第 ② 步）。
+        const widths = natural.map(x => Math.max(1, Math.min(x, TABLE_COL_COMFORT)));
         const used = widths.reduce((a, b) => a + b, 0);
 
         if (used > budget) {
-            if (overflowMode === 'scroll') {
-                // 可读优先：短列抬到舒适宽度，长列最多 TABLE_COL_MAX，整体交给滚动
+            // 溢出容差：只超出一点点时（实测 10 列表 580 vs 572，差 8px）若立刻切成滚动，
+            // 观感会从「紧凑 890px」突跳到「1605px + 滚动条」，而正文换行数并不减少。
+            // 故超出 8% 以上才认为「压缩会明显不可读」，否则先压缩吸收波动。
+            if (overflowMode === 'scroll' && used > budget * TABLE_OVERFLOW_TOLERANCE) {
                 const wide = natural.map(x => Math.min(TABLE_COL_MAX, Math.max(x, TABLE_COL_COMFORT)));
                 return { widths: wide, overflow: true, squeezed: false };
             }
@@ -2145,12 +2177,28 @@
 
         let rest = budget - used;
         const order = Array.from({ length: cols }, (_, i) => i).sort((a, b) => natural[a] - natural[b]);
+
+        // ① 先补到「单行放下」所需的 natural 宽度（短列优先，把小缺口先填掉）
         for (const i of order) {
             const need = natural[i] - widths[i];
             if (need <= 0) continue;
             if (need <= rest) { widths[i] = natural[i]; rest -= need; }
             else { widths[i] += rest; rest = 0; break; }
         }
+
+        // ② 仍有剩余：把过窄的列抬到可读下限（序号之类不再被压成一条缝）
+        if (rest > 0) {
+            for (const i of order) {
+                const gap = TABLE_COL_MIN - widths[i];
+                if (gap <= 0) continue;
+                const add = Math.min(gap, rest);
+                widths[i] += add;
+                rest -= add;
+                if (rest <= 0) break;
+            }
+        }
+
+        // ③ 铺满模式：剩余按需求权重摊掉
         if (rest > 0 && fill) {
             const total = natural.reduce((a, b) => a + b, 0) || 1;
             for (let i = 0; i < cols; i++) widths[i] += rest * (natural[i] / total);
@@ -2196,7 +2244,9 @@
             table.insertBefore(cg, table.firstChild);
         }
         while (cg.firstChild) cg.removeChild(cg.firstChild);
-        const px = contentWidths.map(w => Math.max(1, Math.round(w)) + TABLE_CELL_FIXED);
+        // 取整用 ceil（-0.01 防整数被进位）：Math.round 可能少 0.5px，
+        // 恰好等于文本宽度的列会因为这点误差折行；ceil 保证不小于分配值。
+        const px = contentWidths.map(w => Math.max(1, Math.ceil(w - 0.01)) + TABLE_CELL_FIXED);
         if (targetTotal > 0) {
             const diff = Math.round(targetTotal) - px.reduce((a, b) => a + b, 0);
             if (diff !== 0) {
@@ -2212,29 +2262,47 @@
         });
     }
 
-    // 横向滚动：官网 .ds-scroll-area 本身已是 overflow-x:auto + scrollbar-width:none ——
-    // 原生滚动条被隐藏，横向滚动由官网自绘的 .ds-scroll-area__horizontal-bar 承担
-    // （8px 细条，实测随 scrollWidth 自动显示/隐藏并按比例更新宽度）。
-    // 我们唯一需要做的是给壳加 max-width，让超宽表格真正溢出、而不是把壳撑大。
-    // ⚠ 绝不能写任何 ::-webkit-scrollbar 规则：该伪元素一旦出现，就会唤醒被 scrollbar-width:none
-    //   隐藏的原生滚动条（实测 sbH 0 → 15px），与官网自绘条并存成「两条滚动条」。
+    // 横向滚动：官网有两代结构，必须分别处理。
+    //   ① 新结构：表格过宽时官网自己套一层 .markdown-table-wrapper（overflow-x:auto，
+    //      用**原生**滚动条，实测 sbH=15px）——这里只加类名去美化那条原生条，
+    //      宽度约束由官网负责，我们不要改它的 max-width。
+    //   ② 老结构：没有 wrapper 时，滚动壳是 .ds-scroll-area（scrollbar-width:none 隐藏原生条 +
+    //      自绘 .ds-scroll-area__horizontal-bar，默认全透明）——这里既要加 max-width 约束，
+    //      也要给自绘条上色。
+    // ⚠ 绝不能把带 ::-webkit-scrollbar 的类名加到 .ds-scroll-area 上：会唤醒它被隐藏的原生条。
+    const CLS_SCROLL_WRAPPER = 'ds-table-scroll-wrapper';
+    const CLS_SCROLL_HOST = 'ds-table-scroll-host';
+    const _scrollHostOf = new WeakMap();   // table → 当前挂了类名的容器
+
     function setTableScrollHost(table, needScroll) {
-        const host = table.closest('.ds-scroll-area') || table.parentElement;
-        if (!host) return;
         if (needScroll) {
-            if (host.dataset.dsOrigMaxWidth === undefined) {
-                host.dataset.dsOrigMaxWidth = host.style.maxWidth || '';
+            const wrapper = table.closest('.markdown-table-wrapper');
+            if (wrapper) {
+                wrapper.classList.add(CLS_SCROLL_WRAPPER);
+                wrapper.classList.remove(CLS_SCROLL_HOST);
+                _scrollHostOf.set(table, wrapper);
+                return;
             }
-            host.style.maxWidth = '100%';
-            host.classList.add('ds-table-scroll-host');
-        } else {
-            host.classList.remove('ds-table-scroll-host');
-            if (host.dataset.dsOrigMaxWidth !== undefined) {
-                host.style.maxWidth = host.dataset.dsOrigMaxWidth;
-                delete host.dataset.dsOrigMaxWidth;
-                host.scrollLeft = 0;
+            const shell = table.closest('.ds-scroll-area') || table.parentElement;
+            if (!shell) return;
+            if (shell.dataset.dsOrigMaxWidth === undefined) {
+                shell.dataset.dsOrigMaxWidth = shell.style.maxWidth || '';
             }
+            shell.style.maxWidth = '100%';
+            shell.classList.add(CLS_SCROLL_HOST);
+            shell.classList.remove(CLS_SCROLL_WRAPPER);
+            _scrollHostOf.set(table, shell);
+            return;
         }
+        const prev = _scrollHostOf.get(table);
+        if (!prev) return;
+        prev.classList.remove(CLS_SCROLL_WRAPPER, CLS_SCROLL_HOST);
+        if (prev.dataset.dsOrigMaxWidth !== undefined) {
+            prev.style.maxWidth = prev.dataset.dsOrigMaxWidth;
+            delete prev.dataset.dsOrigMaxWidth;
+            prev.scrollLeft = 0;
+        }
+        _scrollHostOf.delete(table);
     }
 
     function applyTableStyles(table) {
@@ -2293,21 +2361,23 @@
                 fill: tableFill === 'fill',
                 overflow: tableOverflow,
             });
-            const total = plan.widths.reduce((a, b) => a + b, 0) + TABLE_CELL_FIXED * cols;
-            // 溢出模式下总宽本就超过容器，不做取整补偿；其余模式精确对齐目标宽，
-            // 避免「列宽总和比容器多 1px → 冒出一条无意义的横向滚动条」
+            // 列宽落盘时用 ceil，取整后的总和会比浮点总和大 0~n px。若表格宽度仍按浮点总宽给，
+            // 浏览器会把列按比例压回去（实测每列少 0.5px，内容重新差一丝折行）。
+            // 故表格宽度一律按「取整后的实际总和」pxTotal 来定。
+            const pxTotal = plan.widths.reduce((a, w) => a + Math.max(1, Math.ceil(w - 0.01)), 0)
+                + TABLE_CELL_FIXED * cols;
             const targetTotal = plan.overflow
                 ? 0
-                : (tableFill === 'compact' ? Math.min(avail, total) : avail);
+                : (tableFill === 'compact' ? Math.min(avail, pxTotal) : avail);
             applyColGroup(table, plan.widths, targetTotal);
             if (plan.overflow) {
                 // 每个列宽不低于可读下限，整表溢出 → 由最近的滚动壳承担横向滚动
-                table.style.width = total + 'px';
-                table.style.minWidth = total + 'px';
+                table.style.width = pxTotal + 'px';
+                table.style.minWidth = pxTotal + 'px';
                 table.style.maxWidth = 'none';
             } else if (tableFill === 'compact') {
                 // 内容紧凑：表格随内容收窄，上限仍为容器宽
-                table.style.width = Math.min(avail, total) + 'px';
+                table.style.width = Math.min(avail, pxTotal) + 'px';
                 table.style.minWidth = '';
                 table.style.maxWidth = avail + 'px';
             } else {
@@ -2329,20 +2399,28 @@
 
         // 所有处理完成，显示表格
         table.style.opacity = '1';
+        // 表格宽度变了，导出按钮的跟随偏移需要重算
+        syncTableButtonPositions();
     }
 
     // 深拷贝表格并清洗脚本注入的内联样式/辅助节点，供各导出格式（PNG/CSV/MD）复用；
     // 使导出内容回归“auto”布局、不污染页面 DOM，也避免各导出路径各自复制一份清洗逻辑。
-    function getCleanTableClone(table) {
+    // opts.keepColGroup = true 时保留 <colgroup>（PNG 需要，用于复现页面的列宽分配），
+    // 此时调用方负责把列宽换算到目标宽度并显式设置 table 宽度。
+    function getCleanTableClone(table, opts) {
+        const keepColGroup = !!(opts && opts.keepColGroup);
         const clone = table.cloneNode(true);
         // 恢复默认可见性，并移除导出按钮容器与脚本注入标记
         clone.style.opacity = '1';
         const btns = clone.querySelector('.table-internal-buttons');
         if (btns) btns.remove();
         clone.removeAttribute('data-internal-buttons-added');
-        // 移除列宽落盘（<colgroup> 是脚本注入的，导出应回到浏览器自然布局）
-        const cg = clone.querySelector('colgroup');
-        if (cg) cg.remove();
+        // 默认移除列宽落盘（<colgroup> 是脚本注入的，CSV/MD 只需要文本）；
+        // PNG 走 keepColGroup，保留页面上的列宽比例。
+        if (!keepColGroup) {
+            const cg = clone.querySelector('colgroup');
+            if (cg) cg.remove();
+        }
         // 清洗 applyTableStyles 注入的内联样式（含 fixed 布局相关），让导出内容用到干净样式
         clone.style.tableLayout = '';
         clone.style.width = '';
@@ -2416,19 +2494,50 @@
         return document.body.classList.contains('dark') ? '#1a1a22' : '#ffffff';
     }
 
+    // 把克隆表格的列宽从「页面宽度」等比换算到「导出宽度」。
+    // 逐列取整后把误差补到最后一列，保证 Σcol 精确等于目标宽度（否则导出图会出现 1px 溢出）。
+    // 返回实际写入的列宽数组（便于测试与调试）；无 colgroup 时返回空数组。
+    function scaleCloneColumns(clone, srcW, targetW) {
+        const colEls = [...clone.querySelectorAll('col')];
+        if (!colEls.length) return [];
+        const k = targetW / Math.max(1, srcW);
+        const out = [];
+        let acc = 0;
+        colEls.forEach((col, i) => {
+            const w = parseFloat(col.style.width);
+            if (!isFinite(w) || w <= 0) return;
+            const scaled = (i === colEls.length - 1)
+                ? Math.max(1, targetW - acc)
+                : Math.max(1, Math.round(w * k));
+            col.style.width = scaled + 'px';
+            acc += scaled;
+            out.push(scaled);
+        });
+        clone.style.width = targetW + 'px';
+        clone.style.tableLayout = 'fixed';
+        return out;
+    }
+
     async function exportTableAsPNG(table) {
         if (!window.html2canvas) { alert('html2canvas 未加载'); return; }
         let iframe = null;
         try {
-            // 深拷贝表格并清洗注入样式（PNG/CSV/MD 共用导出主体）
-            const clone = getCleanTableClone(table);
+            // 导出宽度：与页面所见 1:1（页面列宽来自脚本的 <colgroup>）；
+            // 超过上限时等比缩小，避免超宽表生成过大的画布。
+            const srcW = Math.max(1, Math.round(table.getBoundingClientRect().width));
+            const targetW = Math.min(srcW, TABLE_EXPORT_MAX_WIDTH);
+
+            // 深拷贝表格：保留 colgroup，使导出图的列宽分配与页面一致
+            const clone = getCleanTableClone(table, { keepColGroup: true });
+            scaleCloneColumns(clone, srcW, targetW);
 
             // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）；传入源表格以便抄其单元格文字色
             const styles = collectTableStyles(table);
 
-            // 构建隔离 iframe
+            // 构建隔离 iframe：宽度按导出目标宽度给足（含 body 左右 margin 16×2）
             iframe = document.createElement('iframe');
-            iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:800px;height:600px;';
+            iframe.style.cssText =
+                'position:fixed;top:-9999px;left:-9999px;width:' + (targetW + 32) + 'px;height:600px;';
             iframe.srcdoc = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>${styles}</style></head>
 <body style="margin:16px;">${clone.outerHTML}</body></html>`;
@@ -2709,7 +2818,36 @@
 
         bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
         table.appendChild(bc);
+        syncTableButtonPositions();
     }
+
+    // 导出按钮跟随可视区：按钮是 absolute right:12（贴表格右边缘），
+    // 表格一旦横向溢出，按钮就被推到滚动容器之外，必须先滚到最右才看得见。
+    // 这里在滚动/重排后把按钮组反向平移，使其始终停在**可视区**右下角：
+    //   overflow = scrollWidth − clientWidth（真实可滚范围，不能用 table.offsetWidth 代替：
+    //              滚动壳带 padding 时两者会差出几百 px，实测 923 vs 1388）
+    //   tx = scrollLeft − overflow
+    // 不溢出时 tx = 0（保持原位置）。用 rAF 合帧，避免滚动时每帧多次重排。
+    let _btnSyncRaf = null;
+    function syncTableButtonPositions() {
+        if (_btnSyncRaf) return;
+        _btnSyncRaf = requestAnimationFrame(() => {
+            _btnSyncRaf = null;
+            document.querySelectorAll('.table-internal-buttons').forEach(bc => {
+                const table = bc.parentElement;
+                if (!table) return;
+                const host = table.closest('.ds-scroll-area');
+                if (!host) return;
+                const overflow = host.scrollWidth - host.clientWidth;
+                if (overflow > 0) {
+                    bc.style.transform = 'translateX(' + (host.scrollLeft - overflow) + 'px)';
+                } else if (bc.style.transform) {
+                    bc.style.transform = '';
+                }
+            });
+        });
+    }
+    document.addEventListener('scroll', syncTableButtonPositions, true);
 
     // 表格指纹追踪：记录每个表格的稳定计数，连续 2 次指纹不变即视为稳定
     const _tableFingerprints = new WeakMap();  // table → { fp, count, firstSeen }
@@ -6246,7 +6384,10 @@
         // resize 节流处理表格
         window.addEventListener('resize', () => {
             clearTimeout(window._resizeFix);
-            window._resizeFix = setTimeout(processAllTables, 100);
+            window._resizeFix = setTimeout(() => {
+                processAllTables();
+                syncTableButtonPositions();
+            }, 100);
         });
     }
 
