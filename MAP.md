@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.6.0）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.6.1）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -340,6 +340,29 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 - 预览在 **Shadow DOM** 内渲染（`renderPreview` 复用 `buildShotCss` + `buildShotDom`），隔离官网 `.token` 规则；`requestAnimationFrame` 里按容器宽等比 `scale` 并同步 `wrap` 尺寸；
 - 任一改动 → 30ms 防抖 `refreshPreview()` → 重渲染预览 + `savePrefs(opts)` 落库 `deepseek_code_image_prefs`；
 - `_busy` 防重入（导出中禁用两按钮）；`Esc` / 点遮罩 / 关闭按钮退出，`closeDialog` 清空 shadowRoot。
+
+### 5.9 统一控制面板（`openControlPanel` + 控件工厂）
+
+**构建**：单函数内联建整棵树，每次打开重建（`overlay.remove()` 后重新生成，避免状态残留）。
+左侧导航 `NAV_ITEMS`(9) + `NAV_EXTRA`(2) 与右侧 `sections`(11) 是两张并列表，key 一一对应；
+分区内容统一包进 `.ds-p-card`。设置项一律由控件工厂产出行式 `.ds-setting-item`：
+`createSettingRow`（外壳）/ `createNumberSetting` / `createToggleSetting` / `createSelectSetting`。
+
+**依赖置灰（v5.6.1 重做）**：`createSettingRow` 的第 4 个参数接受
+**布尔**（构建时定值）或**函数**（依父开关动态求值）。函数形态登记进 `_panelDepWatchers`，
+任何控件变更后由 `refreshPanelDeps()` → `applyDepState(el, off)` 统一重算类名、`aria-disabled`
+与控件本体的 `disabled`。**不再**用「关面板 + 延时重开」刷新置灰态（那会打回第一页导航、丢输入焦点）。
+面板重建时先清空 `_panelDepWatchers`，否则会持有已移除节点。
+
+**下拉展开方向**：`.ds-p-scroll` 是 `overflow-y:auto`，会整块裁掉向下展开的下拉。
+展开时测 `dropdown.offsetHeight` 与滚动区可视底部，下方不足而上方便够 → 加 `drop-up`
+（`top:auto; bottom:calc(100% + 6px)`）向上展开。
+
+**令牌**：面板用 `--dsp-*`（挂 `.ds-panel`，深色由 `body.dark .ds-panel` 覆盖），
+导出弹窗用 `--ds-md-*`（挂 `body`）。两套**各自独立定义、不互相 var 引用**（面板不反向依赖导出功能），
+语义等价项靠 `audit-panel-tokens.js` 断言同值（v5.6.1 起纳入 `run-all-verify` 第 ⑫ 项）。
+`ctrl-bg↔surface` / `content-bg↔surface-2` 属语义不同（弹窗=遮罩上的半透明玻璃层，面板=实色分层容器），
+深色必然不等，审计只打印对照不断言。
 
 ## 6. 典型运行序列
 
