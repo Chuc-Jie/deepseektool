@@ -28,32 +28,7 @@
 - 新增存储键 `deepseek_wide_screen_level`（默认 `standard`）。
   **未新增** `@grant` / `@require` / `@match`。
 
-
-## v5.6.2 (2026-10-17)
-
-### 修复 · 表格宽度不跟随消息区宽度（宽屏模式 / 窗口缩放）
-
-- **症状**：关闭宽屏后，表格仍保持宽屏时的宽度，右侧溢出正文区并被裁切——实测表格 912px 卡在 752px 的
-  正文区里，右溢出 **160px**、右列文字被削、底部冒出横向滚动条；导出按钮同步错位，右缘落到正文区外
-  **204px**（悬在右侧留白上）。窗口缩放、浏览器缩放（Ctrl ±）、侧栏收放同样不重算。
-- **根因**：v5.6.0 把表格宽度从「百分比」改成**绝对 px 快照**（`table.style.width` + `<colgroup>` 逐列 px），
-  却没有为「容器容量变化」补上失效机制：
-  ① `applyWideScreen` 只做 `classList.toggle('ds-wide-screen')`；
-  ② DOM 观察器是 `observe(body, { childList: true })`，不监听 attributes，且 class 挂在 `<html>` 上；
-  ③ `processAllTables` 的指纹只含「行数:单元格数」，宽度变化不在指纹内 —— 已 `done` 的表格被直接 `return`。
-  三者叠加 ⇒ 容量变了 160px，表格一无所知。
-- **修复**：新增 `invalidateTableLayout()` —— 先清除 `_tableFingerprints` 的 done 标记，再 `processAllTables()`
-  （走「首次见到」分支立即重排），最后 `syncTableButtonPositions()`；在 `applyWideScreen`（值真变时，
-  用 `changed` 判断避免初始化多跑一轮）与 `resize` 回调两处调用。
-  `resize` 此前调的是裸 `processAllTables()`，被同一处 `return` 短路，**长期空转**。
-- **对照**：面板「恢复默认设置」是 `applyWideScreen(false)` 后接全量 `applyTableStyles`，本来就没问题 ——
-  同一动作两条路径结果不同，证明是遗漏而非设计。
-- **实测**（宽屏 1000 ↔ 840、`.ds-markdown` 912 ↔ 752）：
-  关闭前 912px / 溢出 0；关闭后仍 912px / 溢出 +160；
-  按新宽度重算后 **752px / 溢出 0 / 列宽 246·256·250**，按钮回到「表格右缘 +12px 桥接区」。
-- **守卫**：新增 `audit-table-width-invalidation.js`（第 ⑬ 项，6 条断言 A–F），反向对照取修复前副本
-  ⇒ **FAIL=6**，确认断言真的在检查有效条件；`run-all-verify.js` 现为 13 项 + 版本核对。
-### 修复 · 表格横向滚动的两处显示问题（老结构 `.ds-scroll-area`）
+### 修复 · 表格横向滚动的两处显示问题（老结构 `.ds-scroll-area`，随本版发布）
 
 - **症状一：滚动条常显**。溢出表格下方一直挂着一条灰色横条，像装饰线浮在正文里；
   同一对话里「思考区」的宽表格却正常。
@@ -81,6 +56,31 @@
   自绘条 computed `background` = `rgba(0,0,0,0)`，悬停规则可达（同选择器写 0.34 即时生效）。
 - **未新增** `@grant` / `@require` / `@match` / 存储键，无新增设置项。
 
+
+## v5.6.2 (2026-10-17)
+
+### 修复 · 表格宽度不跟随消息区宽度（宽屏模式 / 窗口缩放）
+
+- **症状**：关闭宽屏后，表格仍保持宽屏时的宽度，右侧溢出正文区并被裁切——实测表格 912px 卡在 752px 的
+  正文区里，右溢出 **160px**、右列文字被削、底部冒出横向滚动条；导出按钮同步错位，右缘落到正文区外
+  **204px**（悬在右侧留白上）。窗口缩放、浏览器缩放（Ctrl ±）、侧栏收放同样不重算。
+- **根因**：v5.6.0 把表格宽度从「百分比」改成**绝对 px 快照**（`table.style.width` + `<colgroup>` 逐列 px），
+  却没有为「容器容量变化」补上失效机制：
+  ① `applyWideScreen` 只做 `classList.toggle('ds-wide-screen')`；
+  ② DOM 观察器是 `observe(body, { childList: true })`，不监听 attributes，且 class 挂在 `<html>` 上；
+  ③ `processAllTables` 的指纹只含「行数:单元格数」，宽度变化不在指纹内 —— 已 `done` 的表格被直接 `return`。
+  三者叠加 ⇒ 容量变了 160px，表格一无所知。
+- **修复**：新增 `invalidateTableLayout()` —— 先清除 `_tableFingerprints` 的 done 标记，再 `processAllTables()`
+  （走「首次见到」分支立即重排），最后 `syncTableButtonPositions()`；在 `applyWideScreen`（值真变时，
+  用 `changed` 判断避免初始化多跑一轮）与 `resize` 回调两处调用。
+  `resize` 此前调的是裸 `processAllTables()`，被同一处 `return` 短路，**长期空转**。
+- **对照**：面板「恢复默认设置」是 `applyWideScreen(false)` 后接全量 `applyTableStyles`，本来就没问题 ——
+  同一动作两条路径结果不同，证明是遗漏而非设计。
+- **实测**（宽屏 1000 ↔ 840、`.ds-markdown` 912 ↔ 752）：
+  关闭前 912px / 溢出 0；关闭后仍 912px / 溢出 +160；
+  按新宽度重算后 **752px / 溢出 0 / 列宽 246·256·250**，按钮回到「表格右缘 +12px 桥接区」。
+- **守卫**：新增 `audit-table-width-invalidation.js`（第 ⑬ 项，6 条断言 A–F），反向对照取修复前副本
+  ⇒ **FAIL=6**，确认断言真的在检查有效条件；`run-all-verify.js` 现为 13 项 + 版本核对。
 
 ## v5.6.1 (2026-10-17)
 

@@ -145,8 +145,8 @@ flowchart LR
 - **横向滚动：官网有两代结构，分别处理**。
   ① **`.markdown-table-wrapper`**（新）：表格过宽时官网自动套一层，`overflow-x:auto` + **原生滚动条**（实测 `sbH=15px`）。它是表格专用容器、纵向不溢出（`scrollHeight === clientHeight`），因此可以直接用 `::-webkit-scrollbar` 美化（只声明 `height`，实测 15 → 9px），宽度约束由官网负责，不改它的 `max-width`。
   ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**默认全透明**）。**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
-  ⚠ **自绘条不能无条件上色**（v5.6.2 修）：它的隐藏手段就是 `background: transparent`（隐形热区，`display` 只按是否溢出开关），v5.6.0 曾用 `!important` 涂成不透明 → 变成一条常显灰条横贯正文。现改为默认不设 background，仅 `:hover` / `:focus-within` 显示 `rgba(128,128,128,.34)`、拖动时紫强调。
-  ⚠ **老宿主带「全出血」padding**（v5.6.2 修）：官网给 `.ds-scroll-area` 设 `padding-left 490.5px + margin-left -490.5px`，让宽表格能滚进左右留白。但 **padding 属于滚动容器的可视区**——滚进去的内容不会被 `overflow` 裁掉，于是表格画在正文左侧留白上（实测滚 300px 时左缘 451px vs 正文 751px）。且 `max-width:100%` 在 `content-box` 下只约束内容盒，padding 仍额外加出去（`752+490.5+54=1297`），等于没收窄。故给 `.ds-table-scroll-host` 把 `padding-left/right` 与 `margin-left` 归零，让裁剪边界回到正文宽（实测 1297 → 752）。
+  ⚠ **自绘条不能无条件上色**（v5.7.0 修）：它的隐藏手段就是 `background: transparent`（隐形热区，`display` 只按是否溢出开关），v5.6.0 曾用 `!important` 涂成不透明 → 变成一条常显灰条横贯正文。现改为默认不设 background，仅 `:hover` / `:focus-within` 显示 `rgba(128,128,128,.34)`、拖动时紫强调。
+  ⚠ **老宿主带「全出血」padding**（v5.7.0 修）：官网给 `.ds-scroll-area` 设 `padding-left 490.5px + margin-left -490.5px`，让宽表格能滚进左右留白。但 **padding 属于滚动容器的可视区**——滚进去的内容不会被 `overflow` 裁掉，于是表格画在正文左侧留白上（实测滚 300px 时左缘 451px vs 正文 751px）。且 `max-width:100%` 在 `content-box` 下只约束内容盒，padding 仍额外加出去（`752+490.5+54=1297`），等于没收窄。故给 `.ds-table-scroll-host` 把 `padding-left/right` 与 `margin-left` 归零，让裁剪边界回到正文宽（实测 1297 → 752）。
   容器选择用 `table.closest('.markdown-table-wrapper')` 优先，回退 `.ds-scroll-area`；两种类名 `.ds-table-scroll-wrapper` / `.ds-table-scroll-host` 分开，避免把 webkit 规则误加到老容器上。
 - **溢出兜底 `setTableScrollHost`**：只给该表格最近的 `.ds-scroll-area` 加 `max-width:100%`（让超宽表格真正溢出而不是把壳撑大），退出时还原原值并复位 `scrollLeft`。不改 `overflow`、不挂类名。
 - **配色**：由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；完成后 `opacity:1` 淡入（消除闪烁）。
