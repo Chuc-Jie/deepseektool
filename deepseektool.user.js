@@ -2246,7 +2246,26 @@
     // ---- 列宽模型：真机实测（chat.deepseek.com，14px，dpr 1.25）----
     // 单元格是 content-box：padding 12px 16px + border 1px 不占 width，每列固定横向开销 34px，
     // 因此「百分比总和 100%」必然超出表宽并被浏览器等比压缩（8 列时 272px、占表宽 32.4%）。
-    const TABLE_CELL_FIXED = 34;
+    const TABLE_CELL_FIXED = 34;     // 兜底值：官网实测 padding 12px 16px + border 1px
+
+    // 单元格固定横向开销（padding + border）。官网改版 / 窄屏 / 主题可能改变 padding，
+    // 写死 34 会让所有列宽系统性偏差，故优先从首行单元格的计算样式读取。
+    function getTableCellFixed(table) {
+        const measure = el => {
+            if (!el) return 0;
+            try {
+                const cs = getComputedStyle(el);
+                return (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+                    + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+            } catch (e) {
+                return 0;
+            }
+        };
+        const th = measure(table.querySelector('th'));
+        const td = measure(table.querySelector('td'));
+        const v = Math.max(th, td);
+        return v > 0 ? Math.round(v) : TABLE_CELL_FIXED;
+    }
     const TABLE_COL_MIN = 42;        // 任何列的可读下限（≈3 个汉字）
     const TABLE_COL_COMFORT = 96;    // 目标可读宽度（≈6.8 个汉字）
     const TABLE_OVERFLOW_TOLERANCE = 1.08;  // 超出预算 8% 以上才切横向滚动，吸收临界抖动
@@ -2470,7 +2489,8 @@
     // targetTotal：期望的列宽总和（px）。逐列 Math.round 会产生 ±n/2 的累积误差，
     // 超出容器 1px 就足以让官网 .ds-scroll-area 的 overflow-x:auto 冒出一条无意义的滚动条
     // （实测 77+683+153=913 vs 容器 912）。这里把误差补到最长的一列，视觉不可见。
-    function applyColGroup(table, contentWidths, targetTotal) {
+    function applyColGroup(table, contentWidths, targetTotal, cellFixed) {
+        const fixed = cellFixed > 0 ? cellFixed : TABLE_CELL_FIXED;
         let cg = table.querySelector(':scope > colgroup');
         if (!cg) {
             cg = document.createElement('colgroup');
@@ -2479,13 +2499,13 @@
         while (cg.firstChild) cg.removeChild(cg.firstChild);
         // 取整用 ceil（-0.01 防整数被进位）：Math.round 可能少 0.5px，
         // 恰好等于文本宽度的列会因为这点误差折行；ceil 保证不小于分配值。
-        const px = contentWidths.map(w => Math.max(1, Math.ceil(w - 0.01)) + TABLE_CELL_FIXED);
+        const px = contentWidths.map(w => Math.max(1, Math.ceil(w - 0.01)) + fixed);
         if (targetTotal > 0) {
             const diff = Math.round(targetTotal) - px.reduce((a, b) => a + b, 0);
             if (diff !== 0) {
                 let idx = 0;
                 for (let i = 1; i < px.length; i++) if (px[i] > px[idx]) idx = i;
-                px[idx] = Math.max(TABLE_CELL_FIXED + 1, px[idx] + diff);
+                px[idx] = Math.max(fixed + 1, px[idx] + diff);
             }
         }
         px.forEach(w => {
@@ -2561,6 +2581,7 @@
 
         const avail = getTableAvailableWidth(table);
         if (!avail) return;
+        const cellFixed = getTableCellFixed(table);
 
         // 虚拟列表容器放开裁剪（表格变宽时不被截断）
         const vc = document.querySelector('.ds-virtual-list-visible-items');
@@ -2587,7 +2608,7 @@
             if (tableFill === 'compact') {
                 const nat = measureColumnNaturals(table, cols);
                 const widest = nat ? nat.reduce((a, b) => Math.max(a, b), 0) : 0;
-                const need = widest > 0 ? (widest + TABLE_CELL_FIXED) * cols : avail;
+                const need = widest > 0 ? (widest + cellFixed) * cols : avail;
                 table.style.width = Math.min(avail, Math.round(need)) + 'px';
             } else {
                 table.style.width = avail + 'px';
@@ -2596,12 +2617,12 @@
             table.style.maxWidth = avail + 'px';
             setTableScrollHost(table, false);
         } else {
-            const budget = Math.max(0, avail - TABLE_CELL_FIXED * cols);
+            const budget = Math.max(0, avail - cellFixed * cols);
             const natural = measureColumnNaturals(table, cols);
             if (!natural) {
                 // 取不到度量环境（极端情况）：退回均分，保证表格可见且不溢出
-                const per = Math.max(1, (avail - TABLE_CELL_FIXED * cols) / cols);
-                applyColGroup(table, new Array(cols).fill(per), avail);
+                const per = Math.max(1, (avail - cellFixed * cols) / cols);
+                applyColGroup(table, new Array(cols).fill(per), avail, cellFixed);
                 table.style.width = avail + 'px';
                 table.style.minWidth = '';
                 table.style.maxWidth = avail + 'px';
@@ -2617,11 +2638,11 @@
             // 浏览器会把列按比例压回去（实测每列少 0.5px，内容重新差一丝折行）。
             // 故表格宽度一律按「取整后的实际总和」pxTotal 来定。
             const pxTotal = plan.widths.reduce((a, w) => a + Math.max(1, Math.ceil(w - 0.01)), 0)
-                + TABLE_CELL_FIXED * cols;
+                + cellFixed * cols;
             const targetTotal = plan.overflow
                 ? 0
                 : (tableFill === 'compact' ? Math.min(avail, pxTotal) : avail);
-            applyColGroup(table, plan.widths, targetTotal);
+            applyColGroup(table, plan.widths, targetTotal, cellFixed);
             if (plan.overflow) {
                 // 每个列宽不低于可读下限，整表溢出 → 由最近的滚动壳承担横向滚动
                 table.style.width = pxTotal + 'px';
