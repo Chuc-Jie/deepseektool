@@ -152,7 +152,10 @@
         overlay.id = 'ds-control-panel-overlay';
         overlay.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.45); backdrop-filter: blur(6px);
+            background: rgba(8, 13, 20, .55);
+            -webkit-backdrop-filter: saturate(160%) blur(4px);
+            backdrop-filter: saturate(160%) blur(4px);
+            animation: dsPanelOverlayIn 180ms cubic-bezier(.2, 0, 0, 1) forwards;
             z-index: 10001; display: flex; align-items: center; justify-content: center;
         `;
 
@@ -717,8 +720,23 @@
         trigger.addEventListener('click', (e) => {
             e.stopPropagation();
             // 关闭所有其他下拉
-            document.querySelectorAll('.ds-custom-select-dropdown').forEach(d => d.style.display = 'none');
+            document.querySelectorAll('.ds-custom-select-dropdown').forEach(d => {
+                d.style.display = 'none';
+                d.classList.remove('drop-up');
+            });
             dropdown.style.display = 'block';
+            dropdown.classList.remove('drop-up');
+            // 展开方向自适应：下方空间不足而上方便够时向上展开。
+            // 否则下拉会被 .ds-p-scroll（overflow-y:auto）整块裁掉 —— 实测靠底部的
+            // 「表格宽度 / 列过多时」在贴底位置展开时 0 个选项可见，看起来像"点了没反应"。
+            const GAP = 6;
+            const host = container.getBoundingClientRect();
+            const need = dropdown.offsetHeight;
+            const scroller = container.closest('.ds-p-scroll');
+            const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+            if (host.bottom + GAP + need > box.bottom && host.top - GAP - need >= box.top) {
+                dropdown.classList.add('drop-up');
+            }
         });
 
         container.appendChild(trigger);
@@ -863,45 +881,59 @@
         .ds-panel {
             width: min(920px, 94vw); height: min(640px, 84vh);
             display: flex; overflow: hidden;
-            border-radius: 8px;
-            box-shadow: 0 12px 40px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.08);
+            border-radius: 16px;
+            box-shadow: var(--dsp-shadow-dialog);
             font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            /* 浅色默认值 */
-            --dsp-content-bg: #f7f8fa;
+            /* 浅色令牌 —— 与对话导出弹窗（--ds-md-*，定义在 body 上）**同源同值**：
+               主色 #1b61c9、边框 #e0e2e6、表面 #fff / #f8fafc、蓝调极轻阴影、统一 cubic-bezier。
+               两套变量各自独立定义（不互相 var 引用，避免设置面板反向依赖导出功能），
+               取值靠本注释对齐 —— 改动任一侧须同步另一侧，否则会重新漂移。 */
+            --dsp-content-bg: #f8fafc;
             --dsp-topbar-bg: #ffffff;
-            --dsp-title: #0f172a;
-            --dsp-text: #1e293b;
-            --dsp-sub: #64748b;
-            --dsp-line: #f0f0f0;
+            --dsp-title: #181d26;
+            --dsp-text: #181d26;
+            --dsp-sub: rgba(24, 29, 38, .66);
+            --dsp-line: #ececef;
             --dsp-ctrl-bg: #ffffff;
-            --dsp-ctrl-border: #d9d9d9;
-            --dsp-accent: #1677ff;
-            --dsp-accent-deep: #0958d9;
-            --dsp-accent-soft: rgba(22,119,255,.08);
-            --dsp-switch-off: #cbd5e1;
-            --dsp-scroll-thumb: rgba(100,116,139,.3);
-            --dsp-scroll-thumb-hover: rgba(100,116,139,.52);
-            --dsp-opt-hover: rgba(22,119,255,.06);
-            --dsp-opt-active: rgba(22,119,255,.12);
+            --dsp-ctrl-border: #e0e2e6;
+            --dsp-accent: #1b61c9;
+            --dsp-accent-deep: #164fa8;
+            --dsp-ring: rgba(27, 97, 201, .22);
+            --dsp-switch-knob: #ffffff;
+            --dsp-shadow-xs: 0 0 1px rgba(0, 0, 0, .18), 0 1px 2px rgba(45, 127, 249, .18);
+            --dsp-shadow-sm: 0 0 1px rgba(0, 0, 0, .18), 0 1px 3px rgba(45, 127, 249, .22);
+            --dsp-shadow-dialog: 0 0 1px rgba(0, 0, 0, .18), 0 12px 40px -12px rgba(45, 127, 249, .32);
+            --dsp-scroll-thumb: rgba(100, 116, 139, .3);
+            --dsp-scroll-thumb-hover: rgba(100, 116, 139, .52);
+            --dsp-opt-hover: rgba(27, 97, 201, .06);
+            --dsp-opt-active: rgba(27, 97, 201, .12);
             color: var(--dsp-text);
         }
         body.dark .ds-panel {
-            --dsp-content-bg: #1a1a24;
-            --dsp-topbar-bg: #1e1e2d;
-            --dsp-title: #f1f2f6;
-            --dsp-text: #e4e4e8;
-            --dsp-sub: rgba(255,255,255,.46);
-            --dsp-line: rgba(255,255,255,.08);
-            --dsp-ctrl-bg: rgba(255,255,255,.06);
-            --dsp-ctrl-border: rgba(255,255,255,.14);
-            --dsp-accent-soft: rgba(22,119,255,.24);
-            --dsp-switch-off: rgba(255,255,255,.22);
-            --dsp-scroll-thumb: rgba(255,255,255,.16);
-            --dsp-scroll-thumb-hover: rgba(255,255,255,.3);
-            --dsp-opt-hover: rgba(22,119,255,.16);
-            --dsp-opt-active: rgba(22,119,255,.3);
+            --dsp-content-bg: #0f1722;
+            --dsp-topbar-bg: #151f2e;
+            --dsp-title: #eef3fb;
+            --dsp-text: #eef3fb;
+            --dsp-sub: rgba(238, 243, 251, .66);
+            --dsp-line: rgba(216, 225, 240, .1);
+            --dsp-ctrl-bg: rgba(216, 225, 240, .06);
+            --dsp-ctrl-border: rgba(216, 225, 240, .14);
+            --dsp-ring: rgba(27, 97, 201, .22);
+            --dsp-switch-knob: #f1f5fb;
+            --dsp-shadow-xs: 0 0 1px rgba(0, 0, 0, .28), 0 1px 2px rgba(45, 127, 249, .24);
+            --dsp-shadow-sm: 0 2px 4px rgba(0, 0, 0, .34), 0 10px 24px -20px rgba(45, 127, 249, .22);
+            --dsp-shadow-dialog: 0 0 1px rgba(0, 0, 0, .4), 0 16px 48px -16px rgba(0, 0, 0, .62);
+            --dsp-scroll-thumb: rgba(255, 255, 255, .16);
+            --dsp-scroll-thumb-hover: rgba(255, 255, 255, .3);
+            --dsp-opt-hover: rgba(27, 97, 201, .18);
+            --dsp-opt-active: rgba(27, 97, 201, .32);
         }
         .ds-panel *, .ds-panel *::before, .ds-panel *::after { box-sizing: border-box; }
+
+        /* 面板入场 —— 与导出弹窗同款：遮罩 180ms 淡入、面板 280ms 缩放上浮（同一条 cubic-bezier） */
+        @keyframes dsPanelOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes dsPanelIn { from { opacity: 0; transform: scale(.94) translateY(16px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .ds-panel { animation: dsPanelIn 280ms cubic-bezier(.16, 1, .3, 1) forwards; }
 
         /* 左导航 — 深蓝渐变（两主题一致） */
         .ds-p-sidebar {
@@ -914,7 +946,7 @@
         }
         .ds-p-sidebar::-webkit-scrollbar { width: 5px; }
         .ds-p-sidebar::-webkit-scrollbar-track { background: transparent; }
-        .ds-p-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+        .ds-p-sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 999px; }
         .ds-p-logo {
             display: flex; align-items: center; gap: 10px;
             padding: 2px 10px 18px 12px; color: #fff;
@@ -931,20 +963,20 @@
         .ds-p-nav-ind {
             flex-shrink: 0; width: 3px; height: 24px; border-radius: 3px;
             margin: 0 8px 0 4px; background: transparent;
-            transition: background .2s ease;
+            transition: background-color 180ms cubic-bezier(.2, 0, 0, 1);
         }
         .ds-p-nav-bd {
             flex: 1; display: flex; align-items: center; gap: 10px;
-            padding: 9px 12px 9px 4px; border-radius: 6px;
+            padding: 9px 12px 9px 4px; border-radius: 8px;
             color: rgba(255,255,255,.62); font-size: 14px; font-weight: 500;
-            transition: background .18s ease, color .18s ease;
+            transition: background-color 180ms cubic-bezier(.2, 0, 0, 1), color 180ms cubic-bezier(.2, 0, 0, 1);
         }
         .ds-p-nav-ic { width: 18px; height: 18px; display: block; flex: none; }
         .ds-p-nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .ds-p-nav-divider { height: 1px; background: rgba(255,255,255,.08); margin: 8px 10px 10px 16px; flex-shrink: 0; }
         .ds-p-nav:hover .ds-p-nav-bd { background: rgba(255,255,255,.06); color: #fff; }
-        .ds-p-nav.active .ds-p-nav-ind { background: #4096ff; }
-        .ds-p-nav.active .ds-p-nav-bd { background: rgba(22,119,255,.26); color: #fff; }
+        .ds-p-nav.active .ds-p-nav-ind { background: #5b9bea; }
+        .ds-p-nav.active .ds-p-nav-bd { background: rgba(27, 97, 201, .34); color: #fff; }
 
         /* 右主区 */
         .ds-p-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--dsp-content-bg); }
@@ -955,11 +987,14 @@
             border-bottom: 1px solid var(--dsp-line);
         }
         .ds-p-close {
-            border: none; background: transparent; cursor: pointer;
-            color: var(--dsp-sub); font-size: 18px; line-height: 1;
-            padding: 6px 8px; border-radius: 6px; transition: background .15s, color .15s;
+            width: 32px; height: 32px; display: grid; place-items: center;
+            border: 0; background: transparent; cursor: pointer; padding: 0;
+            color: var(--dsp-sub); font-size: 15px; line-height: 1;
+            border-radius: 8px;
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
         }
-        .ds-p-close:hover { background: var(--dsp-accent-soft); color: var(--dsp-text); }
+        .ds-p-close:hover { background: var(--dsp-content-bg); color: var(--dsp-text); box-shadow: var(--dsp-shadow-xs); }
+        .ds-p-close:focus, .ds-p-close:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--dsp-ring); }
         .ds-p-scroll { flex: 1; overflow-y: auto; padding: 24px 24px 24px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
         .ds-p-scroll:hover { scrollbar-color: var(--dsp-scroll-thumb) transparent; }
         .ds-p-scroll::-webkit-scrollbar { width: 8px; }
@@ -973,15 +1008,15 @@
 
         /* 分区页 */
         .ds-p-page { display: none; }
-        .ds-p-page.active { display: block; animation: dsFadeUp .28s ease forwards; }
+        .ds-p-page.active { display: block; animation: dsFadeUp 280ms cubic-bezier(.16, 1, .3, 1) forwards; }
         @keyframes dsFadeUp {
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .ds-p-page h2 {
-            margin: 0 0 4px; font-size: 20px; font-weight: 700;
+            margin: 0 0 4px; font-size: 18px; font-weight: 600;
             display: flex; align-items: center; gap: 9px;
-            color: var(--dsp-title); letter-spacing: -.2px;
+            color: var(--dsp-title); letter-spacing: .1px;
             user-select: none; -webkit-user-select: none;
         }
         .ds-p-hic { width: 24px; height: 24px; flex: none; }
@@ -994,17 +1029,17 @@
         .ds-link-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 6px 0 2px; }
         .ds-link-card {
             display: flex; align-items: center; gap: 11px;
-            padding: 12px 14px; border-radius: 8px; text-decoration: none;
+            padding: 12px 14px; border-radius: 12px; text-decoration: none;
             background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
-            transition: border-color .15s, box-shadow .15s, transform .15s;
+            transition: border-color 250ms cubic-bezier(.2, 0, 0, 1), box-shadow 250ms cubic-bezier(.2, 0, 0, 1), transform 250ms cubic-bezier(.2, 0, 0, 1);
         }
-        .ds-link-card:hover { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-accent-soft); transform: translateY(-1px); }
+        .ds-link-card:hover { border-color: var(--dsp-accent); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
         .ds-link-card-ic { width: 24px; height: 24px; flex: none; }
         .ds-link-card-tx { min-width: 0; display: flex; flex-direction: column; }
         .ds-link-card-title { font-size: 14px; font-weight: 600; color: var(--dsp-text); line-height: 1.3; }
         .ds-link-card-desc { font-size: 12px; color: var(--dsp-sub); margin-top: 2px; line-height: 1.45; }
         .ds-p-sub {
-            font-size: 13px; color: var(--dsp-sub);
+            font-size: 13px; line-height: 1.5; color: var(--dsp-sub);
             padding-bottom: 0; margin-bottom: 16px;
             user-select: text;
         }
@@ -1012,7 +1047,7 @@
         .ds-p-card {
             background: var(--dsp-ctrl-bg);
             border: 1px solid var(--dsp-line);
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 2px 16px;
         }
 
@@ -1031,23 +1066,30 @@
         }
         .ds-setting-ctrl { flex-shrink: 0; margin-left: 12px; }
 
-        /* Switch（滑杆式） */
+        /* Switch（滑杆式）—— 与导出弹窗 .ds-md-switch 同构：
+           1px 描边 + color-mix 轨道底 + 品牌色选中态 + 统一 cubic-bezier 缓动 */
         .ds-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
         .ds-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
         .ds-slider {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background: var(--dsp-switch-off); transition: background .2s ease; border-radius: 24px;
+            background-color: color-mix(in srgb, var(--dsp-ctrl-border) 78%, var(--dsp-ctrl-bg) 22%);
+            border: 1px solid var(--dsp-ctrl-border);
+            border-radius: 12px;
+            transition: background-color 180ms cubic-bezier(.2, 0, 0, 1), border-color 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms cubic-bezier(.2, 0, 0, 1);
         }
+        /* 滑块沿用浅色：弹窗深色用 surface 作球色，在深色轨道上对比不足，此处保留可辨识度 */
         .ds-slider::before {
-            content: ""; position: absolute; height: 18px; width: 18px;
-            left: 3px; bottom: 3px; background: #fff; transition: transform .2s ease;
-            border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.22);
+            content: ""; position: absolute; top: calc(50% - 9px); left: 1px;
+            height: 18px; width: 18px; border-radius: 50%;
+            background: var(--dsp-switch-knob);
+            box-shadow: var(--dsp-shadow-xs);
+            transition: transform 180ms cubic-bezier(.2, 0, 0, 1);
         }
-        .ds-switch input:checked + .ds-slider { background: var(--dsp-accent); }
+        .ds-switch input:checked + .ds-slider { background-color: var(--dsp-accent); border-color: var(--dsp-accent); }
         .ds-switch input:checked + .ds-slider::before { transform: translateX(20px); }
-        .ds-switch input:focus-visible + .ds-slider { outline: 2px solid var(--dsp-accent); outline-offset: 2px; }
+        .ds-switch input:focus-visible + .ds-slider { outline: 0; box-shadow: 0 0 0 3px var(--dsp-ring); }
         /* 依赖项未开启 → 子开关置灰不可点（Ant Design disabled 语义：降透明度 + not-allowed） */
-        .ds-setting-item.dsDisabled { opacity: .5; }
+        .ds-setting-item.dsDisabled { opacity: .55; }
         .ds-setting-item.dsDisabled .ds-setting-title,
         .ds-setting-item.dsDisabled small { cursor: not-allowed; }
         .ds-switch input:disabled + .ds-slider { cursor: not-allowed; }
@@ -1055,41 +1097,44 @@
 
         /* 数字输入 / 单位 */
         .ds-setting-ctrl input[type="number"] {
-            width: 96px; padding: 7px 10px;
-            border: 1px solid var(--dsp-ctrl-border); border-radius: 6px;
+            width: 96px; padding: 9px 10px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
             background: var(--dsp-ctrl-bg); color: var(--dsp-text);
             font-size: 14px; font-family: inherit; outline: none;
-            transition: border-color .15s, box-shadow .15s;
+            transition: border-color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
         }
         .ds-setting-ctrl input[type="number"]:focus {
             border-color: var(--dsp-accent);
-            box-shadow: 0 0 0 3px var(--dsp-accent-soft);
+            box-shadow: 0 0 0 3px var(--dsp-ring);
         }
         .ds-panel-unit { font-size: 13px; color: var(--dsp-sub); }
 
-        /* 自定义下拉（深浅自适应） */
+        /* 自定义下拉（深浅自适应）—— 描边/圆角/焦点环与弹窗控件同源 */
         .ds-custom-select { position: relative; min-width: 178px; }
         .ds-custom-select-trigger {
-            width: 100%; padding: 8px 30px 8px 12px;
-            border: 1px solid var(--dsp-ctrl-border); border-radius: 6px;
+            width: 100%; padding: 9px 30px 9px 12px;
+            border: 1px solid var(--dsp-ctrl-border); border-radius: 8px;
             background: var(--dsp-ctrl-bg); color: var(--dsp-text);
             font-size: 14px; font-family: inherit; cursor: pointer;
-            text-align: left; outline: none; transition: border-color .15s, box-shadow .15s;
+            text-align: left; outline: none;
+            transition: border-color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat; background-position: right 11px center;
             -webkit-appearance: none; appearance: none;
         }
-        .ds-custom-select-trigger:focus { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-accent-soft); }
+        .ds-custom-select-trigger:focus { border-color: var(--dsp-accent); box-shadow: 0 0 0 3px var(--dsp-ring); }
         .ds-custom-select-dropdown {
-            position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10002;
+            position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 10002;
             background: var(--dsp-ctrl-bg); border: 1px solid var(--dsp-ctrl-border);
-            border-radius: 8px; overflow: hidden;
-            box-shadow: 0 6px 16px rgba(0,0,0,.12);
+            border-radius: 10px; overflow: hidden;
+            box-shadow: var(--dsp-shadow-sm), 0 8px 20px -12px rgba(0, 0, 0, .3);
             max-height: 210px; overflow-y: auto;
         }
+        /* 向上展开（下方空间不足时由 JS 加类）—— 避免被滚动容器裁掉 */
+        .ds-custom-select-dropdown.drop-up { top: auto; bottom: calc(100% + 6px); }
         .ds-custom-select-option {
             padding: 9px 12px; font-size: 14px; cursor: pointer;
-            color: var(--dsp-text); transition: background .1s;
+            color: var(--dsp-text); transition: background-color 120ms cubic-bezier(.2, 0, 0, 1);
         }
         .ds-custom-select-option:hover { background: var(--dsp-opt-hover); }
         .ds-custom-select-option.active { background: var(--dsp-opt-active); font-weight: 600; }
@@ -1106,22 +1151,26 @@
         }
         .ds-p-reset:hover { color: var(--dsp-accent); }
         .ds-p-btn {
-            padding: 8px 22px; border: none; border-radius: 6px;
+            padding: 10px 20px; border: 1px solid var(--dsp-accent); border-radius: 12px;
             background: var(--dsp-accent); color: #fff;
             font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
-            transition: background .15s;
+            box-shadow: var(--dsp-shadow-xs);
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), border-color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1), transform 120ms cubic-bezier(.2, 0, 0, 1);
         }
-        .ds-p-btn:hover { background: var(--dsp-accent-deep); }
+        .ds-p-btn:hover { background: var(--dsp-accent-deep); border-color: var(--dsp-accent-deep); box-shadow: var(--dsp-shadow-sm); }
+        .ds-p-btn:active { transform: scale(.98); }
+        .ds-p-btn:focus, .ds-p-btn:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--dsp-ring); }
 
-        /* 对话导出：设置页内的执行按钮 */
+        /* 对话导出：设置页内的执行按钮（次级描边按钮，与弹窗 .ds-md-dlg-cancel 同圆角/同缓动） */
         .ds-md-export-run {
-            padding: 8px 18px; border: 1px solid var(--dsp-accent); border-radius: 6px;
+            padding: 9px 18px; border: 1px solid var(--dsp-accent); border-radius: 12px;
             background: transparent; color: var(--dsp-accent);
-            font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
-            transition: background .15s, color .15s;
+            font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer;
+            transition: background-color 120ms cubic-bezier(.2, 0, 0, 1), color 120ms cubic-bezier(.2, 0, 0, 1), box-shadow 120ms cubic-bezier(.2, 0, 0, 1);
             white-space: nowrap;
         }
-        .ds-md-export-run:hover { background: var(--dsp-accent); color: #fff; }
+        .ds-md-export-run:hover { background: var(--dsp-accent); color: #fff; box-shadow: var(--dsp-shadow-xs); }
+        .ds-md-export-run:focus, .ds-md-export-run:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--dsp-ring); }
 
         /* ==================== 对话导出：勾选模式 + 两步模态框 ====================
            这些元素挂在 body 上（不在 .ds-panel 内），故不继承 --dsp-* 变量，
