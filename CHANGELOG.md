@@ -1,5 +1,58 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v5.6.2 (2026-10-17)
+
+### 修复 · 表格宽度不跟随消息区宽度（宽屏模式 / 窗口缩放）
+
+- **症状**：关闭宽屏后，表格仍保持宽屏时的宽度，右侧溢出正文区并被裁切——实测表格 912px 卡在 752px 的
+  正文区里，右溢出 **160px**、右列文字被削、底部冒出横向滚动条；导出按钮同步错位，右缘落到正文区外
+  **204px**（悬在右侧留白上）。窗口缩放、浏览器缩放（Ctrl ±）、侧栏收放同样不重算。
+- **根因**：v5.6.0 把表格宽度从「百分比」改成**绝对 px 快照**（`table.style.width` + `<colgroup>` 逐列 px），
+  却没有为「容器容量变化」补上失效机制：
+  ① `applyWideScreen` 只做 `classList.toggle('ds-wide-screen')`；
+  ② DOM 观察器是 `observe(body, { childList: true })`，不监听 attributes，且 class 挂在 `<html>` 上；
+  ③ `processAllTables` 的指纹只含「行数:单元格数」，宽度变化不在指纹内 —— 已 `done` 的表格被直接 `return`。
+  三者叠加 ⇒ 容量变了 160px，表格一无所知。
+- **修复**：新增 `invalidateTableLayout()` —— 先清除 `_tableFingerprints` 的 done 标记，再 `processAllTables()`
+  （走「首次见到」分支立即重排），最后 `syncTableButtonPositions()`；在 `applyWideScreen`（值真变时，
+  用 `changed` 判断避免初始化多跑一轮）与 `resize` 回调两处调用。
+  `resize` 此前调的是裸 `processAllTables()`，被同一处 `return` 短路，**长期空转**。
+- **对照**：面板「恢复默认设置」是 `applyWideScreen(false)` 后接全量 `applyTableStyles`，本来就没问题 ——
+  同一动作两条路径结果不同，证明是遗漏而非设计。
+- **实测**（宽屏 1000 ↔ 840、`.ds-markdown` 912 ↔ 752）：
+  关闭前 912px / 溢出 0；关闭后仍 912px / 溢出 +160；
+  按新宽度重算后 **752px / 溢出 0 / 列宽 246·256·250**，按钮回到「表格右缘 +12px 桥接区」。
+- **守卫**：新增 `audit-table-width-invalidation.js`（第 ⑬ 项，6 条断言 A–F），反向对照取修复前副本
+  ⇒ **FAIL=6**，确认断言真的在检查有效条件；`run-all-verify.js` 现为 13 项 + 版本核对。
+### 修复 · 表格横向滚动的两处显示问题（老结构 `.ds-scroll-area`）
+
+- **症状一：滚动条常显**。溢出表格下方一直挂着一条灰色横条，像装饰线浮在正文里；
+  同一对话里「思考区」的宽表格却正常。
+- **症状二：内容画到正文之外**。横向滚动时，滚出正文左边缘的内容没有消失，而是继续显示在左侧留白上
+  （实测滚 300px 时表格左缘在 451px，正文左边界 751px），看起来像表格浮在留白/顶层。
+- **根因（两处独立）**：
+  1. 官网把自绘条 `.ds-scroll-area__horizontal-bar` 做成「**背景全透明**的隐形热区」——
+     隐藏手段就是 `background: transparent`，`display` 只按是否溢出开关。v5.6.0 用 `!important`
+     无条件上色 `rgba(128,128,128,.34)`，把热区变成了常显的实体条。
+  2. 老结构宿主用 `padding-left 490.5px + margin-left -490.5px` 做「全出血」（让宽表格能滚进左右留白），
+     而 **padding 属于滚动容器的可视区**——滚进 padding 的内容不会被 `overflow` 裁掉。
+     我们的 `max-width: 100%` 在 `content-box` 下只约束内容盒，padding 仍额外加出去
+     （实测 `752 + 490.5 + 54 = 1297`），完全没起到收窄作用。
+- **为什么「思考中的表格正常」**：同一个对话里并存两套滚动结构——思考区表格被官网套了
+  `.markdown-table-wrapper`（原生条，走 ① 分支），普通消息里的表格没有 wrapper（走 ② 分支），
+  只有 ② 会撞上这两个问题。
+- **修复**：
+  1. 自绘条默认**不设** `background`（沿用官网透明），仅 `:hover` / `:focus-within` 时显示 0.34、
+     拖动时紫强调；
+  2. 给 `.ds-table-scroll-host` 把 `padding-left / padding-right / margin-left` 归零，让 `overflow`
+     的裁剪边界回到正文宽度——滚动时左侧滚出的部分被裁掉、右侧才进入。
+     该规则只挂在溢出表格的宿主上（不溢出时不加类），「紧凑」表格不受影响。
+- **实测**：修复后宿主 `clientWidth` 1297 → **752**（正好正文宽）、`scrollWidth` 1300、可滚 548px；
+  滚 300px 时表格左缘 451px 落在裁剪边界之外（不再可见），右缘 1751px 同样被裁；
+  自绘条 computed `background` = `rgba(0,0,0,0)`，悬停规则可达（同选择器写 0.34 即时生效）。
+- **未新增** `@grant` / `@require` / `@match` / 存储键，无新增设置项。
+
+
 ## v5.6.1 (2026-10-17)
 
 ### 修复 · 设置面板三处缺陷

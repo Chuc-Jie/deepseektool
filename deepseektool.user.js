@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.6.1
+// @version      5.6.2
 // @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
@@ -487,7 +487,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.6.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.6.2'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -825,7 +825,13 @@
     }
 
     function applyWideScreen(on) {
-        document.documentElement.classList.toggle('ds-wide-screen', on);
+        const html = document.documentElement;
+        const changed = html.classList.contains('ds-wide-screen') !== !!on;
+        html.classList.toggle('ds-wide-screen', on);
+        // 消息区最大宽度 1000 ↔ 840（实测），正文与表格的可用宽度随之增减 160px。
+        // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算 —— 否则关闭宽屏后表格溢进右侧留白。
+        // changed 判断避免初始化时多跑一轮（init 随后还会执行 processAllTables）。
+        if (changed) invalidateTableLayout();
     }
 
     // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
@@ -1675,13 +1681,31 @@
             background: rgba(79,70,229,0.62); background-clip: padding-box;
         }
 
+        /* 老结构的滚动宿主：官网用「padding-left 490.5px + margin-left -490.5px」做「全出血」，
+           让宽表格可以滚进左右留白。但 **padding 属于滚动容器的可视区**，滚进去的内容不会被裁掉
+           ⇒ 表格会画在正文之外的留白上（实测滚 300px 时表格左缘在 451px，而正文左边界 751px，
+           看起来像浮在留白/顶层）。这里把 padding 与 margin 归零，让 overflow 的裁剪边界回到
+           正文宽度：滚动时左侧滚出的部分被裁掉、右侧才进入，与普通滚动一致。
+           只在溢出表格的宿主上生效（不溢出时不加这个类），不影响「紧凑」表格。 */
+        .ds-table-scroll-host {
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin-left: 0 !important;
+        }
+
+        /* 老结构的自绘横向条：官网把它做成「全透明热区」—— background 为透明，条本身仍占位、
+           可拖拽，只是看不见（display 由官网按是否溢出控制，overflow 时是 block）。
+           ⚠ 不要无条件上色：那会把「隐形热区」变成一条常显的灰条横贯正文
+           （实测 3 个溢出表格的 bar 全部 display:block，上色后像一条浮在表格下方的装饰线）。
+           正确做法：平时沿用官网的透明，仅在悬停 / 聚焦该滚动容器时才显形。
+           ⚠ 本文件的 CSS 都在 GM_addStyle 的模板字面量里 —— 注释中不能出现反引号，否则会截断模板串。 */
         .ds-table-scroll-host .ds-scroll-area__horizontal-bar {
-            background: rgba(128,128,128,0.34) !important;
             border-radius: 999px !important;
             transition: background-color 0.18s ease;
         }
-        .ds-table-scroll-host:hover .ds-scroll-area__horizontal-bar {
-            background: rgba(128,128,128,0.52) !important;
+        .ds-table-scroll-host:hover .ds-scroll-area__horizontal-bar,
+        .ds-table-scroll-host:focus-within .ds-scroll-area__horizontal-bar {
+            background: rgba(128,128,128,0.34) !important;
         }
         .ds-table-scroll-host .ds-scroll-area__horizontal-bar:active {
             background: rgba(79,70,229,0.62) !important;
@@ -3091,6 +3115,17 @@
     function scheduleTableProcess() {
         clearTimeout(_tableDebounceTimer);
         _tableDebounceTimer = setTimeout(processAllTables, TABLE_DEBOUNCE_MS);
+    }
+
+    // 可用宽度变了（宽屏切换 / 窗口缩放 / 浏览器缩放 / 侧栏收放）→ 所有表格必须按新宽度重算。
+    // 列宽与表宽都是**绝对 px 快照**（table.style.width + <colgroup> 逐列 px），一旦容器容量变化，
+    // 旧快照就会溢出。而指纹只含「行数:单元格数」，宽度变化不在指纹里 —— processAllTables 会对
+    // 已完成的表格直接 return。故这里先清掉 done 标记，让它们走「首次见到」分支立即重排。
+    // ⚠ 若只调 processAllTables 而不清指纹，等于什么都没做（resize 回调曾因此长期空转）。
+    function invalidateTableLayout() {
+        document.querySelectorAll('.ds-markdown table').forEach(t => _tableFingerprints.delete(t));
+        processAllTables();
+        syncTableButtonPositions();
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
@@ -6546,12 +6581,11 @@
         }
         observeDOM();
 
-        // resize 节流处理表格
+        // resize 节流处理表格：窗口尺寸变化同样会改变可用宽度，必须让表格重新落宽
         window.addEventListener('resize', () => {
             clearTimeout(window._resizeFix);
             window._resizeFix = setTimeout(() => {
-                processAllTables();
-                syncTableButtonPositions();
+                invalidateTableLayout();
             }, 100);
         });
     }

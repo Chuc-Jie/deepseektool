@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.6.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.6.2）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -143,13 +143,17 @@ flowchart LR
 - **三种取向**：`tableWidthAlgo`（智能/均分）× `tableFill`（铺满/紧凑）× `tableOverflow`（滚动/压缩）。均分下后两者无意义（面板置灰）。
 - **横向滚动：官网有两代结构，分别处理**。
   ① **`.markdown-table-wrapper`**（新）：表格过宽时官网自动套一层，`overflow-x:auto` + **原生滚动条**（实测 `sbH=15px`）。它是表格专用容器、纵向不溢出（`scrollHeight === clientHeight`），因此可以直接用 `::-webkit-scrollbar` 美化（只声明 `height`，实测 15 → 9px），宽度约束由官网负责，不改它的 `max-width`。
-  ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**默认全透明**）。只能给自绘条上色（`rgba(128,128,128,.34)` + `999px` 圆角），**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
+  ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**默认全透明**）。**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
+  ⚠ **自绘条不能无条件上色**（v5.6.2 修）：它的隐藏手段就是 `background: transparent`（隐形热区，`display` 只按是否溢出开关），v5.6.0 曾用 `!important` 涂成不透明 → 变成一条常显灰条横贯正文。现改为默认不设 background，仅 `:hover` / `:focus-within` 显示 `rgba(128,128,128,.34)`、拖动时紫强调。
+  ⚠ **老宿主带「全出血」padding**（v5.6.2 修）：官网给 `.ds-scroll-area` 设 `padding-left 490.5px + margin-left -490.5px`，让宽表格能滚进左右留白。但 **padding 属于滚动容器的可视区**——滚进去的内容不会被 `overflow` 裁掉，于是表格画在正文左侧留白上（实测滚 300px 时左缘 451px vs 正文 751px）。且 `max-width:100%` 在 `content-box` 下只约束内容盒，padding 仍额外加出去（`752+490.5+54=1297`），等于没收窄。故给 `.ds-table-scroll-host` 把 `padding-left/right` 与 `margin-left` 归零，让裁剪边界回到正文宽（实测 1297 → 752）。
   容器选择用 `table.closest('.markdown-table-wrapper')` 优先，回退 `.ds-scroll-area`；两种类名 `.ds-table-scroll-wrapper` / `.ds-table-scroll-host` 分开，避免把 webkit 规则误加到老容器上。
 - **溢出兜底 `setTableScrollHost`**：只给该表格最近的 `.ds-scroll-area` 加 `max-width:100%`（让超宽表格真正溢出而不是把壳撑大），退出时还原原值并复位 `scrollLeft`。不改 `overflow`、不挂类名。
 - **配色**：由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；完成后 `opacity:1` 淡入（消除闪烁）。
 - **表头对齐 `applyTableHeadAlign`**：默认 `auto` 不写任何 `text-align`，保留 Markdown 的 `:--:` / `--:` 语义；仅当用户选「水平居中」时挂 `html.ds-table-head-center`，由 CSS `html.ds-table-head-center .ds-markdown th { text-align:center !important }` 接管（只作用于表头，不动单元格；弹窗预览与导出不受影响，PNG 导出在 `collectTableStyles` 里补同一规则保持一致）。
 - **空表格防护**：首行无单元格时直接返回（流式首帧常见），指纹变化后会自动重新处理。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
+- **宽度失效 `invalidateTableLayout`（v5.6.2）**：表宽与列宽都是**绝对 px 快照**，容器容量一变就会溢出；而指纹只含 `rows:cells`，**宽度变化不在指纹内**，已 `done` 的表格会被 `processAllTables` 直接 `return`。故可用宽度变化时必须显式失效：`_tableFingerprints.delete(t)` → `processAllTables()`（走「首次见到」分支立即重排）→ `syncTableButtonPositions()`。调用点两处：`applyWideScreen`（消息区 1000 ↔ 840，实测 `.ds-markdown` 912 ↔ 752，用 `changed` 判断避免初始化多跑一轮）、`resize`（窗口 / 浏览器缩放 / 侧栏收放）。
+  ⚠ **只调 `processAllTables()` 而不清指纹 = 什么都没做**：`resize` 回调曾长期这样空转（2026-10-17 审计定位）。DOM 观察器也救不了：它是 `observe(body, {childList:true})`，不监听 attributes，且宽屏 class 挂在 `<html>` 上。
 - **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 摘导出按钮/脚本标记 + 清 fixed/宽度/`min-width` 等内联样式）。
   **PNG 传 `{keepColGroup:true}` 保留列宽**，再用 `scaleCloneColumns(clone, srcW, targetW)` 把列宽从页面宽度等比换算到导出宽度（逐列取整、误差补到最后一列，保证 Σcol 精确等于目标宽；上限 `TABLE_EXPORT_MAX_WIDTH=1200`）——导出图的列宽分配与页面一致。CSV/MD 仍移除 `<colgroup>`（只读文本）：
   - 📸 PNG：隔离 iframe（srcdoc + `collectTableStyles` 收集页面样式与兜底配色）→ `html2canvas scale:3` → blob 下载；**纸底**由 `getExportCanvasBg()` 跟随页面深浅（沿祖先链取首个不透明背景色，兜底 深 `#1a1a22`/浅 `#ffffff`）；**文字色/链接/行内代码**由 `collectTableStyles(sourceTable)` 抄取页面表格内 `th`/`td`（color）、`a`（color + `text-decoration-line`）、`code`（color + `background-color`）的实际计算样式写进兜底规则（iframe 无 `.ds-markdown` 祖先、不继承页面 color，不显式取值会在深色纸底上落回黑字 / 默认 #0000EE 蓝链接 / 灰底 code）；**圆角**受开关 `tableExportRounded` 控制 —— `applyRoundedCorners` 用 `destination-in` 把四角裁成透明（半径按 `canvas宽/元素CSS宽` 换算并 clamp，且**须先 `setTransform(1,0,0,1,0,0)` 重置** html2canvas 残留的变换矩阵，否则蒙版错位、裁剪失效）；
