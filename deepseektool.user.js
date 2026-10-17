@@ -2109,41 +2109,57 @@
     }
 
     // 逐格实测文本宽度，返回每列「单行自然宽度」（px）。
-    // 不能用 textContent.length 当权重：实测中文 14.00px/字、英文 8.23px/字（1.70:1），
-    // 等权计数会把中文列系统性低估约 41%，甚至给出方向相反的分配。
-    // 注意两个必须计入的量：
-    //   ① letter-spacing —— 表头有 0.02em（14px 下 0.28px/字），漏算会让「仅一列/左对齐/负责人」
-    //      这类表头差 0.1~0.3px 就被折断（实测 deficit 0.07~0.16px）；
-    //   ② 1px 亚像素余量 —— 字体 hinting 与取整会把「刚好放下」变成「差一点」。
+    // 不能用 textContent.length 当权重：实测中文 14.00px/字、英文 8.23px/字（1.70:1）。
+    // 必须按**每个文本节点自身的字体**累加，而不是用单元格字体量整段 textContent：
+    //   <code> 是等宽字体且有 padding:2px 4px —— 用正文字体量会低估（实测「单元格内需写成 |」
+    //   测出 106.6px，真实需要 118px，超过可用的 114.4px 就折行）。
+    // 另需计入 letter-spacing（表头 0.02em）与 1.5px 亚像素余量。
     function measureColumnNaturals(table, cols) {
         const ctx = getMeasureCtx();
         const cells = table.querySelectorAll('th,td');
         if (!ctx || !cells.length || !cols) return null;
-        // 表头与正文的字体不同（600 / 400），按标签各取一次计算样式，避免每格强制重算
-        const cache = { TH: null, TD: null };
-        const styleFor = el => {
-            const key = el.tagName === 'TH' ? 'TH' : 'TD';
-            if (!cache[key]) {
-                const cs = getComputedStyle(el);
-                cache[key] = {
-                    font: cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily,
-                    letterSpacing: parseFloat(cs.letterSpacing) || 0,
-                };
-            }
-            return cache[key];
+
+        // 按「标签 + 类名」缓存计算样式：不同 tag/class 组合通常 < 10 种
+        const styleCache = new Map();
+        const styleOf = el => {
+            const key = el.tagName + '|' + (el.className || '');
+            if (styleCache.has(key)) return styleCache.get(key);
+            const cs = getComputedStyle(el);
+            const v = {
+                font: cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily,
+                letterSpacing: parseFloat(cs.letterSpacing) || 0,
+                padX: (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0),
+                borderX: (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0),
+            };
+            styleCache.set(key, v);
+            return v;
         };
+
         let activeFont = '';
+        // 递归累加：文本节点用「父元素」字体；元素节点加上自身的 padding/border（如 code）
+        const measureNode = node => {
+            let w = 0;
+            for (const child of node.childNodes) {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    const st = styleOf(node);
+                    if (st.font !== activeFont) { ctx.font = st.font; activeFont = st.font; }
+                    const t = child.textContent;
+                    if (t) w += ctx.measureText(t).width + st.letterSpacing * Math.max(0, t.length - 1);
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    if (child.tagName === 'BR') continue;   // 换行取最长行，不影响单行宽度
+                    const st = styleOf(child);
+                    w += measureNode(child) + st.padX + st.borderX;
+                }
+            }
+            return w;
+        };
+
         const natural = new Array(cols).fill(0);
         for (const cell of cells) {
             const idx = cell.cellIndex;   // 真实列索引（Markdown 表格无 colspan，可直接用）
             if (idx < 0 || idx >= cols) continue;
-            const text = cell.textContent;
-            if (!text) continue;
-            const st = styleFor(cell);
-            if (st.font !== activeFont) { ctx.font = st.font; activeFont = st.font; }
-            const w = ctx.measureText(text).width
-                + st.letterSpacing * Math.max(0, text.length - 1)
-                + 1.5;   // 亚像素余量：canvas 度量与真实排版有 hinting 差异，实测 1px 仍会差一丝折行
+            if (!cell.textContent) continue;
+            const w = measureNode(cell) + 1.5;
             if (w > natural[idx]) natural[idx] = w;
         }
         return natural;

@@ -138,7 +138,7 @@ flowchart LR
 
 ### 5.3 表格优化与导出
 
-- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` 按单元格实际字体逐格测量，得到每列「单行自然宽度」。测量必须计入两项易漏量：**`letter-spacing`**（表头 0.02em，漏算会让「仅一列/左对齐/负责人」差 0.1~0.3px 就折行）与 **1px 亚像素余量**。分配三段落盘：① 初始 `min(natural, 96)`（**不预抬可读下限**——预算紧张时下限会抢走长列的空间，10 列实测 10×42 占掉 550 预算的 76%）；② 按 natural 升序补到单行放下；③ 仍有剩余才把过窄列抬到 42px，最后铺满模式按需求权重摊余。溢出容差 `1.08`：超出预算 8% 以上才切横向滚动，否则压缩吸收临界抖动（实测 580 vs 572 的 8px 差异会导致「890px 紧凑」突跳成「1605px + 滚动条」）。常量置顶：`TABLE_CELL_FIXED=34`、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`、`TABLE_OVERFLOW_TOLERANCE=1.08`。
+- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` **逐节点**测量（文本节点按所在元素的字体、元素节点另加自身 padding/border），得到每列「单行自然宽度」。三个必算项：**`letter-spacing`**（表头 0.02em，漏算差 0.07~0.16px 就折行）、**`<code>` 的等宽字体 + `padding:2px 4px`**（用正文字体量整段会低估：实测「单元格内需写成 |」测出 106.6 而真实需 118px）、**1.5px 亚像素余量**。分配三段落盘：① 初始 `min(natural, 96)`（**不预抬可读下限**——预算紧张时下限会抢走长列的空间，10 列实测 10×42 占掉 550 预算的 76%）；② 按 natural 升序补到单行放下；③ 仍有剩余才把过窄列抬到 42px，最后铺满模式按需求权重摊余。溢出容差 `1.08`：超出预算 8% 以上才切横向滚动，否则压缩吸收临界抖动（实测 580 vs 572 的 8px 差异会导致「890px 紧凑」突跳成「1605px + 滚动条」）。常量置顶：`TABLE_CELL_FIXED=34`、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`、`TABLE_OVERFLOW_TOLERANCE=1.08`。
 - **落盘与控制 `applyTableStyles`**：列宽写进 `<colgroup><col>`（**`<col>` 的 width 在 `table-layout:fixed` 下按 border-box 计算，必须写「内容宽 + 34」**，否则整表被浏览器等比放大）；`table.style.width` 由 JS 内联控制（CSS 的 `width:100%` 只是首帧兜底，**不能加 `!important`**，否则盖掉紧凑/滚动模式的 px）。均分模式写百分比 `<col>`，与旧版「td 百分比」视觉等价。
 - **三种取向**：`tableWidthAlgo`（智能/均分）× `tableFill`（铺满/紧凑）× `tableOverflow`（滚动/压缩）。均分下后两者无意义（面板置灰）。
 - **横向滚动：官网有两代结构，分别处理**。
