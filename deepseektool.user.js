@@ -2530,7 +2530,20 @@
     function setTableScrollHost(table, needScroll) {
         if (needScroll) {
             const wrapper = table.closest('.markdown-table-wrapper');
-            const host = wrapper || table.closest('.ds-scroll-area') || table.parentElement;
+            let host = wrapper || table.closest('.ds-scroll-area');
+            // 不能无条件回退到 table.parentElement：若父节点是 .ds-markdown，
+            // 下面的 .ds-table-scroll-host 规则会把消息体的 padding-left/right 归零。
+            // 只接受「本身确实是横向滚动容器」的父节点。
+            if (!host) {
+                const parent = table.parentElement;
+                const md = table.closest('.ds-markdown');
+                if (parent && parent !== md) {
+                    try {
+                        const ox = getComputedStyle(parent).overflowX;
+                        if (ox === 'auto' || ox === 'scroll') host = parent;
+                    } catch (e) { /* 忽略 */ }
+                }
+            }
             if (!host) return;
             // 宿主的「代」可能切换（官网随后套上 wrapper）：先把旧宿主上的类名与内联还原，
             // 否则旧容器会永久残留滚动条样式。
