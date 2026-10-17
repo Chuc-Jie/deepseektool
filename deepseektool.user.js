@@ -804,6 +804,13 @@
         });
     }
 
+    function restoreButtonHostPosition(host) {
+        if (!host || host.dataset.dsOrigPosition === undefined) return;
+        if (host.querySelector('.table-internal-buttons')) return;   // 还有别的表格按钮在用
+        host.style.position = host.dataset.dsOrigPosition;
+        delete host.dataset.dsOrigPosition;
+    }
+
     function removeTableButtons(table) {
         const bc = _btnsOfTable.get(table);
         if (bc) {
@@ -819,6 +826,7 @@
             host.querySelectorAll('.table-internal-buttons').forEach(b => b.remove());
         }
         table.removeAttribute('data-internal-buttons-added');
+        restoreButtonHostPosition(host);
     }
 
     // 热更新后新实例的 WeakMap 是空的，但旧实例的按钮仍在 DOM。
@@ -3112,7 +3120,13 @@
             }
         }
 
-        if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+        if (getComputedStyle(host).position === 'static') {
+            // 记住原值：移除按钮后要还原，避免永久改掉消息体的定位上下文。
+            if (host.dataset.dsOrigPosition === undefined) {
+                host.dataset.dsOrigPosition = host.style.position || '';
+            }
+            host.style.position = 'relative';
+        }
 
         table.setAttribute('data-internal-buttons-added', 'true');
         const bc = document.createElement('div');
