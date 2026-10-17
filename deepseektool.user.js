@@ -145,6 +145,8 @@
     function openControlPanel() {
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
         if (existingOverlay) existingOverlay.remove();
+        // 面板每次重建 → 上一轮登记的依赖项作废（否则会持有已移除的节点）
+        _panelDepWatchers.length = 0;
 
         const overlay = document.createElement('div');
         overlay.id = 'ds-control-panel-overlay';
@@ -311,7 +313,7 @@
                     GM_setValue(STORAGE_CODE_BG_LEVEL, value);
                     applyCodeBlockBg(codeBgEnhance, value);
                     showToast('代码块背景强度已更新');
-                }, !codeBgEnhance),
+                }, () => !codeBgEnhance),
             ] },
             { key: 'codeexport', icon: 'image-multiple-outline', title: '代码块导出', sub: '一键导出为图片 · 8 项样式可调', build: () => [
                 createToggleSetting('代码块导出为图片按钮', '代码块右上角显示「导出」按钮：选择样式后将该代码块导出为图片（支持下载 PNG / 复制图片到剪贴板）', codeExportEnabled, checked => {
@@ -371,7 +373,7 @@
                     GM_setValue(STORAGE_TABLE_FILL, value);
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast(value === 'compact' ? '表格将随内容收窄' : '表格将铺满整行');
-                }, tableWidthAlgo !== 'smart'),
+                }, () => tableWidthAlgo !== 'smart'),
                 createSelectSetting('列过多时', '滚动：每列保底 96px，超出后表格内左右滚动 · 压缩：继续压窄列宽，不出现滚动条', [
                     { value: 'scroll', label: '横向滚动' },
                     { value: 'squeeze', label: '压缩进容器' },
@@ -380,7 +382,7 @@
                     GM_setValue(STORAGE_TABLE_OVERFLOW, value);
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast(value === 'scroll' ? '列过多时将横向滚动' : '列过多时将压缩进容器');
-                }, tableWidthAlgo !== 'smart'),
+                }, () => tableWidthAlgo !== 'smart'),
                 createToggleSetting('导出图片圆角', 'PNG 导出时把表格四角裁成透明圆角；关闭则与旧版一致（图片中四角为直角矩形）', tableExportRounded, checked => {
                     tableExportRounded = checked;
                     GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, checked);
@@ -398,7 +400,7 @@
                     mdExportAppendDate = checked;
                     GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, checked);
                     showToast(checked ? '文件名将附加日期' : '文件名不带日期');
-                }, !mdExportEnabled),
+                }, () => !mdExportEnabled),
                 createSettingRow('选择内容并导出', '进入勾选模式：手动勾选想导出的消息，点「导出选中 (n)」后在弹窗里选择导出格式（Markdown / JSON），Markdown 再选内容模板', (() => {
                     const b = document.createElement('button');
                     b.type = 'button';
@@ -464,7 +466,7 @@
                     GM_setValue(STORAGE_PIN_COLLAPSIBLE, checked);
                     folderUnit.setPinCollapsible(checked);
                     showToast(checked ? '置顶分组折叠已开启' : '置顶分组折叠已关闭');
-                }, !folderManagerEnabled),
+                }, () => !folderManagerEnabled),
             ] },
             {
                 key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '前置条件 · 使用小贴士',
@@ -561,8 +563,10 @@
                 mdExportEnabled = true; GM_setValue(STORAGE_MD_EXPORT_ENABLED, true);
                 mdExportUnit.clearPrefs();                  // 清掉「记住我的选择」+ v1 遗留键
                 mdExportAppendDate = true; GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
+                codeExportEnabled = true; GM_setValue(STORAGE_CODE_EXPORT_ENABLED, true);
                 mdExportUnit.stopSelection();               // 若正处勾选态则退出
                 applyCodeBlockBg(true, 'light');
+                applyCodeExportButtons(true);               // 导出按钮默认开 → 即时补回已移除的按钮
                 if (folderManagerEnabled) {           // 默认关闭 → 恢复默认需停用并整体清理
                     folderManagerEnabled = false;
                     GM_setValue(STORAGE_FOLDER_MANAGER, false);
@@ -594,14 +598,30 @@
 
     // 控件工厂
 
+    /* 依赖置灰（子项依赖父开关）
+       判据在每次面板构建时登记一次，控件变更后统一重算 —— 而不是在 build() 时求值一次。
+       早期实现在 build() 里传布尔值，导致「关掉父开关后子项仍可点」，只有靠重开面板才刷新；
+       现改为传函数，父项变更 → refreshPanelDeps() → 所有已登记项按当前值重算。 */
+    const _panelDepWatchers = [];
+    function applyDepState(el, off) {
+        el.classList.toggle('dsDisabled', !!off);
+        el.setAttribute('aria-disabled', off ? 'true' : 'false');
+        const ctl = el.querySelector('.ds-switch input, .ds-custom-select-trigger, input[type="number"]');
+        if (ctl) ctl.disabled = !!off;
+        const trig = el.querySelector('.ds-custom-select-trigger');
+        if (trig) trig.classList.toggle('ds-select-disabled', !!off);
+    }
+    function refreshPanelDeps() {
+        _panelDepWatchers.forEach(w => applyDepState(w.el, w.test()));
+    }
+
     // 行式设置项外壳：label + 描述 在左、控件在右
+    // disabled：布尔 = 构建时定值；函数 = 依父开关动态求值（变更后自动重算）
     function createSettingRow(labelText, description, controlEl, disabled) {
         const item = document.createElement('div');
         item.className = 'ds-setting-item';
-        if (disabled) {
-            item.classList.add('dsDisabled');
-            item.setAttribute('aria-disabled', 'true');
-        }
+        const isDynamic = typeof disabled === 'function';
+        const resolve = isDynamic ? disabled : () => !!disabled;
         const labelBlock = document.createElement('div');
         labelBlock.className = 'ds-setting-label';
         const t = document.createElement('div');
@@ -618,6 +638,8 @@
         ctrl.appendChild(controlEl);
         item.appendChild(labelBlock);
         item.appendChild(ctrl);
+        if (isDynamic) _panelDepWatchers.push({ el: item, test: resolve });
+        applyDepState(item, resolve());   // 静态/动态统一在此落地初始态
         return item;
     }
 
@@ -632,6 +654,7 @@
             if (isNaN(val) || val < 0) val = 0;
             input.value = val;
             onChange(val);
+            refreshPanelDeps();
         });
         wrap.appendChild(input);
         if (unit) {
@@ -649,12 +672,12 @@
         const input = document.createElement('input');
         input.type = 'checkbox';
         if (checked) input.checked = true;
-        if (disabled) input.disabled = true;
         const slider = document.createElement('span');
         slider.className = 'ds-slider';
         label.appendChild(input);
         label.appendChild(slider);
-        if (!disabled) input.addEventListener('change', () => onToggle(input.checked));
+        // 始终绑定；禁用由原生 disabled 拦截点击（置灰态随父开关即时重算，见 refreshPanelDeps）
+        input.addEventListener('change', () => { onToggle(input.checked); refreshPanelDeps(); });
         return createSettingRow(labelText, description, label, disabled);
     }
 
@@ -685,6 +708,7 @@
                 trigger.textContent = opt.label;
                 dropdown.style.display = 'none';
                 onChange(opt.value);
+                refreshPanelDeps();
             });
             dropdown.appendChild(item);
         });
@@ -699,10 +723,6 @@
 
         container.appendChild(trigger);
         container.appendChild(dropdown);
-        if (disabled) {
-            trigger.disabled = true;
-            trigger.classList.add('ds-select-disabled');
-        }
         return createSettingRow(labelText, description, container, disabled);
     }
 
@@ -3896,9 +3916,8 @@
     const folderEnabledChanged = (nowEnabled) => {
         if (nowEnabled) { folderUnit.on(); showToast('对话文件夹管理已开启'); }
         else { folderUnit.off(); showToast('对话文件夹管理已关闭'); }
-        // 子开关「置顶分组可折叠」的可用性依赖本项 → 重开面板刷新置灰态
-        const ov = document.getElementById('ds-control-panel-overlay');
-        if (ov) { ov.remove(); setTimeout(() => openControlPanel(), 300); }
+        // 子开关「置顶分组可折叠」的置灰态由 refreshPanelDeps() 即时重算；
+        // 不再「关面板 + 300ms 重开」——那会把导航打回第一页、并打断正在操作的输入焦点。
     };
 
     // ==================== 对话导出（Markdown / JSON） ====================

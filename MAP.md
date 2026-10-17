@@ -168,7 +168,7 @@ flowchart LR
 
 ### 5.5 对话文件夹管理（folderUnit 子闭包）
 
-- **总开关**：控制面板开关 → `folderEnabledChanged(on|off)` → `folderUnit.on()/off()`；切换后若面板处于打开态会关闭重开，以刷新子开关置灰态。
+- **总开关**：控制面板开关 → `folderEnabledChanged(on|off)` → `folderUnit.on()/off()`；子开关「置顶分组可折叠」的置灰态由面板 `refreshPanelDeps()` 即时重算，**不再关闭并重开面板**（那会把导航打回第一页并打断输入焦点）。
 - **子开关**：`pinGroupCollapsible`（存储键 `deepseek_pin_group_collapsible`，默认 false）控制「置顶分组可折叠」能力；设置面板该行在总开关未开时置灰不可点。切换即时生效 → `folderUnit.setPinCollapsible(bool)`：开启则 `bindPinClick()` + `applyPinCollapse()`，关闭则 `resetPinCollapseUi()`。
 - **on**：注入主题 CSS 变量（浅/深随 `body.dark`）→ **若子开关开启**则绑定「置顶」折叠点击（`bindPinClick`）→ `ensurePanel`（面板插入「置顶」**分组容器**之后、整体随原生会话历史滚动；无置顶分组时兜底插列表最顶并临时补 22px 让开悬浮「多选」按钮）→ `renderFolders` + `refreshTags` + `injectMenus` + 归档隐藏已收会话（`syncArchiveVisibility`，置顶分组内的行豁免）。
 - **面板锚点稳态判据（v4.9.2 修正）**：`ensurePanel` 的早退条件是**直接核对锚点**——有「置顶」分组时要求 `panel.previousElementSibling === pg`，无分组时要求 `panel === sc.firstChild`；不满足则走重挂迁移。旧判据「不在 pg 内即稳态」语义过宽，会让早期竞态被兜底挂到最顶的面板**永久卡在错误位置**。重挂逻辑带幂等保护（位置/`paddingTop` 确需变更时才动 DOM），避免无意义 mutation 触发 observer→schedule 自激循环。
