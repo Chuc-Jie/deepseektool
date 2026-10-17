@@ -2306,21 +2306,31 @@
     function setTableScrollHost(table, needScroll) {
         if (needScroll) {
             const wrapper = table.closest('.markdown-table-wrapper');
+            const host = wrapper || table.closest('.ds-scroll-area') || table.parentElement;
+            if (!host) return;
+            // 宿主的「代」可能切换（官网随后套上 wrapper）：先把旧宿主上的类名与内联还原，
+            // 否则旧容器会永久残留滚动条样式。
+            const prev = _scrollHostOf.get(table);
+            if (prev && prev !== host) {
+                prev.classList.remove(CLS_SCROLL_WRAPPER, CLS_SCROLL_HOST);
+                if (prev.dataset.dsOrigMaxWidth !== undefined) {
+                    prev.style.maxWidth = prev.dataset.dsOrigMaxWidth;
+                    delete prev.dataset.dsOrigMaxWidth;
+                    prev.scrollLeft = 0;
+                }
+            }
             if (wrapper) {
                 wrapper.classList.add(CLS_SCROLL_WRAPPER);
                 wrapper.classList.remove(CLS_SCROLL_HOST);
-                _scrollHostOf.set(table, wrapper);
-                return;
+            } else {
+                if (host.dataset.dsOrigMaxWidth === undefined) {
+                    host.dataset.dsOrigMaxWidth = host.style.maxWidth || '';
+                }
+                host.style.maxWidth = '100%';
+                host.classList.add(CLS_SCROLL_HOST);
+                host.classList.remove(CLS_SCROLL_WRAPPER);
             }
-            const shell = table.closest('.ds-scroll-area') || table.parentElement;
-            if (!shell) return;
-            if (shell.dataset.dsOrigMaxWidth === undefined) {
-                shell.dataset.dsOrigMaxWidth = shell.style.maxWidth || '';
-            }
-            shell.style.maxWidth = '100%';
-            shell.classList.add(CLS_SCROLL_HOST);
-            shell.classList.remove(CLS_SCROLL_WRAPPER);
-            _scrollHostOf.set(table, shell);
+            _scrollHostOf.set(table, host);
             return;
         }
         const prev = _scrollHostOf.get(table);
@@ -2368,7 +2378,16 @@
                 cg.appendChild(col);
             }
             table.insertBefore(cg, table.firstChild);
-            table.style.width = '100%';
+            // 宽度必须同时尊重「表格宽度」设置：
+            // 铺满 = 用满可用宽；紧凑 = 收窄到「每列都等宽、且能单行放下最长内容」的最小宽度。
+            if (tableFill === 'compact') {
+                const nat = measureColumnNaturals(table, cols);
+                const widest = nat ? nat.reduce((a, b) => Math.max(a, b), 0) : 0;
+                const need = widest > 0 ? (widest + TABLE_CELL_FIXED) * cols : avail;
+                table.style.width = Math.min(avail, Math.round(need)) + 'px';
+            } else {
+                table.style.width = avail + 'px';
+            }
             table.style.minWidth = '';
             table.style.maxWidth = avail + 'px';
             setTableScrollHost(table, false);
@@ -2524,20 +2543,26 @@
     }
 
     // 把克隆表格的列宽从「页面宽度」等比换算到「导出宽度」。
+    // 两种列宽单位都要处理：
+    //   · px（智能模式）：按 targetW / srcW 等比缩放；
+    //   · %（均分模式）：按百分比直接换算成 targetW 的占比。
+    //     ⚠ parseFloat('33.3333%') 会得到 33.3333，若当 px 处理会把三列压成 [33,33,846]。
     // 逐列取整后把误差补到最后一列，保证 Σcol 精确等于目标宽度（否则导出图会出现 1px 溢出）。
-    // 返回实际写入的列宽数组（便于测试与调试）；无 colgroup 时返回空数组。
     function scaleCloneColumns(clone, srcW, targetW) {
         const colEls = [...clone.querySelectorAll('col')];
         if (!colEls.length) return [];
         const k = targetW / Math.max(1, srcW);
+        const pctMode = /%$/.test((colEls[0].style.width || '').trim());
         const out = [];
         let acc = 0;
         colEls.forEach((col, i) => {
-            const w = parseFloat(col.style.width);
-            if (!isFinite(w) || w <= 0) return;
+            const raw = (col.style.width || '').trim();
+            const num = parseFloat(raw);
+            if (!isFinite(num) || num <= 0) return;
+            const want = pctMode ? (targetW * num / 100) : (num * k);
             const scaled = (i === colEls.length - 1)
                 ? Math.max(1, targetW - acc)
-                : Math.max(1, Math.round(w * k));
+                : Math.max(1, Math.round(want));
             col.style.width = scaled + 'px';
             acc += scaled;
             out.push(scaled);
