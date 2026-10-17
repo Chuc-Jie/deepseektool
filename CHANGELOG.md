@@ -1,5 +1,20 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v5.7.1 (2026-10-18)
+
+### 修复 · 表格渲染与面板健壮性
+
+- **流式表格列宽**：结构指纹只含「行数:单元格数」，AI 流式填充文本时不会变化，已 `done` 的表格被直接跳过。增加文本长度签名，`MutationObserver` 同时监听 `characterData` 与表格内新增包裹节点，文本增长时重测列宽。
+- **表格按钮热更新**：恢复 `data-internal-buttons-added` 判重，新增 `removeTableButtons` / `dedupeTableButtons`；新实例 WeakMap 为空时，单表格消息整组重建，多表格消息按按钮组数量兜底。
+- **列宽测量边界**：`<br>` 与块级元素按最长行（旧实现把多行宽度相加）；图片 / 视频 / Canvas / Iframe / SVG 取自身尺寸，纯图片单元格不再因 `textContent` 为空被跳过；colspan 按跨列均摊列索引；单元格 padding+border 改为运行时读取（兜底 34）。
+- **滚动宿主**：`setTableScrollHost` 不再无条件回退到 `table.parentElement`，避免给 `.ds-markdown` 归零 padding；按钮宿主的 `position: relative` 在最后一个按钮移除后恢复原值。
+- **恢复默认设置**：保留当前面板分区（`openControlPanel._lastPage`），清理 `deepseek_code_image_prefs`，确认文案说明文件夹分组数据保留。
+- **枚举脏值**：`tableThemeMode` / `tableHeadAlign` / `tableFill` / `tableOverflow` / `wideScreenLevel` / `codeBgLevel` 统一白名单校验并写回默认。
+- **其他**：`init()` 跳过宽屏首轮重复表格重排；导出扫描失败时取消导出；PNG 列宽换算逐列识别 px/% 并处理脏值/负数差额。
+- **验证台**：脚本路径改为 `__dirname` 相对，`NODE_PATH` / `GIT` 可用环境变量覆盖，版本核对编号由重复的 ⑩ 改为 ⑭；新增 `tests/table-edge-cases.js`（`<br>`、图片、colspan、混合单位列宽）与 `tests/README.md`。
+- **文档**：修正 MAP 的「按需求权重摊余」「9px」「不挂类名」三处硬伤，统一 10px 与 1px 测量口径；补充 v5.3–v5.5 未单独发布说明。
+- **未新增** `@grant` / `@require` / `@match` / 存储键，无新增设置项。
+
 ## v5.7.0 (2026-10-17)
 
 ### 新增 · 宽屏模式三档宽度
