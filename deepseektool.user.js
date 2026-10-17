@@ -2812,25 +2812,45 @@
     function scaleCloneColumns(clone, srcW, targetW) {
         const colEls = [...clone.querySelectorAll('col')];
         if (!colEls.length) return [];
+        targetW = Math.max(1, Math.round(targetW));
         const k = targetW / Math.max(1, srcW);
-        const pctMode = /%$/.test((colEls[0].style.width || '').trim());
-        const out = [];
-        let acc = 0;
-        colEls.forEach((col, i) => {
+        // 逐列判断单位：均分模式写的是 %，智能模式写的是 px；不能只看第一列。
+        const wants = colEls.map(col => {
             const raw = (col.style.width || '').trim();
             const num = parseFloat(raw);
-            if (!isFinite(num) || num <= 0) return;
-            const want = pctMode ? (targetW * num / 100) : (num * k);
-            const scaled = (i === colEls.length - 1)
-                ? Math.max(1, targetW - acc)
-                : Math.max(1, Math.round(want));
-            col.style.width = scaled + 'px';
-            acc += scaled;
-            out.push(scaled);
+            if (!isFinite(num) || num <= 0) return 0;
+            return /%$/.test(raw) ? (targetW * num / 100) : (num * k);
         });
+        if (!wants.some(w => w > 0)) return [];
+
+        const scaled = wants.map(w => w > 0 ? Math.max(1, Math.round(w)) : 1);
+        let last = -1;
+        for (let i = scaled.length - 1; i >= 0; i--) {
+            if (wants[i] > 0) { last = i; break; }
+        }
+        let total = scaled.reduce((a, b) => a + b, 0);
+        // 取整误差补到最后一个有效列；若该列已被压到 1 仍超出，从最大列继续扣。
+        if (last >= 0) {
+            scaled[last] = Math.max(1, scaled[last] + (targetW - total));
+            total = scaled.reduce((a, b) => a + b, 0);
+        }
+        let guard = 0;
+        while (total > targetW && guard++ < scaled.length * 4) {
+            let idx = 0;
+            for (let i = 1; i < scaled.length; i++) if (scaled[i] > scaled[idx]) idx = i;
+            if (scaled[idx] <= 1) break;
+            const dec = Math.min(scaled[idx] - 1, total - targetW);
+            scaled[idx] -= dec;
+            total -= dec;
+        }
+        // 目标宽大于当前总和（例如所有列都被压到 1）：把剩余空间给最后一个有效列。
+        if (total < targetW && last >= 0) {
+            scaled[last] += targetW - total;
+        }
+        colEls.forEach((col, i) => { col.style.width = scaled[i] + 'px'; });
         clone.style.width = targetW + 'px';
         clone.style.tableLayout = 'fixed';
-        return out;
+        return scaled;
     }
 
     async function exportTableAsPNG(table) {
