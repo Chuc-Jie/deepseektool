@@ -6755,7 +6755,14 @@
                     if (p && p.closest('.ds-markdown table')) hasNewTables = true;
                     continue;
                 }
-                if (m.type !== 'childList' || !m.addedNodes.length) continue;
+                if (m.type !== 'childList') continue;
+                // 表格内新增/删除任何节点都要重测；删除时 addedNodes 为空，
+                // 必须看 mutation 的 target（被修改子节点的父元素）。
+                if (!hasNewTables && m.target && m.target.nodeType === Node.ELEMENT_NODE
+                    && m.target.closest && m.target.closest('.ds-markdown table')) {
+                    hasNewTables = true;
+                }
+                if (!m.addedNodes.length) continue;
                 for (const node of m.addedNodes) {
                     // 流式输出也可能「追加一个新的文本节点」而不是修改旧 nodeValue；
                     // 文本节点没有 matches/closest 元素方法，必须单独处理。

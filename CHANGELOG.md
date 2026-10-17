@@ -4,7 +4,7 @@
 
 ### 修复 · 表格渲染与面板健壮性
 
-- **流式表格列宽**：结构指纹只含「行数:单元格数」，AI 流式填充文本时不会变化，已 `done` 的表格被直接跳过。增加文本长度签名，`MutationObserver` 同时监听 `characterData`、表格内新增元素与文本节点，文本增长时重测列宽。
+- **流式表格列宽**：结构指纹只含「行数:单元格数」，AI 流式填充文本时不会变化，已 `done` 的表格被直接跳过。增加文本长度签名，`MutationObserver` 同时监听 `characterData`、表格内新增/删除的元素与文本节点，文本增长或节点回收时重测列宽。
 - **表格按钮热更新**：恢复 `data-internal-buttons-added` 判重，新增 `removeTableButtons` / `dedupeTableButtons`；新实例 WeakMap 为空时，单表格消息整组重建，多表格消息按按钮组数量兜底。
 - **列宽测量边界**：`<br>` 与块级元素按最长行（旧实现把多行宽度相加）；图片 / 视频 / Canvas / Iframe / SVG 取自身尺寸，纯图片单元格不再因 `textContent` 为空被跳过；colspan 按跨列均摊列索引；单元格 padding+border 改为运行时读取（兜底 34）。
 - **滚动宿主**：`setTableScrollHost` 不再无条件回退到 `table.parentElement`，避免给 `.ds-markdown` 归零 padding；按钮宿主的 `position: relative` 在最后一个按钮移除后恢复原值。
