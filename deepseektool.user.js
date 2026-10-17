@@ -71,8 +71,8 @@
     let tableButtonsAlways = GM_getValue(STORAGE_TABLE_BUTTONS_ALWAYS, false);  // 导出按钮恒定常显（默认关）
     let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
     let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
-    let tableThemeMode = GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto');
-    let tableHeadAlign = GM_getValue(STORAGE_TABLE_HEAD_ALIGN, 'auto');   // 默认跟随 Markdown 的对齐语义
+    let tableThemeMode = normalizeEnum(STORAGE_TABLE_THEME_MODE, GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto'), ['auto', 'dual'], 'auto');
+    let tableHeadAlign = normalizeEnum(STORAGE_TABLE_HEAD_ALIGN, GM_getValue(STORAGE_TABLE_HEAD_ALIGN, 'auto'), ['auto', 'center'], 'auto');   // 默认跟随 Markdown 的对齐语义
     // 列宽算法：旧键 deepseek_table_width_mode 的 'equal' 保留为均分选择；
     // 'auto'（字符数权重）/ 'equal-minwidth'（与均分等价）/ 未设置 一律迁移为「智能」。
     // 迁移后立即写新键，此后代码不再读旧键——否则会造出面板里看不见也关不掉的隐形状态。
@@ -81,21 +81,28 @@
         tableWidthAlgo = GM_getValue(LEGACY_TABLE_WIDTH_MODE, null) === 'equal' ? 'equal' : 'smart';
         GM_setValue(STORAGE_TABLE_WIDTH_ALGO, tableWidthAlgo);
     }
-    let tableFill = GM_getValue(STORAGE_TABLE_FILL, 'fill');            // 默认铺满整行
-    let tableOverflow = GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll');  // 默认横向滚动
+    let tableFill = normalizeEnum(STORAGE_TABLE_FILL, GM_getValue(STORAGE_TABLE_FILL, 'fill'), ['fill', 'compact'], 'fill');            // 默认铺满整行
+    let tableOverflow = normalizeEnum(STORAGE_TABLE_OVERFLOW, GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll'), ['scroll', 'squeeze'], 'scroll');  // 默认横向滚动
     let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
-    let wideScreenLevel = GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT);
-    if (!WIDE_LEVELS[wideScreenLevel]) wideScreenLevel = WIDE_LEVEL_DEFAULT;   // 脏值兜底
+    let wideScreenLevel = normalizeEnum(STORAGE_WIDE_LEVEL, GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT), Object.keys(WIDE_LEVELS), WIDE_LEVEL_DEFAULT);
     let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
     let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
     let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
     let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
-    let codeBgLevel = GM_getValue(STORAGE_CODE_BG_LEVEL, 'light');          // 加深强度（默认轻档）
+    let codeBgLevel = normalizeEnum(STORAGE_CODE_BG_LEVEL, GM_getValue(STORAGE_CODE_BG_LEVEL, 'light'), ['light', 'medium', 'strong'], 'light');          // 加深强度（默认轻档）
     let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
     let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出（Markdown / JSON，默认开）
     let mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true); // 文件名附加日期（默认开）
     let codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);    // 代码块导图按钮（默认开）
     let codeImagePrefs = GM_getValue(STORAGE_CODE_IMAGE_PREFS, null);          // 导图样式偏好（对象或 JSON 字符串）
+
+    // 枚举设置脏值兜底：非法值写回默认值，避免面板下拉显示空白、逻辑走进未定义分支。
+    // 写回存储是必要的 —— 只在内存里兜底会让脏值每次启动都重新出现。
+    function normalizeEnum(key, value, allowed, fallback) {
+        if (allowed.indexOf(value) !== -1) return value;
+        GM_setValue(key, fallback);
+        return fallback;
+    }
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
