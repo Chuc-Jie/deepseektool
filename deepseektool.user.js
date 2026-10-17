@@ -352,7 +352,7 @@
                     if (!checked) mdExportUnit.stopSelection();
                     showToast(`对话导出已${checked ? '开启' : '关闭'}`);
                 }),
-                createToggleSetting('文件名附加日期', '在文件名后追加 `-YYYY-MM-DD-HH-mm`，避免同日多次导出互相覆盖（与插件格式一致）', mdExportAppendDate, checked => {
+                createToggleSetting('文件名附加日期', '在文件名后追加 `-YYYY-MM-DD-HH-mm`，避免同日多次导出互相覆盖', mdExportAppendDate, checked => {
                     mdExportAppendDate = checked;
                     GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, checked);
                     showToast(checked ? '文件名将附加日期' : '文件名不带日期');
@@ -959,7 +959,7 @@
         }
         .ds-setting-ctrl { flex-shrink: 0; margin-left: 12px; }
 
-        /* Switch（参考 slider 风格） */
+        /* Switch（滑杆式） */
         .ds-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
         .ds-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
         .ds-slider {
@@ -1103,7 +1103,7 @@
            .ds-md-msg-selected 圈住的是整条消息（含表格 / 代码块），改其后代盒模型会破坏页面排版 */
         .ds-md-msg-selected, .ds-md-cb-wrap, .ds-md-checkbox { box-sizing: border-box; }
 
-        /* 勾选态：隐藏表格内导出按钮（避免与勾选交互抢注意力，对齐插件隐藏 FAB 的做法） */
+        /* 勾选态：隐藏表格内导出按钮（避免与勾选交互抢注意力） */
         .ds-md-selection-active .table-internal-buttons { display: none !important; }
 
         /* 勾选态控制条 —— 通栏贴底 + 毛玻璃 */
@@ -1159,7 +1159,7 @@
         /* 扫描中：隐藏复选框（避免勾到半成品） */
         .ds-md-selection-scanning .ds-md-cb-wrap { display: none !important; }
 
-        /* 右上角提示条（对齐插件 components/feedback/notice.css） */
+        /* 右上角提示条（毛玻璃底 + 旋转环 + 滑入/滑出动画） */
         @keyframes dsMdNoticeIn { from { opacity: 0; transform: translateX(20px) scale(.95); } to { opacity: 1; transform: translateX(0) scale(1); } }
         @keyframes dsMdNoticeOut { from { opacity: 1; transform: translateX(0) scale(1); } to { opacity: 0; transform: translateX(20px) scale(.95); } }
         @keyframes dsMdNoticeSpin { to { transform: rotate(360deg); } }
@@ -1238,7 +1238,7 @@
             background-color: color-mix(in srgb, var(--ds-md-accent) 6%, var(--ds-md-surface-2) 94%);
         }
 
-        /* 两步模态框 —— 对齐插件 dialog.css：780px / 24px 圆角 / 浅色毛玻璃遮罩 / 滑入动画 */
+        /* 两步模态框 —— 780px 宽 / 24px 圆角 / 浅色毛玻璃遮罩 / 滑入动画 */
         @keyframes dsMdOverlayIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes dsMdDialogIn { from { opacity: 0; transform: scale(.94) translateY(16px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         @keyframes dsMdStepIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
@@ -1285,7 +1285,7 @@
         .ds-md-field { margin-bottom: 18px; }
         .ds-md-field-label { font-size: 12px; font-weight: 600; color: var(--ds-md-sub); margin-bottom: 8px; letter-spacing: .02em; }
 
-        /* 格式按钮：3 列大卡（对齐插件 .format-btn：48px 图标 + 28px 内边距 + hover 上浮） */
+        /* 格式按钮：3 列大卡（48px 图标 + 28px 内边距 + hover 上浮） */
         .ds-md-format-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
         .ds-md-fmt-btn {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1297,7 +1297,7 @@
         }
         .ds-md-fmt-btn::before {
             content: ""; width: 48px; height: 48px; margin-bottom: 14px; border-radius: 10px;
-            background-color: #322b26;   /* Markdown 品牌色（插件 --icon-md-primary） */
+            background-color: #322b26;   /* Markdown 品牌底色 */
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffffff'%3E%3Cpath d='M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6h17.12c.79 0 1.44.63 1.44 1.41v9.18c0 .78-.65 1.41-1.44 1.41M6.81 15.19v-3.66l1.92 2.35 1.92-2.35v3.66h1.93V8.81h-1.93l-1.92 2.35-1.92-2.35H4.89v6.38h1.92M19.69 12h-1.92V8.81h-1.92V12h-1.93l2.89 3.28z'/%3E%3C/svg%3E");
             background-repeat: no-repeat; background-position: center; background-size: 30px 30px;
         }
@@ -1311,7 +1311,7 @@
         .ds-md-fmt-btn:active { transform: translateY(0); }
         .ds-md-fmt-btn:focus, .ds-md-fmt-btn:focus-visible { outline: 0; }
 
-        /* 页脚小开关（对齐插件 .common-toggle-switch：自绘 44×24 胶囊） */
+        /* 页脚小开关（自绘 44×24 胶囊） */
         .ds-md-switch {
             appearance: none; -webkit-appearance: none;
             position: relative; flex: none;
@@ -1345,7 +1345,7 @@
         .ds-md-back:focus, .ds-md-back:focus-visible { outline: 0; }
         .ds-md-tpl-head { display: flex; align-items: center; margin-bottom: 16px; }
         .ds-md-tpl-sub { flex: 1; padding-right: 60px; margin: 0; }   /* 右侧留白以抵消返回按钮，保持居中 */
-        /* 模板网格：固定两列（对齐插件 repeat(2,1fr)） */
+        /* 模板网格：固定两列（repeat(2, 1fr)） */
         .ds-md-template-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
         .ds-md-template-card {
             position: relative; display: flex; flex-direction: column; overflow: hidden;
@@ -1363,7 +1363,7 @@
             background: var(--ds-md-accent); color: #fff; font-size: 10px; font-weight: 600;
         }
 
-        /* 预览区：固定 132px 高 + 底部渐隐（对齐插件 .export-template-preview） */
+        /* 预览区：固定 132px 高 + 底部渐隐 */
         .ds-md-pv {
             position: relative; height: 132px; padding: 12px 14px; overflow: hidden;
             background: color-mix(in srgb, var(--ds-md-surface-2) 84%, var(--ds-md-surface) 16%);
@@ -1379,7 +1379,7 @@
         .ds-md-template-card:hover .ds-md-pv::after {
             background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--ds-md-surface-2) 92%, var(--ds-md-surface) 8%));
         }
-        /* 缩微排版：整体 9px 起步，标题 11→9.5 递减（对齐插件的 preview 字号体系） */
+        /* 缩微排版：整体 9px 起步，标题 11→9.5 递减 */
         .ds-md-pv-line, .ds-md-pv-c { font-size: 9px; line-height: 1.55; color: var(--ds-md-sub); }
         .ds-md-pv-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; }
         .ds-md-pv-line--h1 { font-size: 11px; font-weight: 800; color: var(--ds-md-text); margin-bottom: 1px; letter-spacing: -.01em; }
@@ -1432,14 +1432,14 @@
         }
         .ds-md-pv-card:last-child { margin-bottom: 0; }
 
-        /* 信息区（对齐插件 .export-template-info） */
+        /* 信息区：名称 + 描述两行 */
         .ds-md-tpl-info { padding: 10px 14px 12px; border-top: 1px solid var(--ds-md-border); }
         .ds-md-tpl-name { display: block; margin-bottom: 3px; font-size: 13px; font-weight: 600; transition: color .25s ease; }
         .ds-md-template-card:hover .ds-md-tpl-name { color: var(--ds-md-accent); }
         .ds-md-tpl-desc { display: block; font-size: 12px; line-height: 1.5; color: var(--ds-md-sub); transition: color .25s ease; }
         .ds-md-template-card:hover .ds-md-tpl-desc { opacity: .92; }
 
-        /* 页脚（对齐插件 .dialog-footer / .dialog-footer-commit） */
+        /* 页脚：左侧选项区 / 右侧动作区 */
         .ds-md-dlg-footer {
             display: flex; align-items: center; justify-content: space-between; gap: 12px;
             padding: 8px 32px 24px; flex-wrap: wrap;
@@ -1469,7 +1469,7 @@
         .ds-md-dlg-cancel:active { transform: translateY(0); }
         .ds-md-dlg-cancel:focus, .ds-md-dlg-cancel:focus-visible { outline: 0; }
 
-        /* 窄屏：页脚纵向、格式与大卡单列（对齐插件 @media (max-width:640px)） */
+        /* 窄屏（≤640px）：页脚纵向、格式与大卡单列 */
         @media (max-width: 640px) {
             .ds-md-dlg-header { padding: 16px 18px; }
             .ds-md-dlg-body { padding: 10px 18px 22px; }
@@ -4015,10 +4015,10 @@
         ];
 
         const secOf = (wrap, name) => wrap.querySelector('[' + ATTR.SECTION + '="' + name + '"]');
-        // 全量问题文本：**保留换行**（仅归一 CRLF）。对应插件 module 1845 的 p()。
+        // 全量问题文本：**保留换行**（仅归一 CRLF），换行交给调用方转成 `<br>`。
         // 注意不要在这个函数里压空白 —— 换行要留给调用方转成 <br>，否则多段提问会被挤成一行。
         const fullText = (el) => String((el && (el.innerText || el.textContent)) || '').replace(/\r\n?/g, '\n').trim();
-        // 单行化：连续空白压成一个空格。对应插件的 m()，仅用于「摘要」与「长度判断」。
+        // 单行化：连续空白压成一个空格，仅用于「摘要」与「长度判断」。
         const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
         const shorten = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n) + '...' : s; };
         // 用新节点替换元素内容，但保留其 class / id / 其余属性
@@ -4037,7 +4037,7 @@
             if (el.firstChild) el.insertBefore(node, el.firstChild);
             else el.appendChild(node);
         }
-        // 问题正文折叠成单段（`<br>` 分节），不保留原有块级结构。对应插件的 a()
+        // 问题正文折叠成单段（`<br>` 分节），不保留原有块级结构。
         function collapseToParagraph(sec) {
             const text = fullText(sec);
             const p = document.createElement('p');
@@ -4075,7 +4075,7 @@
             p.appendChild(s);
             return p;
         };
-        // 结构化笔记 / 问题清单（结构化）：序号 h1 + 摘要，超长时补「问题详情」。对应插件的 c()
+        // 结构化笔记 / 问题清单（结构化）：序号 h1 + 摘要，超长时补「问题详情」。
         // 摘要用**单行化文本**判断长度与截断；「问题详情」用**保留换行**的全文（换行转 <br>）
         function structuredHeader(sec, index, hLevel) {
             const level = Math.min(Math.max(hLevel || 1, 1), 6);
@@ -4105,7 +4105,7 @@
             }
             replaceInner(sec, box);
         }
-        // 知识文档（h1）/ 问题大纲（h2）：序号标题。对应插件的 h()，标题层级由调用方传入
+        // 知识文档（h1）/ 问题大纲（h2）：序号标题，层级由调用方传入。
         function outlineHeader(sec, index, hLevel, maxLen) {
             const level = Math.min(Math.max(hLevel || 2, 1), 6);
             const h = document.createElement('h' + level);
@@ -4123,12 +4123,12 @@
                 onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (!s) return; injectBefore(s, boldLabel('回答（Answer）：')); demoteHeadings(s); },
             },
             knowledgeDoc: {
-                // 插件：h(e, idx, 1) → h1（章节标题与 structured 同级）
+                // 序号标题用 h1（章节标题与 structured 同级）
                 onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) outlineHeader(s, n, 1, 60); },
                 onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (s) demoteHeadings(s); },
             },
             rolePlay: {
-                // 插件：rolePlay.onUser = a(e) 折叠 + 「我说：」。折叠不可省，否则多段提问会破坏格式
+                // 角色对话 onUser：折叠成单段 + 「我说：」。折叠不可省，否则多段提问会破坏格式
                 onUser: (wrap) => { const s = secOf(wrap, 'question'); if (s) { collapseToParagraph(s); injectBefore(s, boldLabel('我说：')); } },
                 onAi: (wrap) => { const s = secOf(wrap, 'answer'); if (s) injectBefore(s, boldLabel('DeepSeek说：')); },
             },
@@ -4137,7 +4137,7 @@
                 onAi: () => { },
             },
             qOutline: {
-                // 插件：h(e, idx) → 默认 n=2 → h2
+                // 序号标题默认 h2（n=2）
                 onUser: (wrap, n) => { const s = secOf(wrap, 'question'); if (s) outlineHeader(s, n, 2, 60); },
                 onAi: () => { },
             },
@@ -4183,10 +4183,10 @@
         };
 
         // ==================== 模板预览 ====================
-        // 插件每张模板卡上方都有一段 132px 的「缩微排版预览」，用真实选中内容渲染，
+        // 每张模板卡上方都有一段 132px 的「缩微排版预览」，用真实选中内容渲染，
         // 让用户在点之前就看懂模板长什么样。这里按同样思路实现，但复用自己的标准化 DOM。
 
-        // 采集预览素材：既有问答时最多 2 组；只选提问时最多 8 条（与插件一致）
+        // 采集预览素材：既有问答时最多 2 组；只选提问时最多 8 条
         // 入参是记录数组 [{role, src}]，因此**已滚出视野的消息也能参与预览**。
         function extractPreview(recs) {
             const questions = [], answers = [];
@@ -4215,7 +4215,7 @@
             return { questions, answers };
         }
 
-        // 按纯文本长度截断但**保留 DOM 结构**（对应插件 getPreviewHtml 里的 u()）
+        // 按纯文本长度截断但**保留 DOM 结构**
         function clipHtml(html, limit) {
             if (!html) return '';
             const holder = document.createElement('div');
@@ -4245,7 +4245,7 @@
             for (const child of holder.childNodes) if (!walk(child, out)) break;
             return out.innerHTML;
         }
-        // 取纯文本摘要并转义（对应插件的 h()）
+        // 取纯文本摘要并转义
         function plainHtml(html, limit) {
             if (!html) return '';
             const holder = document.createElement('div');
@@ -4259,7 +4259,7 @@
         }
         const pvC = (inner, mod) => (inner ? `<div class="ds-md-pv-c${mod ? ' ' + mod : ''}">${inner}</div>` : '');
 
-        // 每套模板的缩微预览骨架（结构对齐插件，类名改用自己的 ds-md-pv-* 前缀）
+        // 每套模板的缩微预览骨架（自有 ds-md-pv-* 前缀，避免与页面样式冲突）
         function previewHtml(id, texts) {
             const q = (texts && texts.questions) || [];
             const a = (texts && texts.answers) || [];
@@ -4367,22 +4367,27 @@
             return t || FALLBACK_TITLE;
         }
         const pad2 = (n) => String(n).padStart(2, '0');
-        // 插件格式：YYYY-MM-DD-HH-mm（带时分，避免同日多次导出互相覆盖）
+        // 文件名时间戳：YYYY-MM-DD-HH-mm（带时分，避免同日多次导出互相覆盖）
         function formatExportDate(d) {
             const t = (d instanceof Date && !Number.isNaN(d.getTime())) ? d : new Date();
             return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}-${pad2(t.getHours())}-${pad2(t.getMinutes())}`;
         }
-        // 空格→下划线、Windows 非法字符→下划线、截断 50 字（与插件一致）
-        function sanitizeFilename(name) {
+        // 空格→下划线、Windows 非法字符→下划线、截断到 limit 字（默认 50）
+        const FILENAME_MAX = 50;
+        function sanitizeFilename(name, limit) {
             return (String(name == null ? '' : name).trim() || FALLBACK_TITLE)
                 .replace(/\s+/g, '_')
                 .replace(/[<>:"/\\|?*]/g, '_')
-                .substring(0, 50);
+                .substring(0, typeof limit === 'number' && limit > 0 ? limit : FILENAME_MAX);
         }
         function buildFilename(ext) {
             const base = resolveTitle();
             const stamp = mdExportAppendDate ? formatExportDate() : '';
-            return sanitizeFilename(stamp ? `${base}-${stamp}` : base) + '.' + ext;
+            // 时间戳必须原样保留：先按「总长 - 时间戳 - 连接符」截标题，再拼接。
+            // 若先拼后截（旧实现），长标题会把时间戳整段截掉，「避免重名覆盖」的承诺即失效。
+            if (!stamp) return sanitizeFilename(base) + '.' + ext;
+            const room = FILENAME_MAX - stamp.length - 1;
+            return sanitizeFilename(base, room > 0 ? room : FILENAME_MAX) + '-' + stamp + '.' + ext;
         }
         function download(md, filename) {
             const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });   // 注意：Markdown 不写 BOM
@@ -4399,7 +4404,7 @@
 
         // opts: { includeReasoning, templateId, selectedKeys(Set<string>|null) }
         // 注意：**没有**「仅导出 AI 回答」这类选项 —— 导出哪些消息由勾选态决定
-        //（对应插件第 ① 步的「全选提问 / 全选AI回答」）。在弹窗里再放一个同类开关会与之打架。
+        //（勾选态已提供「全选提问 / 全选AI回答」）。在弹窗里再放一个同类开关会与之打架。
         function buildMarkdown(opts) {
             const o = opts && typeof opts === 'object' ? opts : {};
             const includeReasoning = o.includeReasoning === true;
@@ -4463,7 +4468,7 @@
             const i = typeof index === 'number' ? index : msgsInDom().indexOf(msgEl);
             return 'ix:' + (i >= 0 ? i : 0);
         }
-        // 稳定键排序（对齐插件 7448 compareStableKeys：同前缀按数字，否则中文序）
+        // 稳定键排序（同前缀按数字，否则按中文序）
         function compareStableKeys(a, b) {
             const parse = (s) => {
                 const m = /^([a-z]+):(-?\d+)$/i.exec(String(s == null ? '' : s).trim());
@@ -4518,7 +4523,7 @@
         }
 
         // 找出承载消息列表的滚动容器
-        // 对齐插件 module 1996 findVirtualListScrollContainer：从虚拟列表容器出发**沿祖先链向上**
+        // 滚动容器定位：从虚拟列表容器出发，沿祖先链向上逐级检查。
         // 找第一个 overflowY ∈ {auto,scroll} 且确实可滚动的元素。
         // ⚠ 绝不能全页扫 .ds-scroll-area —— 实测页面上有 30+ 个（代码块横向滚动区、侧栏、以及
         //   装饰性的 .ds-scroll-area__gutters），"第一个可滚动的"往往**根本不含消息**；
@@ -4551,7 +4556,7 @@
         // 窗口签名：当前渲染出来的消息键序列（不变即视为稳定）
         const windowSignature = () => msgsInDom().map((el, i) => stableKeyOf(el, i)).join(',');
 
-        // 等待窗口稳定：连续两次签名一致即返回（上限 24 次，对齐插件）
+        // 等待窗口稳定：连续两次签名一致即返回（上限 24 次）
         async function waitWindowStable(sc, maxTries) {
             const tries = maxTries || 24;
             let prev = '';
@@ -4580,7 +4585,7 @@
             return keys;
         }
 
-        // 全对话扫描：逐步滚过整段对话，边滚边快照（对齐插件 discover() 的主循环）
+        // 全对话扫描：逐步滚过整段对话，边滚边快照（滚到位置 → 等窗口稳定 → 采集）
         async function scanAll() {
             if (scanDone) return true;
             const sc = findScrollContainer();
@@ -4604,12 +4609,11 @@
                 }
                 // 再冲几次底部，确保末尾消息被渲染
                 for (let i = 0; i < 3; i++) await captureAt(sc, maxScrollTop(sc));
-                // 兜底：把缓存里剩下没进顺序表的键按稳定键排序补到末尾
-                [...sourceCache.keys()].forEach(k => { if (!orderList.includes(k)) orderList.push(k); });
-                orderList.sort((a, b) => {
-                    const ia = orderList.indexOf(a), ib = orderList.indexOf(b);
-                    return ia - ib;
-                });
+                // 兜底：扫描期间始终没进过窗口的键，按稳定键排序后补到末尾。
+                // 注意不能就地比较「当前下标」——那等于不排序；必须交给 compareStableKeys。
+                const noted = new Set(orderList);
+                const rest = [...sourceCache.keys()].filter(k => !noted.has(k)).sort(compareStableKeys);
+                orderList.push(...rest);
                 scanDone = true;
                 return true;
             } finally {
@@ -4623,7 +4627,7 @@
         }
 
         // ---------- 图表态代码块切回「代码」视图 ----------
-        // 对齐插件 module 230：双 Tab（代码/图表）且当前不在代码视图 → 需要切换。
+        // 图表态代码块：双 Tab（代码/图表）且当前不在代码视图 → 需要切换。
         // **不需要主世界注入**：DOM 在两个 world 间共享，React 的委托监听挂在 document 上，
         // 沙箱内 click() 派发的真实事件它能收到 —— 顺带绕开页面 CSP 拦截内联脚本的风险。
         const TAB_SEL = 'div[role="tab"], .ds-segmented-button';
@@ -4655,7 +4659,7 @@
             }
             return false;
         }
-        // 切回代码视图并轮询等待（对齐插件 6 × 30ms）
+        // 切回代码视图并轮询等待（6 × 30ms）
         async function ensureCodeView(scope) {
             if (!scope) return false;
             let blocks = [];
@@ -4674,7 +4678,7 @@
             return false;
         }
 
-        // ---------- 右上角提示条（对齐插件 components/feedback/notice.css） ----------
+        // ---------- 右上角提示条（毛玻璃底 + 旋转环） ----------
         let noticeEl = null;
         function showNotice(text) {
             hideNotice();
@@ -4736,6 +4740,32 @@
         let dialogEl = null;
         let dialogCleanup = null;
 
+        // ---------- 会话守卫 ----------
+        // SPA 切换对话时，消息 DOM 会被整段替换，但本单元的 sourceCache / orderList / selectedKeys
+        // 仍是上一段对话的键。若不失效，导出会把两段对话拼在一起（稳定键还可能撞号）。
+        // 语义对齐：页面变化 → 清空缓存与选中 → 退出勾选态，并明确告知用户。
+        const sessionIdOf = () => {
+            const m = String(location.pathname || '').match(/\/s\/([^/]+)/);
+            return m ? m[1] : '';
+        };
+        let selectionSid = '';
+        function resetSelectionCache() {
+            selectedKeys.clear();
+            sourceCache.clear();
+            orderList = [];
+            scanDone = false;
+        }
+        function guardSessionChange() {
+            if (!selectionActive) return false;
+            const sid = sessionIdOf();
+            if (sid === selectionSid) return false;
+            selectionSid = sid;
+            resetSelectionCache();
+            stopSelection();
+            showToast('检测到对话切换，已退出导出选择');
+            return true;
+        }
+
         const msgsInDom = () => [...document.querySelectorAll(SEL.MESSAGE)];
 
         function attachCheckbox(msgEl, isUser, key) {
@@ -4771,6 +4801,8 @@
         }
 
         function syncCheckboxes() {
+            if (!selectionActive) return;       // 已退出勾选态（含会话守卫触发）时不得再注入复选框
+            if (guardSessionChange()) return;   // 切换对话后不再往新会话里画上一轮的勾选
             rememberMessages();                 // 先刷新可见消息的来源快照（键驱动的前提）
             const list = msgsInDom();
             list.forEach((el, i) => {
@@ -4870,20 +4902,26 @@
             const aiBtn = q(CLS.SELECT_AI);
             const hint = q(CLS.HINT);
             const busy = busyCount > 0;
+            // 文案判据是「页面上有没有可导出的消息」(total)，不是「选没选中」(n)。
+            // 用 n 判会让刚进入勾选态的用户看到红字「当前页无对话内容」——而消息明明就在眼前。
+            const hasContent = total > 0;
+            const complete = scanDone || !isVirtualized();
             if (hint) {
-                hint.textContent = n > 0 ? '可手动勾选想要导出的内容' : '当前页无对话内容';
-                hint.classList.toggle('is-ok', n > 0);   // 有选中 → 灰字提示；无选中 → 红字警告
+                hint.textContent = hasContent ? '可手动勾选想要导出的内容' : '当前页无对话内容';
+                hint.classList.toggle('is-ok', hasContent);   // 有内容 → 灰字提示；无内容 → 红字警告
             }
-            [allBtn, userBtn, aiBtn].forEach(b => { if (b) b.disabled = busy || total === 0; });
+            [allBtn, userBtn, aiBtn].forEach(b => { if (b) b.disabled = busy || !hasContent; });
             if (expBtn) {
                 expBtn.textContent = `导出选中 (${n})`;
                 expBtn.disabled = busy || n <= 0;
             }
-            if (allBtn) allBtn.textContent = (n > 0 && n === total) ? '取消全选' : '全选';
+            // 「取消全选」只在确认已扫描完整时才出现，否则会暗示「已经没有更多消息了」
+            if (allBtn) allBtn.textContent = (n > 0 && n === total && complete) ? '取消全选' : '全选';
         }
 
         // 需要时先扫全对话（虚拟列表下才真正滚动；短对话直接标记完成）
         async function ensureScanned() {
+            if (guardSessionChange()) return false;
             if (scanDone) return true;
             if (!isVirtualized()) { scanDone = true; rememberMessages(); return true; }
             busyCount++;
@@ -4951,10 +4989,8 @@
             if (!msgsInDom().length) { showToast('当前页无对话内容'); return false; }
             selectionActive = true;
             // 每次进入都是全新会话：清空上轮的键、顺序与快照（避免跨对话残留）
-            selectedKeys.clear();
-            sourceCache.clear();
-            orderList = [];
-            scanDone = false;
+            resetSelectionCache();
+            selectionSid = sessionIdOf();
             busyCount = 0;
             document.body.classList.add(CLS.ACTIVE);
             syncCheckboxes();
@@ -5097,7 +5133,12 @@
             });
 
             const persist = (templateId) => {
-                if (!rememberChk.checked) return;
+                // 未勾选 = 用户明确表示「这次不要记住」→ 必须把既有记忆清掉。
+                // 只做「不写入」会让上一轮的 remember:true 继续生效，下次仍然预填（隐形状态）。
+                if (!rememberChk.checked) {
+                    try { GM_setValue(STORAGE_MD_EXPORT_PREFS, ''); } catch (e) { /* 忽略 */ }
+                    return;
+                }
                 const o = readOpts();
                 savePrefs({ includeReasoning: o.includeReasoning, templateId, remember: true });
             };
@@ -5119,7 +5160,7 @@
                 titleEl.textContent = '选择导出内容';
                 subEl.textContent = `即将导出 ${recs.length} 条消息（提问 ${nUser} 条 · 回答 ${nAi} 条）：`;
                 actions.hidden = false;
-                rememberWrap.hidden = true;    // 与插件一致：步 1 还没选模板，无可记住的内容
+                rememberWrap.hidden = true;    // 步 1 还没选模板，无可记住的内容
                 modal.querySelector('.' + CLS.DIALOG).classList.remove('is-template-step');
                 // 仅「从模板步返回」时播滑入动画（首次打开不播）
                 if (animate) {
@@ -5149,7 +5190,7 @@
                     card.className = CLS.TPL_CARD;
                     card.dataset.template = t.id;
                     if (t.id === prefs.templateId) card.classList.add('is-remembered');
-                    // 结构对齐插件：上半 = 132px 缩微预览，下半 = 名称 + 描述
+                    // 结构：上半 = 132px 缩微预览，下半 = 名称 + 描述
                     const pv = document.createElement('div');
                     pv.className = 'ds-md-pv';
                     pv.innerHTML = previewHtml(t.id, previewTexts);
@@ -5182,7 +5223,6 @@
             document.addEventListener('keydown', onKey);
             dialogCleanup = () => document.removeEventListener('keydown', onKey);
 
-            var _dialogInner = modal.querySelector('.' + CLS.DIALOG);
             showContentStep();
             document.body.appendChild(modal);
             dialogEl = modal;
@@ -5195,6 +5235,7 @@
         }
 
         async function exportSelected() {
+            if (guardSessionChange()) return false;
             if (!selectedKeys.size) { showToast('请先选择要导出的消息'); return false; }
             // 导出前确保已扫全（长对话下窗口外的消息只有扫过才有内容）
             await ensureScanned();
