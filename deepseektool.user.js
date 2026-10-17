@@ -804,7 +804,38 @@
         });
     }
 
+    function removeTableButtons(table) {
+        const bc = _btnsOfTable.get(table);
+        if (bc) {
+            bc.remove();
+            _tableOfBtns.delete(bc);
+            _btnsOfTable.delete(table);
+        }
+        // 旧版本把按钮挂在 table 内；当前版本挂在消息体上。两种都清。
+        const legacy = table.querySelector('.table-internal-buttons');
+        if (legacy) legacy.remove();
+        const host = table.closest('.ds-markdown') || table.parentElement;
+        if (host && host.querySelectorAll('table').length === 1) {
+            host.querySelectorAll('.table-internal-buttons').forEach(b => b.remove());
+        }
+        table.removeAttribute('data-internal-buttons-added');
+    }
+
+    // 热更新后新实例的 WeakMap 是空的，但旧实例的按钮仍在 DOM。
+    // 单表格消息直接整组重建；多表格消息按「按钮组数量不得超过表格数量」兜底，
+    // 保留后 N 组（新实例按表格顺序追加，旧组在前）。
+    function dedupeTableButtons() {
+        document.querySelectorAll('.ds-markdown').forEach(host => {
+            const tableCount = host.querySelectorAll('table').length;
+            const btns = [...host.querySelectorAll('.table-internal-buttons')];
+            if (tableCount > 0 && btns.length > tableCount) {
+                btns.slice(0, btns.length - tableCount).forEach(b => b.remove());
+            }
+        });
+    }
+
     function toggleTableButtons(enabled) {
+        if (enabled) dedupeTableButtons();
         document.querySelectorAll('.ds-markdown table').forEach(table => {
             const bc = _btnsOfTable.get(table);
             if (enabled) {
@@ -812,11 +843,8 @@
                     table.removeAttribute('data-internal-buttons-added');
                     addButtonsToTable(table);
                 }
-            } else if (bc) {
-                bc.remove();
-                _btnsOfTable.delete(table);
-                _tableOfBtns.delete(bc);
-                table.removeAttribute('data-internal-buttons-added');
+            } else {
+                removeTableButtons(table);
             }
         });
     }
@@ -2185,6 +2213,7 @@
     }
 
     function deduplicateButtons() {
+        dedupeTableButtons();
         // 通过按钮文字或类名找到按钮容器，去重其中的折叠按钮与导出按钮
         const seen = new Set();
         const dedupeIn = (container) => {
@@ -2985,6 +3014,23 @@
 
         const host = table.closest('.ds-markdown') || table.parentElement;
         if (!host) return;
+
+        // 热更新：旧实例已经挂过按钮，但新实例的 WeakMap 为空。
+        // 单表格消息可安全清理整组旧按钮后重建；多表格消息只清 table 内的旧按钮，
+        // 若消息体上已有足够的按钮组则直接复用，避免重复。
+        if (table.getAttribute('data-internal-buttons-added') === 'true') {
+            const tableCount = host.querySelectorAll('table').length;
+            if (tableCount <= 1) {
+                removeTableButtons(table);
+            } else if (host.querySelectorAll('.table-internal-buttons').length >= tableCount) {
+                table.removeAttribute('data-internal-buttons-added');
+                return;
+            } else {
+                const legacy = table.querySelector('.table-internal-buttons');
+                if (legacy) legacy.remove();
+            }
+        }
+
         if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
         table.setAttribute('data-internal-buttons-added', 'true');
