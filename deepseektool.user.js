@@ -2338,12 +2338,29 @@
         };
 
         const natural = new Array(cols).fill(0);
-        for (const cell of cells) {
-            const idx = cell.cellIndex;   // 真实列索引（Markdown 表格无 colspan，可直接用）
-            if (idx < 0 || idx >= cols) continue;
-            if (!cell.textContent) continue;
-            const w = measureNode(cell) + 1.5;
-            if (w > natural[idx]) natural[idx] = w;
+        // 不能直接用 cell.cellIndex：它会忽略 colspan，跨列单元格后面的索引会整体前移。
+        // 这里按「行内单元格顺序 + colSpan」自行推算列位置；rowspan 暂不处理
+        // （Markdown 表格不产生 rowspan，HTML 表格的 rowspan 场景极少）。
+        for (const row of table.rows) {
+            let col = 0;
+            for (const cell of row.cells) {
+                const span = Math.max(1, cell.colSpan || 1);
+                if (col >= cols) break;
+                if (cell.textContent) {
+                    const w = measureNode(cell) + 1.5;
+                    if (span === 1) {
+                        if (w > natural[col]) natural[col] = w;
+                    } else {
+                        // 跨列单元格的宽度无法归到单列：按实际跨的列数均摊，
+                        // 作为每列的最低需求，避免整段宽度被错误记到第一列。
+                        const per = w / Math.min(span, cols - col);
+                        for (let k = 0; k < span && col + k < cols; k++) {
+                            if (per > natural[col + k]) natural[col + k] = per;
+                        }
+                    }
+                }
+                col += span;
+            }
         }
         return natural;
     }
