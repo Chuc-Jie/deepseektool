@@ -6,18 +6,32 @@
     </linearGradient>
   </defs>
 
-  <!-- 基于官方鲸鱼姿态重绘的几何版本：头右尾左、向上跃起；
-       轮廓、比例与细节均为重新设计，不复用官方路径。 -->
+  <!-- 融合标记：齿轮外环（工具/设置）+ 中心鲸鱼（品牌姿态）+ 气泡点。
+       鲸鱼为几何重绘，齿轮为简化重绘，二者组合后重新排版。 -->
   <rect width="512" height="512" rx="120" fill="url(#bg)"/>
 
-  <!-- 鲸鱼身体 -->
-  <path d="M148 326C176 244 244 194 322 202C382 208 414 246 416 286C416 306 404 320 384 322C342 326 300 310 270 288C240 266 198 278 168 314Z" fill="#ffffff"/>
-  <!-- 尾鳍 -->
-  <path d="M148 326L96 292C108 322 108 354 96 384Z" fill="#ffffff"/>
-  <!-- 胸鳍 -->
-  <path d="M258 310L238 356C264 350 284 336 296 316Z" fill="#ffffff"/>
-  <!-- 眼睛：用背景色镂空 -->
-  <circle cx="372" cy="270" r="11" fill="#3a50c4"/>
-  <!-- 对话气泡 -->
-  <circle cx="404" cy="204" r="14" fill="#bcd0ff"/>
+  <!-- 齿轮齿 -->
+  <g fill="#dbe4ff">
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(0 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(45 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(90 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(135 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(180 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(225 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(270 256 256)"/>
+    <rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(315 256 256)"/>
+  </g>
+  <!-- 齿轮环 -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#dbe4ff" stroke-width="26"/>
+
+  <!-- 中心鲸鱼 -->
+  <g transform="translate(256 266) scale(0.5) translate(-256 -289)">
+    <path d="M148 326C176 244 244 194 322 202C382 208 414 246 416 286C416 306 404 320 384 322C342 326 300 310 270 288C240 266 198 278 168 314Z" fill="#ffffff"/>
+    <path d="M148 326L96 292C108 322 108 354 96 384Z" fill="#ffffff"/>
+    <path d="M258 310L238 356C264 350 284 336 296 316Z" fill="#ffffff"/>
+    <circle cx="372" cy="270" r="11" fill="#3a50c4"/>
+  </g>
+
+  <!-- 气泡点 -->
+  <circle cx="356" cy="196" r="14" fill="#bcd0ff"/>
 </svg>

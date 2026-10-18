@@ -11,6 +11,17 @@
 使用方式：从 MDI 图标集中提取 SVG path 数据，内联到 `deepseektool.user.js`，
 用于设置面板导航与表格导出按钮的图标渲染。未修改图标图形本身。
 
+## OpenSearch UI
+
+- Source: https://github.com/opensearch-project/oui
+- Copyright: OpenSearch Contributors
+- License: Apache License, Version 2.0
+
+品牌标记中的齿轮形状参考了 OpenSearch UI 的图标设计，并经过简化与重新排版，
+与鲸鱼图形组合为新的品牌标记。未直接复制原图标的完整组合。
+
+Apache 2.0 全文见下方。
+
 ---
 
                                  Apache License
