@@ -1182,8 +1182,8 @@
             display: flex; align-items: center; gap: 10px;
             padding: 2px 12px 20px; color: var(--dsp-title);
         }
-        .ds-p-logo-ic { width: 22px; height: 22px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
-        .ds-p-logo-ic-img { width: 22px; height: 22px; display: block; }
+        .ds-p-logo-ic { width: 26px; height: 26px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .ds-p-logo-ic-img { width: 26px; height: 26px; display: block; }
         .ds-p-logo-t { font-size: 15px; font-weight: 600; letter-spacing: .2px; }
         .ds-p-logo-s { font-size: 11px; color: var(--dsp-tertiary); margin-top: 2px; }
         .ds-p-nav {
@@ -1198,7 +1198,7 @@
             color: var(--dsp-nav-text); font-size: 14px; font-weight: 500;
             transition: background-color 180ms cubic-bezier(.2, 0, 0, 1), color 180ms cubic-bezier(.2, 0, 0, 1);
         }
-        .ds-p-nav-ic { width: 18px; height: 18px; display: block; flex: none; }
+        .ds-p-nav-ic { width: 20px; height: 20px; display: block; flex: none; }
         .ds-p-nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .ds-p-nav-divider { height: 1px; background: var(--dsp-divider); margin: 10px 12px; flex-shrink: 0; }
         .ds-p-nav:hover .ds-p-nav-bd { background: var(--dsp-nav-hover-bg); color: var(--dsp-text); }
@@ -1245,7 +1245,7 @@
             color: var(--dsp-title); letter-spacing: .1px;
             user-select: none; -webkit-user-select: none;
         }
-        .ds-p-hic { width: 24px; height: 24px; flex: none; }
+        .ds-p-hic { width: 26px; height: 26px; flex: none; }
         /* 帮助/关于：说明字块 */
         .ds-info { padding: 12px 0; }
         .ds-info + .ds-info { border-top: 1px solid var(--dsp-divider); }
@@ -1260,7 +1260,7 @@
             transition: border-color 180ms cubic-bezier(.2, 0, 0, 1), box-shadow 180ms cubic-bezier(.2, 0, 0, 1), transform 180ms cubic-bezier(.2, 0, 0, 1);
         }
         .ds-link-card:hover { border-color: var(--dsp-accent); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
-        .ds-link-card-ic { width: 24px; height: 24px; flex: none; }
+        .ds-link-card-ic { width: 26px; height: 26px; flex: none; }
         .ds-link-card-tx { min-width: 0; display: flex; flex-direction: column; }
         .ds-link-card-title { font-size: 14px; font-weight: 600; color: var(--dsp-text); line-height: 1.3; }
         .ds-link-card-desc { font-size: 12px; color: var(--dsp-sub); margin-top: 2px; line-height: 1.45; }
