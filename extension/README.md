@@ -43,6 +43,9 @@ dist/                  构建产物（gitignore），加载扩展时选它
   `GM_addStyle` / `GM_registerMenuCommand` 绑定到 `src/gm-shim.js`。
 - **存储预加载**：`chrome.storage.local.get(null)` 一次读入内存，`GM_getValue` 保持同步语义；
   `runUserScript()` 在预加载完成后才执行，避免顶层设置读取拿到默认值。
+  读取失败时降级为默认设置继续运行（设置只在当前页面内存生效），不会让整个扩展停摆。
+- **注入时机**：`document_end`，与 userscript 的 `@run-at document-end` 对齐；
+  比 `document_idle` 更早接管首屏，同时保证 DOM 已可操作。
 - **跨标签同步**：`chrome.storage.onChanged` 更新内存缓存并派发 `ds-storage-changed`，
   主脚本据此重新读取设置并热应用；本标签写入通过回环去重，不会重建面板。
 - **环境文案**：content-entry 在页面根节点标记扩展运行时，帮助页自动切换为扩展版说明。

@@ -15,10 +15,21 @@ import { preloadStorage } from './gm-shim.js';
 import { runUserScript } from '../../deepseektool.user.js';
 
 (async () => {
+  let storageReady = false;
   try {
-    await preloadStorage();
-    document.documentElement.dataset.dsExtension = '1';
-    window.html2canvas = html2canvas;
+    storageReady = await preloadStorage();
+  } catch (err) {
+    // preloadStorage 自身已降级；这里只兜住意料外的实现错误。
+    console.error('[DS Toolbox] 存储预加载异常:', err);
+  }
+
+  document.documentElement.dataset.dsExtension = '1';
+  window.html2canvas = html2canvas;
+  if (!storageReady) {
+    console.warn('[DS Toolbox] 存储不可用，本次设置只在当前页面内存生效');
+  }
+
+  try {
     runUserScript();
   } catch (err) {
     console.error('[DS Toolbox] 扩展初始化失败:', err);

@@ -403,6 +403,20 @@
         scroll.className = 'ds-p-scroll';
 
         /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
+        // 关于页版本：扩展发行线独立（manifest.version），userscript 仍显示脚本版本。
+        // 不硬编码扩展版本，避免每次发版漏改；userscript 环境读不到 chrome.runtime 时回退 5.7.3。
+        const aboutVersion = (() => {
+            if (isExtensionRuntime) {
+                try {
+                    const v = typeof chrome !== 'undefined' && chrome.runtime
+                        && typeof chrome.runtime.getManifest === 'function'
+                        ? chrome.runtime.getManifest().version
+                        : '';
+                    if (v) return v;
+                } catch (e) { /* 忽略：回退到脚本版本 */ }
+            }
+            return '5.7.3';
+        })();
         const sections = [
             { key: 'fold', icon: 'code-tags', title: '代码块', sub: '折叠 · 外观 · 导出', build: () => [
                 createNumberSetting('超过多少行自动折叠', '代码超过这个行数就自动收起；填 0 表示不自动折叠', '行', foldThreshold, value => {
@@ -453,7 +467,7 @@
                     GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, checked);
                     setTableButtonsAlways(checked);
                     showToast(`导出按钮已改为${checked ? '常显' : '悬停显示'}`);
-                }),
+                }, () => !tableButtonsEnabled),
                 createSelectSetting('表格主题适配', '自动：浅色和深色主题都能用 · 双模式：分别针对浅色/深色优化', [
                     { value: 'auto', label: '自动适应' },
                     { value: 'dual', label: '双模式（浅色 / 深色）' },
@@ -624,7 +638,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.3'),
+                    createInfoIntro('版本', `DeepSeek 功能增强工具箱 v${aboutVersion}`),
                     createInfoIntro('许可', 'MIT 开源许可 · 可自由使用和修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 项目主页', '源码 · 更新日志 · 问题反馈', 'https://github.com/Chuc-Jie/deepseektool', 'github'),

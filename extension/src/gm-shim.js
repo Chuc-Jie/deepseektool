@@ -29,37 +29,50 @@ function installStorageSync() {
   if (storageSyncInstalled) return;
   storageSyncInstalled = true;
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'local') return;
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local') return;
 
-    const changedKeys = [];
-    for (const [key, change] of Object.entries(changes)) {
-      const next = change.newValue;
-      if (next === undefined) delete storageCache[key];
-      else storageCache[key] = next;
+      const changedKeys = [];
+      for (const [key, change] of Object.entries(changes)) {
+        const next = change.newValue;
+        if (next === undefined) delete storageCache[key];
+        else storageCache[key] = next;
 
-      if (pendingLocalWrites.has(key)) {
-        const expected = pendingLocalWrites.get(key);
-        pendingLocalWrites.delete(key);
-        if (expected === serialize(next)) continue; // 本标签写入，不触发重载
+        if (pendingLocalWrites.has(key)) {
+          const expected = pendingLocalWrites.get(key);
+          pendingLocalWrites.delete(key);
+          if (expected === serialize(next)) continue; // 本标签写入，不触发重载
+        }
+        changedKeys.push(key);
       }
-      changedKeys.push(key);
-    }
 
-    if (!changedKeys.length) return;
-    document.dispatchEvent(new CustomEvent('ds-storage-changed', {
-      detail: { keys: changedKeys },
-    }));
-  });
+      if (!changedKeys.length) return;
+      document.dispatchEvent(new CustomEvent('ds-storage-changed', {
+        detail: { keys: changedKeys },
+      }));
+    });
+  } catch (err) {
+    console.warn('[DS Toolbox] 无法监听存储变化，跨标签同步已停用:', err);
+  }
 }
 
-/** 在执行业务脚本之前调用；userscript 版本不需要。 */
+/** 在执行业务脚本之前调用；返回是否成功读到持久化设置。 */
 export async function preloadStorage() {
-  if (storageLoaded) return;
+  if (storageLoaded) return true;
   installStorageSync();
-  const all = await chrome.storage.local.get(null);
-  Object.assign(storageCache, all);
-  storageLoaded = true;
+  try {
+    const all = await chrome.storage.local.get(null);
+    Object.assign(storageCache, all);
+    storageLoaded = true;
+    return true;
+  } catch (err) {
+    // 存储不可用时不能让整个扩展停摆：业务脚本继续用默认值运行，
+    // 本页内的 GM_setValue 仍会更新内存缓存，只是无法持久化。
+    console.warn('[DS Toolbox] 读取存储失败，本次以默认设置运行:', err);
+    storageLoaded = true;
+    return false;
+  }
 }
 
 export function GM_getValue(key, fallback) {
@@ -72,10 +85,15 @@ export function GM_setValue(key, value) {
   storageCache[key] = value;
   pendingLocalWrites.set(key, serialize(value));
   // 与 GM_setValue 一样保持"写入即生效"的内存语义；落盘异步，失败只影响持久化。
-  chrome.storage.local.set({ [key]: value }).catch((err) => {
+  try {
+    chrome.storage.local.set({ [key]: value }).catch((err) => {
+      pendingLocalWrites.delete(key);
+      console.warn('[DS Toolbox] 写入存储失败:', key, err);
+    });
+  } catch (err) {
     pendingLocalWrites.delete(key);
     console.warn('[DS Toolbox] 写入存储失败:', key, err);
-  });
+  }
 }
 
 export function GM_addStyle(css) {
@@ -101,6 +119,13 @@ function installMessageListener() {
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.type !== 'ds-toolbox') return;
+
+    // popup 用来探测 content script 是否已注入：能收到 ping 就说明业务脚本已执行到菜单注册阶段。
+    // 这样扩展安装/重载后打开旧标签页时，popup 可以自动刷新而不是让用户手动刷新。
+    if (message.action === 'ping') {
+      sendResponse({ ok: true });
+      return;
+    }
 
     const fn = findCommand(message.action);
     if (!fn) {
