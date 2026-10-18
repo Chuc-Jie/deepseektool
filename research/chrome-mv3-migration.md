@@ -20,7 +20,7 @@
 | 网络请求 | 无 `GM_xmlhttpRequest`、无 `@connect` |
 | 页面 JS 依赖 | 无 `unsafeWindow`，只操作 DOM / CSS / 浏览器标准 API |
 | 存储 | `GM_getValue` / `GM_setValue`，共 23 个键，全部为标量或 JSON 字符串 |
-| 菜单入口 | `GM_registerMenuCommand` × 2：「脚本设置」「导出对话」 |
+| 菜单入口 | `GM_registerMenuCommand` × 2：「设置」「导出对话」 |
 | 样式 | `GM_addStyle` × 2（主样式 + 文件夹面板样式），全部 `!important` 为主 |
 | 下载 | `Blob` + `URL.createObjectURL` + `<a download>`（PNG / CSV / MD / JSON） |
 | 剪贴板 | `navigator.clipboard.writeText` / `write(ClipboardItem)` |
@@ -252,7 +252,7 @@ bootstrap();
 
 ### 4.5 菜单命令的替代
 
-现有两个命令：`脚本设置`、`导出对话`。
+现有两个命令：`设置`、`导出对话`。
 
 推荐组合：
 

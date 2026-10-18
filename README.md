@@ -83,7 +83,7 @@
 ### 三、安装与使用
 
 1. 安装脚本（Tampermonkey / ScriptCat）并访问任一 DeepSeek 对话页面。
-2. 点击 **Tampermonkey / ScriptCat 菜单 →「⚙️ 脚本设置」** 打开统一控制面板。
+2. 点击 **Tampermonkey / ScriptCat 菜单 →「设置」** 打开统一控制面板。
 3. 修改设置后**立即生效**、无需刷新；配置自动保存，下次打开页面保持。面板底部提供「恢复默认设置」一键还原。
 
 > 各项设置的作用与默认值对照表、分功能操作步骤见 [scriptcat-description.md](scriptcat-description.md)。

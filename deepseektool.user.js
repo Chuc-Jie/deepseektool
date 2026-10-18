@@ -350,7 +350,7 @@
         logoIc.appendChild(brandImg);
         const logoTx = document.createElement('div');
         logoTx.className = 'ds-p-logo-tx';
-        logoTx.innerHTML = '<div class="ds-p-logo-t">脚本设置</div><div class="ds-p-logo-s">DeepSeek 功能增强工具箱</div>';
+        logoTx.innerHTML = '<div class="ds-p-logo-t">设置</div><div class="ds-p-logo-s">DeepSeek 功能增强工具箱</div>';
         logo.appendChild(logoIc);
         logo.appendChild(logoTx);
         sidebar.appendChild(logo);
@@ -405,26 +405,26 @@
         /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
         const sections = [
             { key: 'fold', icon: 'code-tags', title: '代码块', sub: '折叠 · 外观 · 导出', build: () => [
-                createNumberSetting('自动折叠阈值', '代码行数超过该值时自动折叠（0 = 禁用）', '行', foldThreshold, value => {
+                createNumberSetting('超过多少行自动折叠', '代码超过这个行数就自动收起；填 0 表示不自动折叠', '行', foldThreshold, value => {
                     foldThreshold = value;
                     GM_setValue(STORAGE_FOLD_THRESHOLD, value);
                     reapplyFoldToAllCodeBlocks();
-                    showToast(`折叠阈值已更新为 ${value === 0 ? '关闭' : value}`);
+                    showToast(value === 0 ? '已关闭自动折叠' : `超过 ${value} 行会自动折叠`);
                 }),
-                createNumberSetting('折叠预览行数', '折叠后显示的行数（0 = 完全隐藏）', '行', previewLines, value => {
+                createNumberSetting('折叠后显示几行', '折叠后保留几行内容；填 0 表示完全隐藏', '行', previewLines, value => {
                     previewLines = value;
                     enablePreviewLines = value > 0;
                     GM_setValue(STORAGE_PREVIEW_LINES, value);
                     reapplyFoldToAllCodeBlocks();
-                    showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
+                    showToast(value === 0 ? '折叠内容已完全隐藏' : `折叠后保留 ${value} 行`);
                 }),
-                createToggleSetting('加深代码块背景', '浅色主题下代码块底色由近白的 #F9FAFB 加深，顶部工具条同色并补分隔线（深色主题不受影响）', codeBgEnhance, checked => {
+                createToggleSetting('加深代码块背景', '浅色主题下把代码块底色加深一点，和页面区分更明显（深色主题不受影响）', codeBgEnhance, checked => {
                     codeBgEnhance = checked;
                     GM_setValue(STORAGE_CODE_BG, checked);
                     applyCodeBlockBg(checked, codeBgLevel);
                     showToast(`代码块背景加深已${checked ? '开启' : '关闭'}`);
                 }),
-                createSelectSetting('加深强度', '轻微 / 中等 / 明显三档底色，按屏幕与偏好自选（仅浅色主题生效）', [
+                createSelectSetting('加深强度', '选择底色加深的程度（只影响浅色主题）', [
                     { value: 'light', label: '轻微（#F3F4F6）' },
                     { value: 'medium', label: '中等（#EEF1F5）' },
                     { value: 'strong', label: '明显（#E9EDF2）' },
@@ -434,7 +434,7 @@
                     applyCodeBlockBg(codeBgEnhance, value);
                     showToast('代码块背景强度已更新');
                 }, () => !codeBgEnhance),
-                createToggleSetting('代码块导出为图片按钮', '代码块右上角显示「导出」按钮：选择样式后将该代码块导出为图片（支持下载 PNG / 复制图片到剪贴板）', codeExportEnabled, checked => {
+                createToggleSetting('代码块导出为图片按钮', '在代码块右上角显示「导出」按钮，可以把代码另存为图片，或直接复制图片', codeExportEnabled, checked => {
                     codeExportEnabled = checked;
                     GM_setValue(STORAGE_CODE_EXPORT_ENABLED, checked);
                     applyCodeExportButtons(checked);
@@ -442,20 +442,20 @@
                 }),
             ] },
             { key: 'table', icon: 'table-large', title: '表格优化导出', sub: '宽度修复 · 主题配色 · PNG / CSV / Markdown 导出', build: () => [
-                createToggleSetting('表格导出按钮', '悬停表格显示 📸 📄 📝 导出按钮', tableButtonsEnabled, checked => {
+                createToggleSetting('表格导出按钮', '鼠标移到表格上时，显示导出按钮', tableButtonsEnabled, checked => {
                     tableButtonsEnabled = checked;
                     GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, checked);
                     toggleTableButtons(checked);
                     showToast(`表格导出按钮已${checked ? '开启' : '关闭'}`);
                 }),
-                createToggleSetting('持续显示导出按钮', '无需悬停，表格上的导出按钮始终可见（需上一项开启）', tableButtonsAlways, checked => {
+                createToggleSetting('持续显示导出按钮', '不移动鼠标也一直显示按钮（需要先开启上一项）', tableButtonsAlways, checked => {
                     tableButtonsAlways = checked;
                     GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, checked);
                     setTableButtonsAlways(checked);
                     showToast(`导出按钮已改为${checked ? '常显' : '悬停显示'}`);
                 }),
-                createSelectSetting('表格主题适配', '自动：半透明叠加色通用 · 双模式：浅色/深色各自优化', [
-                    { value: 'auto', label: '自动适应（透明叠加）' },
+                createSelectSetting('表格主题适配', '自动：浅色和深色主题都能用 · 双模式：分别针对浅色/深色优化', [
+                    { value: 'auto', label: '自动适应' },
                     { value: 'dual', label: '双模式（浅色 / 深色）' },
                 ], tableThemeMode, value => {
                     tableThemeMode = value;
@@ -463,7 +463,7 @@
                     applyTableThemeClass(value);
                     showToast(`表格主题已切换为${value === 'auto' ? '自动适应' : '双模式'}`);
                 }),
-                createSelectSetting('表头对齐', '跟随内容：保留 Markdown 的列对齐语义（默认）· 水平居中：所有表头文字居中', [
+                createSelectSetting('表头对齐', '跟随内容：保留表格原来的对齐方式 · 水平居中：所有表头文字居中', [
                     { value: 'auto', label: '跟随内容对齐' },
                     { value: 'center', label: '水平居中' },
                 ], tableHeadAlign, value => {
@@ -472,7 +472,7 @@
                     applyTableHeadAlign(value);
                     showToast(value === 'center' ? '表头已居中' : '表头跟随内容对齐');
                 }),
-                createSelectSetting('列宽方式', '智能：按内容分配，短列不浪费、长列不挨饿 · 均分：每列等宽，观感最整齐', [
+                createSelectSetting('列宽方式', '智能：按内容多少分配宽度 · 均分：每列一样宽，看起来更整齐', [
                     { value: 'smart', label: '智能（推荐）' },
                     { value: 'equal', label: '均分列宽' },
                 ], tableWidthAlgo, value => {
@@ -483,7 +483,7 @@
                         ? '列宽已改为智能分配（「表格宽度 / 列过多时」重新生效）'
                         : '列宽已改为均分（「表格宽度 / 列过多时」暂不生效）');
                 }),
-                createSelectSetting('表格宽度', '铺满：始终占满可用宽度 · 紧凑：表格随内容收窄，窄表不拉满', [
+                createSelectSetting('表格宽度', '铺满：占满整行 · 紧凑：内容少时表格自动收窄', [
                     { value: 'fill', label: '铺满整行' },
                     { value: 'compact', label: '内容紧凑' },
                 ], tableFill, value => {
@@ -492,7 +492,7 @@
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast(value === 'compact' ? '表格将随内容收窄' : '表格将铺满整行');
                 }, () => tableWidthAlgo !== 'smart'),
-                createSelectSetting('列过多时', '滚动：尽量保 96px，总宽超出容器约 35% 后表格内左右滚动 · 压缩：继续压窄列宽，不出现滚动条', [
+                createSelectSetting('列过多时', '滚动：列太多时左右滑动查看 · 压缩：把列继续压窄，不出现滚动条', [
                     { value: 'scroll', label: '横向滚动' },
                     { value: 'squeeze', label: '压缩进容器' },
                 ], tableOverflow, value => {
@@ -501,20 +501,20 @@
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast(value === 'scroll' ? '列过多时将横向滚动' : '列过多时将压缩进容器');
                 }, () => tableWidthAlgo !== 'smart'),
-                createToggleSetting('导出图片圆角', 'PNG 导出时把表格四角裁成透明圆角；关闭则与旧版一致（图片中四角为直角矩形）', tableExportRounded, checked => {
+                createToggleSetting('导出图片圆角', '导出的图片四角是圆角；关闭后为直角（只影响 PNG 图片）', tableExportRounded, checked => {
                     tableExportRounded = checked;
                     GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, checked);
                     showToast(`导出图片圆角已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
             { key: 'mdexport', icon: 'language-markdown', title: '对话导出', sub: '勾选内容 → 选格式（Markdown / JSON）→ 导出 .md / .json', build: () => [
-                createToggleSetting('启用对话导出', '开启后会提供「选择内容并导出」入口，以及浏览器工具栏菜单命令；关闭则整体不可用', mdExportEnabled, checked => {
+                createToggleSetting('启用对话导出', '开启后可以勾选消息导出；关闭后相关入口都会隐藏', mdExportEnabled, checked => {
                     mdExportEnabled = checked;
                     GM_setValue(STORAGE_MD_EXPORT_ENABLED, checked);
                     if (!checked) mdExportUnit.stopSelection();
                     showToast(`对话导出已${checked ? '开启' : '关闭'}`);
                 }),
-                createToggleSetting('文件名附加日期', '在文件名后追加 `-YYYY-MM-DD-HH-mm`，避免同日多次导出互相覆盖', mdExportAppendDate, checked => {
+                createToggleSetting('文件名附加日期', '在文件名后加上导出时间，避免多次导出重名', mdExportAppendDate, checked => {
                     mdExportAppendDate = checked;
                     GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, checked);
                     showToast(checked ? '文件名将附加日期' : '文件名不带日期');
@@ -545,14 +545,14 @@
                 })()),
             ] },
             { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「思考过程」自动收起，可随时展开', build: () => [
-                createToggleSetting('自动折叠思考区域', 'AI 思考时自动收起「思考过程」；点击标题栏可随时展开，展开后本次不再自动收起', autoCollapseThinking, checked => {
+                createToggleSetting('自动折叠思考区域', 'AI 思考时自动收起「思考过程」；点标题可以展开，展开后本次不会自动收起', autoCollapseThinking, checked => {
                     autoCollapseThinking = checked;
                     GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
                     reapplyThinkingSections();
                     showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}${checked ? '' : '；已折叠的区域需手动展开'}`);
                 }),
-                createSettingNote('向上滚动时可能出现内容弹性跳动：这是 DeepSeek 官网虚拟列表加载更早消息时的滚动锚定行为，关闭自动折叠后同样存在。目前暂时没有办法解决。'),
-                createToggleSetting('模拟点击折叠', '通过模拟点击标题栏折叠（保持原生交互）；关闭后用 CSS 隐藏正文，点击标题栏仍可展开', simulateClickThinking, checked => {
+                createSettingNote('向上滚动时内容可能轻微跳动：这是 DeepSeek 页面加载更早消息时的正常现象，和本功能无关，目前无法消除。'),
+                createToggleSetting('点击标题折叠', '开启后模拟点击标题来折叠，和官网交互一致；关闭后直接隐藏正文，点标题仍然可以展开', simulateClickThinking, checked => {
                     simulateClickThinking = checked;
                     GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
                     // 切换折叠方式时清掉上一种方式留下的痕迹（CSS data / 用户豁免），再按新模式重新接管，
@@ -569,7 +569,7 @@
                     applyWideScreen(checked);
                     showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
                 }),
-                createSelectSetting('宽屏宽度', '官方默认 840px，三档分别在它之上 +160 / +320 / +480px；窗口较窄时受可用宽度限制，三档会趋同', [
+                createSelectSetting('宽屏宽度', '在官网默认宽度基础上加宽；窗口较窄时，三档看起来会差不多', [
                     { value: 'standard', label: WIDE_LEVELS.standard.label },
                     { value: 'wide', label: WIDE_LEVELS.wide.label },
                     { value: 'wider', label: WIDE_LEVELS.wider.label },
@@ -581,7 +581,7 @@
                 }, () => !wideScreen),
             ] },
             { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送与快捷键', build: () => [
-                createToggleSetting('Ctrl+Enter 发送', '改为 Ctrl+Enter 发送、Enter 换行；关闭时恢复官方（Enter 发送 / Shift+Enter 换行）', ctrlEnterEnabled, checked => {
+                createToggleSetting('Ctrl+Enter 发送', '开启后 Ctrl+Enter 发送、Enter 换行；关闭后恢复官网默认（Enter 发送）', ctrlEnterEnabled, checked => {
                     ctrlEnterEnabled = checked;
                     GM_setValue(STORAGE_CTRL_ENTER, checked);
                     if (!checked) showToast('已恢复 Enter 发送，Shift+Enter 换行');
@@ -589,12 +589,12 @@
                 }),
             ] },
             { key: 'folder', icon: 'folder-outline', title: '对话文件夹', sub: '左侧历史栏分组管理（可选模块）', build: () => [
-                createToggleSetting('启用文件夹分组', '在左侧对话历史栏加入「文件夹」分组面板，可通过会话 ⋯ 菜单移入/移出；关闭即整体移除（含已应用的分组/标签）', folderManagerEnabled, checked => {
+                createToggleSetting('启用文件夹分组', '在左侧对话历史里增加文件夹分组，可以通过会话旁的 ⋯ 菜单移动；关闭后会隐藏分组和标签，重新开启时恢复', folderManagerEnabled, checked => {
                     folderManagerEnabled = checked;
                     GM_setValue(STORAGE_FOLDER_MANAGER, checked);
                     folderEnabledChanged(checked);
                 }),
-                createToggleSetting('置顶分组可折叠', '点击原生「置顶」分组标题可收起/展开该组会话（需先开启上方文件夹分组）', pinGroupCollapsible, checked => {
+                createToggleSetting('置顶分组可折叠', '点击「置顶」分组标题可以收起或展开该组（需要先开启文件夹分组）', pinGroupCollapsible, checked => {
                     pinGroupCollapsible = checked;
                     GM_setValue(STORAGE_PIN_COLLAPSIBLE, checked);
                     folderUnit.setPinCollapsible(checked);
@@ -606,7 +606,7 @@
                 sub: isExtensionRuntime ? '扩展 · 使用小贴士' : '前置条件 · 使用小贴士',
                 build: () => (isExtensionRuntime ? [
                     createInfoIntro('运行方式', '本面板由「DeepSeek 功能增强工具箱」浏览器扩展提供，仅在 chat.deepseek.com 对话页生效。'),
-                    createInfoIntro('打开方法', '点击浏览器工具栏的扩展图标，在 popup 中选择「打开设置面板」。'),
+                    createInfoIntro('打开方法', '点击浏览器工具栏的扩展图标，在弹出的窗口里选择「打开设置」。'),
                     createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置保存在扩展本地，下次打开页面保持。'),
                     createInfoIntro('多标签同步', '同一浏览器内多个 DeepSeek 标签页会同步设置；在其他标签页修改后，本页会自动应用。'),
                     createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效；如遇异常欢迎反馈适配。'),
@@ -616,7 +616,7 @@
                         createLinkCard('Tampermonkey（油猴）', '全球最流行的用户脚本管理器', 'https://www.tampermonkey.net/', 'shield-check-outline'),
                         createLinkCard('ScriptCat（脚本猫）', '国产脚本管理器 · 中文界面友好 · 推荐', 'https://scriptcat.org/zh-CN', 'web'),
                     ]),
-                    createInfoIntro('打开方法', '点击浏览器工具栏 Tampermonkey / ScriptCat 图标 → 本脚本 →「脚本设置」'),
+                    createInfoIntro('打开方法', '点击浏览器工具栏 Tampermonkey / ScriptCat 图标 → 本脚本 →「设置」'),
                     createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置自动保存，下次打开页面保持。'),
                     createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效；如遇异常欢迎反馈适配。'),
                 ]),
@@ -625,9 +625,9 @@
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
                     createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.3'),
-                    createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
+                    createInfoIntro('许可', 'MIT 开源许可 · 可自由使用和修改'),
                     createLinkCardGrid([
-                        createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
+                        createLinkCard('GitHub 项目主页', '源码 · 更新日志 · 问题反馈', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
                         createLinkCard('ScriptCat 主页', '安装页 · 评论区', 'https://scriptcat.org/zh-CN/script-show-page/5676', 'web'),
                     ]),
                     createInfoIntro('致谢', '感谢每一位反馈与建议的用户。'),
@@ -684,7 +684,7 @@
 
         footer.querySelector('#ds-panel-close-btn').addEventListener('click', () => overlay.remove());
         footer.querySelector('#ds-panel-reset').addEventListener('click', () => {
-            if (confirm('确定恢复所有设置为默认值？\n\n文件夹分组数据会保留；对话导出记忆与代码导图样式偏好会清除。')) {
+            if (confirm('确定恢复所有设置为默认值？\n\n文件夹分组数据会保留；对话导出的记忆和代码块导出图片的样式会清除。')) {
                 foldThreshold = 20; GM_setValue(STORAGE_FOLD_THRESHOLD, 20);
                 previewLines = 0; enablePreviewLines = false; GM_setValue(STORAGE_PREVIEW_LINES, 0);
                 tableButtonsEnabled = true; GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
@@ -1047,7 +1047,7 @@
     }
 
     // ==================== 菜单命令 ====================
-    GM_registerMenuCommand('脚本设置', openControlPanel);
+    GM_registerMenuCommand('设置', openControlPanel);
     GM_registerMenuCommand('导出对话', () => {
         mdExportUnit.beginExportFlow();
     });
@@ -6483,7 +6483,7 @@
 
         // 菜单命令入口：直接进入勾选态
         function beginExportFlow() {
-            if (!mdExportEnabled) { showToast('对话导出已关闭，请在「脚本设置 → 对话导出」中开启'); return false; }
+            if (!mdExportEnabled) { showToast('对话导出已关闭，请在「设置 → 对话导出」中开启'); return false; }
             return startSelection();
         }
 
@@ -6790,7 +6790,7 @@
         }
 
         function openDialog(preEl) {
-            if (!codeExportEnabled) { showToast('代码块导出已关闭，请在「脚本设置 → 代码块导出」中开启'); return; }
+            if (!codeExportEnabled) { showToast('代码块导出已关闭，请在「设置 → 代码块」中开启'); return; }
             const block = preEl.closest('.md-code-block');
             if (!block) return;
             closeDialog();
@@ -7158,7 +7158,7 @@
         observeDOM();
 
         if (RUNTIME_CONFLICT) {
-            setTimeout(() => showToast('检测到扩展版与用户脚本版同时运行，请保留其中一个，避免按钮重复。', 8000), 1200);
+            setTimeout(() => showToast('检测到扩展版和油猴脚本版同时运行，请只保留一个，避免按钮重复。', 8000), 1200);
         }
 
         // resize 节流处理表格：窗口尺寸变化同样会改变可用宽度，必须让表格重新落宽

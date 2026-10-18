@@ -63,7 +63,7 @@ function isTargetTab(tab) {
 async function requestCommand(action) {
   const tab = await getActiveTab();
   if (!isTargetTab(tab)) {
-    throw new Error('请先打开 chat.deepseek.com 对话页');
+    throw new Error('请先打开 DeepSeek 对话页');
   }
 
   let response;
@@ -128,7 +128,7 @@ async function runCommand(action) {
 
   try {
     await requestCommand(action);
-    setStatus(action === 'open-panel' ? '已打开设置面板' : '已开始导出', 'ok');
+    setStatus(action === 'open-panel' ? '已打开设置' : '已开始导出', 'ok');
     window.setTimeout(() => window.close(), 240);
   } catch (err) {
     state.busy = false;
