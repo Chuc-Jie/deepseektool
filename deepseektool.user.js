@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.7.1
+// @version      5.7.2
 // @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（三档宽度）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
@@ -398,7 +398,7 @@
                     document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                     showToast(value === 'compact' ? '表格将随内容收窄' : '表格将铺满整行');
                 }, () => tableWidthAlgo !== 'smart'),
-                createSelectSetting('列过多时', '滚动：每列保底 96px，超出后表格内左右滚动 · 压缩：继续压窄列宽，不出现滚动条', [
+                createSelectSetting('列过多时', '滚动：尽量保 96px，总宽超出容器约 35% 后表格内左右滚动 · 压缩：继续压窄列宽，不出现滚动条', [
                     { value: 'scroll', label: '横向滚动' },
                     { value: 'squeeze', label: '压缩进容器' },
                 ], tableOverflow, value => {
@@ -518,7 +518,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.1'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.2'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -1708,9 +1708,13 @@
             .ds-setting-ctrl input[type="number"] { width: 100%; }
         }
 
-        /* 宽屏模式 — 增大消息区最大宽度，左右留白自动均分。
+        /* 宽屏模式 — 只加宽消息区（设置面板「宽屏模式」的定义：消息区加宽，三档宽度可选）。
            数值不写死：JS 按档位写 --ds-wide-max-width（standard 1000 / wide 1160 / wider 1320），
-           这里只负责把官网的 --message-list-max-width 覆盖成它 —— 档位切换无需刷新页面。 */
+           这里只负责把消息列表的 --message-list-max-width 覆盖成它 —— 档位切换无需刷新页面。
+           作用域：只匹配包含 .ds-markdown 的消息虚拟列表项，不碰输入区（输入区继承 :root 的 840px，
+           这是功能定义边界，不是遗漏）。:has() 用于官网把变量引用移出内联 style 后仍能命中；
+           旧的内联 style 子串条件保留为兜底。 */
+        html.ds-wide-screen [class*="ds-virtual-list-items"]:has(.ds-markdown),
         html.ds-wide-screen [class*="ds-virtual-list-items"][style*="--message-list-max-width"] {
             --message-list-max-width: var(--ds-wide-max-width, 1000px) !important;
         }
@@ -1784,6 +1788,9 @@
         .ds-table-scroll-host .ds-scroll-area__horizontal-bar {
             border-radius: 999px !important;
             transition: background-color 0.18s ease;
+            /* 溢出时常显一层极淡底色，提示「可横向滚动」；悬停 / 聚焦加深。
+               历史版本完全透明，导致窄屏下表格被裁却没有任何可滚动提示。 */
+            background: rgba(128,128,128,0.12) !important;
         }
         .ds-table-scroll-host:hover .ds-scroll-area__horizontal-bar,
         .ds-table-scroll-host:focus-within .ds-scroll-area__horizontal-bar {
@@ -2293,6 +2300,7 @@
     const TABLE_COL_COMFORT = 96;    // 目标可读宽度（≈6.8 个汉字）
     const TABLE_OVERFLOW_TOLERANCE = 1.08;  // 超出预算 8% 以上才切横向滚动，吸收临界抖动
     const TABLE_COL_MAX = 240;       // 滚动模式下单列上限，避免一列吃掉整行
+    const TABLE_SCROLL_MAX_RATIO = 1.35;  // 滚动模式总宽上限（相对容器内容宽），避免宽屏开关把表格从 912 拉到 1510
     const TABLE_EXPORT_MAX_WIDTH = 1200;  // PNG 导出的 CSS 宽度上限（scale 3 → 最宽 3600px 画布）
 
     let _measureCtx = null;
@@ -2433,6 +2441,17 @@
             // 故超出 8% 以上才认为「压缩会明显不可读」，否则在预算内均衡分配。
             if (overflowMode === 'scroll' && demand > budget * TABLE_OVERFLOW_TOLERANCE) {
                 const wide = natural.map(x => Math.min(TABLE_COL_MAX, Math.max(x, TABLE_COL_COMFORT)));
+                // 平滑临界突变：滚动模式不把表格放大到自然总宽（实测 8 列 1510px），
+                // 而是限制在容器的 1.35 倍内容宽内；仍保留横向滚动，但幅度从 ~600px 降到 ~150px。
+                // TABLE_COL_MIN 下界可能让总和略高于 cap，仍远小于自然总宽。
+                const total = wide.reduce((a, b) => a + b, 0);
+                const cap = budget * TABLE_SCROLL_MAX_RATIO;
+                if (total > cap) {
+                    const k = cap / total;
+                    for (let i = 0; i < cols; i++) {
+                        wide[i] = Math.max(TABLE_COL_MIN, wide[i] * k);
+                    }
+                }
                 return { widths: wide, overflow: true, squeezed: false };
             }
             if (overflowMode === 'squeeze') {
@@ -2552,6 +2571,31 @@
     const CLS_SCROLL_WRAPPER = 'ds-table-scroll-wrapper';
     const CLS_SCROLL_HOST = 'ds-table-scroll-host';
     const _scrollHostOf = new WeakMap();   // table → 当前挂了类名的容器
+    const _scrollHostUsers = new WeakMap(); // host → Set<table>，共享宿主的引用计数
+
+    function claimScrollHost(table, host) {
+        let users = _scrollHostUsers.get(host);
+        if (!users) { users = new Set(); _scrollHostUsers.set(host, users); }
+        users.add(table);
+    }
+
+    // 释放一个表格对宿主的占用；只有最后一个使用者离开时才清除宿主样式。
+    // 多个表格可能共享同一个 .ds-scroll-area（多表格消息），旧实现会误清别人的类。
+    function releaseScrollHost(table, host) {
+        const users = _scrollHostUsers.get(host);
+        if (users) {
+            users.delete(table);
+            if (users.size > 0) return false;
+            _scrollHostUsers.delete(host);
+        }
+        host.classList.remove(CLS_SCROLL_WRAPPER, CLS_SCROLL_HOST);
+        if (host.dataset.dsOrigMaxWidth !== undefined) {
+            host.style.maxWidth = host.dataset.dsOrigMaxWidth;
+            delete host.dataset.dsOrigMaxWidth;
+            host.scrollLeft = 0;
+        }
+        return true;
+    }
 
     function setTableScrollHost(table, needScroll) {
         if (needScroll) {
@@ -2574,14 +2618,8 @@
             // 宿主的「代」可能切换（官网随后套上 wrapper）：先把旧宿主上的类名与内联还原，
             // 否则旧容器会永久残留滚动条样式。
             const prev = _scrollHostOf.get(table);
-            if (prev && prev !== host) {
-                prev.classList.remove(CLS_SCROLL_WRAPPER, CLS_SCROLL_HOST);
-                if (prev.dataset.dsOrigMaxWidth !== undefined) {
-                    prev.style.maxWidth = prev.dataset.dsOrigMaxWidth;
-                    delete prev.dataset.dsOrigMaxWidth;
-                    prev.scrollLeft = 0;
-                }
-            }
+            if (prev && prev !== host) releaseScrollHost(table, prev);
+            claimScrollHost(table, host);
             if (wrapper) {
                 wrapper.classList.add(CLS_SCROLL_WRAPPER);
                 wrapper.classList.remove(CLS_SCROLL_HOST);
@@ -2598,13 +2636,8 @@
         }
         const prev = _scrollHostOf.get(table);
         if (!prev) return;
-        prev.classList.remove(CLS_SCROLL_WRAPPER, CLS_SCROLL_HOST);
-        if (prev.dataset.dsOrigMaxWidth !== undefined) {
-            prev.style.maxWidth = prev.dataset.dsOrigMaxWidth;
-            delete prev.dataset.dsOrigMaxWidth;
-            prev.scrollLeft = 0;
-        }
         _scrollHostOf.delete(table);
+        releaseScrollHost(table, prev);
     }
 
     function applyTableStyles(table) {
@@ -3235,7 +3268,13 @@
         const tr = table.getBoundingClientRect();
         const mr = host.getBoundingClientRect();
         const hostW = host.clientWidth || mr.width;
-        const left = Math.min(tr.right - mr.left, hostW);
+        // 上限：留白足够时停在消息区外（left = hostW，保持「表格右下角之外」的设计）；
+        // 留白不足时收进视口内。旧实现只 min(hostW)，没扣按钮组自身宽度
+        // （12px 桥接 + 32px 按钮 = 44px），窄窗口下按钮右缘会超出视口/被裁。
+        const btnW = bc.offsetWidth || 44;
+        const viewportRight = document.documentElement.clientWidth;
+        const maxLeft = Math.max(0, Math.min(hostW, viewportRight - mr.left - btnW));
+        const left = Math.min(tr.right - mr.left, maxLeft);
         const h = bc.offsetHeight || 112;   // 3×32 + 2×8，未完成布局时兜底
         bc.style.left = Math.round(left) + 'px';
         bc.style.top = Math.round(tr.bottom - mr.top - h) + 'px';
@@ -3277,6 +3316,7 @@
     function processAllTables() {
         let anyUnstable = false;
         const now = Date.now();
+        ensureTableWidthObserver();   // 消息容器出现/被替换后重新绑定宽度监听
 
         document.querySelectorAll('.ds-markdown').forEach(container => {
             container.style.overflowX = 'visible';
@@ -3359,10 +3399,53 @@
     // 旧快照就会溢出。而指纹只含「行数:单元格数」，宽度变化不在指纹里 —— processAllTables 会对
     // 已完成的表格直接 return。故这里先清掉 done 标记，让它们走「首次见到」分支立即重排。
     // ⚠ 若只调 processAllTables 而不清指纹，等于什么都没做（resize 回调曾因此长期空转）。
-    function invalidateTableLayout() {
+    let _lastLayoutWidths = '';
+    function invalidateTableLayout(force) {
+        // 只按宽度签名去重：窗口高度变化 / 双触发（window.resize + ResizeObserver）时不重复测量。
+        // 结构变化仍由 processAllTables 的指纹负责，不在此处判断。
+        const widths = [...document.querySelectorAll('.ds-markdown')].map(m => m.clientWidth).join(',');
+        if (!force && widths === _lastLayoutWidths) {
+            syncTableButtonPositions();
+            return;
+        }
+        _lastLayoutWidths = widths;
         document.querySelectorAll('.ds-markdown table').forEach(t => _tableFingerprints.delete(t));
         processAllTables();
         syncTableButtonPositions();
+    }
+
+    // 容器级宽度变化（侧栏收放 / 分屏 / 滚动条出现 / 官网布局调整）不会触发 window.resize。
+    // 表格列宽是 px 快照，必须由 ResizeObserver 兜底失效；观察消息可见区（其宽度随可用宽度变化）。
+    // 注意：不能观察 .ds-virtual-list-items —— 它的宽度是「容器全宽」，宽屏档位只改内层 padding，
+    // 元素自身宽度不变，ResizeObserver 不会触发。
+    let _tableWidthObserver = null;
+    let _tableWidthProbe = null;
+    let _tableWidthTimer = null;
+    let _lastTableWidth = 0;
+    function getTableWidthProbeEl() {
+        const md = document.querySelector('.ds-markdown');
+        if (!md) return null;
+        return md.closest('.ds-virtual-list-visible-items') || md.parentElement || md;
+    }
+    function ensureTableWidthObserver() {
+        if (typeof ResizeObserver === 'undefined') return;
+        const el = getTableWidthProbeEl();
+        if (!el || el === _tableWidthProbe) return;
+        if (!_tableWidthObserver) {
+            _tableWidthObserver = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    const w = entry.contentRect.width;
+                    if (Math.abs(w - _lastTableWidth) < 1) continue;
+                    _lastTableWidth = w;
+                    clearTimeout(_tableWidthTimer);
+                    _tableWidthTimer = setTimeout(() => invalidateTableLayout(), 100);
+                }
+            });
+        }
+        _tableWidthObserver.disconnect();
+        _tableWidthObserver.observe(el);
+        _tableWidthProbe = el;
+        _lastTableWidth = el.getBoundingClientRect().width;
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
@@ -6767,6 +6850,18 @@
                 if (!hasNewTables && m.target && m.target.nodeType === Node.ELEMENT_NODE
                     && m.target.closest && m.target.closest('.ds-markdown table')) {
                     hasNewTables = true;
+                }
+                // 表格被虚拟列表回收 / 消息重渲染：释放宿主类名与 maxWidth，避免残留样式污染复用容器。
+                // 只处理「整个 table 被移除」或「被移除子树内含 table」；table 内部节点删除交给上面的重排逻辑。
+                if (m.removedNodes && m.removedNodes.length) {
+                    for (const node of m.removedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        if (node.matches && node.matches('table')) {
+                            setTableScrollHost(node, false);
+                        } else if (node.querySelectorAll) {
+                            node.querySelectorAll('table').forEach(t => setTableScrollHost(t, false));
+                        }
+                    }
                 }
                 if (!m.addedNodes.length) continue;
                 for (const node of m.addedNodes) {

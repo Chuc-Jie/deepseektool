@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.7.1）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.7.2）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -139,21 +139,21 @@ flowchart LR
 
 ### 5.3 表格优化与导出
 
-- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` **逐节点**测量（文本节点按所在元素的字体、元素节点另加自身 padding/border），得到每列「单行自然宽度」。图片 / 视频 / Canvas / Iframe / SVG 取自身尺寸，`<br>` 与块级元素按最长行，colspan 按跨列均摊；三个必算项：**`letter-spacing`**（表头 0.02em，漏算差 0.07~0.16px 就折行）、**`<code>` 的等宽字体 + `padding:2px 4px`**（用正文字体量整段会低估：实测「单元格内需写成 |」测出 106.6 而真实需 118px）、**1.5px 亚像素余量**。分配三段落盘：**① max-min fair（二分水位 λ，使 Σmin(natural,λ) ≈ budget）** —— 短列拿满自己的内容宽度、长列共享同一水位，各列「压缩程度」一致、折行数接近，整表高度最小；实测 3 列表 nat≈[275,600,439]、预算 810 时，旧的「短列优先补满」给出 `[275,96,439]`（问题列每行折 7 行、整表 72 行高），改为二分水位后 `[270,270,270]`（整表 28 行高，降到 39%）；② 二分残差/需求小于预算时，把过窄列抬到 42px；③ 铺满模式把富余按列**均分**（不再按需求权重摊，避免长表头列吃掉大半宽度）。溢出容差 `1.08`：`Σ min(natural,96)` 超出预算 8% 以上才切横向滚动，否则在预算内均衡分配（实测 580 vs 572 的 8px 差异会导致「890px 紧凑」突跳成「1605px + 滚动条」）。常量置顶：`TABLE_CELL_FIXED=34`（兜底值；运行时优先读取首行 th/td 的 padding+border）、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`、`TABLE_OVERFLOW_TOLERANCE=1.08`。
+- **列宽模型 `planColumnWidths`（水填充）**：先用 `canvas.measureText` **逐节点**测量（文本节点按所在元素的字体、元素节点另加自身 padding/border），得到每列「单行自然宽度」。图片 / 视频 / Canvas / Iframe / SVG 取自身尺寸，`<br>` 与块级元素按最长行，colspan 按跨列均摊；三个必算项：**`letter-spacing`**（表头 0.02em，漏算差 0.07~0.16px 就折行）、**`<code>` 的等宽字体 + `padding:2px 4px`**（用正文字体量整段会低估：实测「单元格内需写成 |」测出 106.6 而真实需 118px）、**1.5px 亚像素余量**。分配三段落盘：**① max-min fair（二分水位 λ，使 Σmin(natural,λ) ≈ budget）** —— 短列拿满自己的内容宽度、长列共享同一水位，各列「压缩程度」一致、折行数接近，整表高度最小；实测 3 列表 nat≈[275,600,439]、预算 810 时，旧的「短列优先补满」给出 `[275,96,439]`（问题列每行折 7 行、整表 72 行高），改为二分水位后 `[270,270,270]`（整表 28 行高，降到 39%）；② 二分残差/需求小于预算时，把过窄列抬到 42px；③ 铺满模式把富余按列**均分**（不再按需求权重摊，避免长表头列吃掉大半宽度）。溢出容差 `1.08`：`Σ min(natural,96)` 超出预算 8% 以上才切横向滚动，否则在预算内均衡分配（实测 580 vs 572 的 8px 差异会导致「890px 紧凑」突跳成「1605px + 滚动条」）。滚动模式总宽再用 `TABLE_SCROLL_MAX_RATIO=1.35` 封顶：列宽先按 `min(240, max(natural,96))` 取宽，若内容总宽超过预算 1.35 倍则等比缩到该上限（不低于 42px），把宽屏开关的临界突变从约 600px 压到约 150px。常量置顶：`TABLE_CELL_FIXED=34`（兜底值；运行时优先读取首行 th/td 的 padding+border）、`TABLE_COL_MIN=42`、`TABLE_COL_COMFORT=96`、`TABLE_COL_MAX=240`、`TABLE_OVERFLOW_TOLERANCE=1.08`、`TABLE_SCROLL_MAX_RATIO=1.35`。
 - **落盘与控制 `applyTableStyles`**：列数取**所有行 colspan 总和的最大值**（不是只看首行）——异常行多出一格时，多出的列也参与分配，不会在 `fixed` 布局下拿到 0 宽、内容被 `overflow:hidden` 裁掉。列宽写进 `<colgroup><col>`（**`<col>` 的 width 在 `table-layout:fixed` 下按 border-box 计算，必须写「内容宽 + 单元格固定开销（运行时读取，兜底 34）」**，否则整表被浏览器等比放大）；`table.style.width` 由 JS 内联控制（CSS 的 `width:100%` 只是首帧兜底，**不能加 `!important`**，否则盖掉紧凑/滚动模式的 px）。均分模式写百分比 `<col>`，与旧版「td 百分比」视觉等价。
 - **三种取向**：`tableWidthAlgo`（智能/均分）× `tableFill`（铺满/紧凑）× `tableOverflow`（滚动/压缩）。均分下后两者无意义（面板置灰）。
 - **横向滚动：官网有两代结构，分别处理**。
   ① **`.markdown-table-wrapper`**（新）：表格过宽时官网自动套一层，`overflow-x:auto` + **原生滚动条**（实测 `sbH=15px`）。它是表格专用容器、纵向不溢出（`scrollHeight === clientHeight`），因此可以直接用 `::-webkit-scrollbar` 美化（只声明 `height`，实测 15 → 10px），宽度约束由官网负责，不改它的 `max-width`。
-  ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**默认全透明**）。**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
-  ⚠ **自绘条不能无条件上色**（v5.7.0 修）：它的隐藏手段就是 `background: transparent`（隐形热区，`display` 只按是否溢出开关），v5.6.0 曾用 `!important` 涂成不透明 → 变成一条常显灰条横贯正文。现改为默认不设 background，仅 `:hover` / `:focus-within` 显示 `rgba(128,128,128,.34)`、拖动时紫强调。
+  ② **`.ds-scroll-area`**（老，无 wrapper 时）：`scrollbar-width:none` 隐藏原生条 + 自绘 `.ds-scroll-area__horizontal-bar`（8px，**溢出时极淡常显**）。**绝不能**在这个容器上写 `::-webkit-scrollbar`（会把原生条唤醒成 15px，与自绘条并存）。
+  ⚠ **自绘条显隐**（v5.7.0 → v5.7.2）：它的原始实现是 `background: transparent` 的隐形热区（`display` 只按是否溢出开关），v5.6.0 曾用 `!important` 涂成不透明 → 变成一条常显灰条横贯正文；v5.7.0 改为完全透明、仅 `:hover` / `:focus-within` 显形。v5.7.2 折中：溢出时常显 `rgba(128,128,128,.12)` 提示可滚动，悬停 / 聚焦加深到 `.34`、拖动时紫强调，解决窄屏下「表格被裁却没有任何提示」。
   ⚠ **老宿主带「全出血」padding**（v5.7.0 修）：官网给 `.ds-scroll-area` 设 `padding-left 490.5px + margin-left -490.5px`，让宽表格能滚进左右留白。但 **padding 属于滚动容器的可视区**——滚进去的内容不会被 `overflow` 裁掉，于是表格画在正文左侧留白上（实测滚 300px 时左缘 451px vs 正文 751px）。且 `max-width:100%` 在 `content-box` 下只约束内容盒，padding 仍额外加出去（`752+490.5+54=1297`），等于没收窄。故给 `.ds-table-scroll-host` 把 `padding-left/right` 与 `margin-left` 归零，让裁剪边界回到正文宽（实测 1297 → 752）。
   容器选择用 `table.closest('.markdown-table-wrapper')` 优先，回退 `.ds-scroll-area`；两种类名 `.ds-table-scroll-wrapper` / `.ds-table-scroll-host` 分开，避免把 webkit 规则误加到老容器上。
-- **滚动宿主 `setTableScrollHost`**：优先 `.markdown-table-wrapper`（新结构，只加 `ds-table-scroll-wrapper` 类美化原生条），否则 `.ds-scroll-area`（加 `ds-table-scroll-host` 类 + `max-width:100%`）。父节点只有在自身 `overflowX` 为 `auto/scroll` 时才接受，**不再无条件回退到任意父节点**（`.ds-markdown` 的 padding 会被 `.ds-table-scroll-host` 规则归零）。退出时移除类名、还原原 `max-width` 并复位 `scrollLeft`。
+- **滚动宿主 `setTableScrollHost`**：优先 `.markdown-table-wrapper`（新结构，只加 `ds-table-scroll-wrapper` 类美化原生条），否则 `.ds-scroll-area`（加 `ds-table-scroll-host` 类 + `max-width:100%`）。父节点只有在自身 `overflowX` 为 `auto/scroll` 时才接受，**不再无条件回退到任意父节点**（`.ds-markdown` 的 padding 会被 `.ds-table-scroll-host` 规则归零）。退出时移除类名、还原原 `max-width` 并复位 `scrollLeft`。v5.7.2 起宿主用 `_scrollHostUsers` 做**引用计数**：多个表格共享同一个 `.ds-scroll-area` 时，只有最后一个使用者离开才清理类名 / `maxWidth`；表格被虚拟列表回收（MutationObserver `removedNodes`）时也会释放宿主，避免残留样式污染复用容器。
 - **配色**：由 `html.ds-table-auto`（半透明叠加）或 `html.ds-table-dual`（浅/深双规则）类驱动；`overflow-wrap:anywhere`；完成后 `opacity:1` 淡入（消除闪烁）。
 - **表头对齐 `applyTableHeadAlign`**：默认 `auto` 不写任何 `text-align`，保留 Markdown 的 `:--:` / `--:` 语义；仅当用户选「水平居中」时挂 `html.ds-table-head-center`，由 CSS `html.ds-table-head-center .ds-markdown th { text-align:center !important }` 接管（只作用于表头，不动单元格；弹窗预览与导出不受影响，PNG 导出在 `collectTableStyles` 里补同一规则保持一致）。
 - **空表格防护**：首行无单元格时直接返回（流式首帧常见），指纹变化后会自动重新处理。
 - **指纹稳定状态机**：`_tableFingerprints`（WeakMap）记录 `rows:cells`。首见立即应用；内容变化后重新进入稳定计数——连续 2 次指纹一致或 5s 超时后应用并 `done`，不再重复 reflow。
-- **宽度失效 `invalidateTableLayout`（v5.6.2）**：表宽与列宽都是**绝对 px 快照**，容器容量一变就会溢出；而指纹只含 `rows:cells`，**宽度变化不在指纹内**，已 `done` 的表格会被 `processAllTables` 直接 `return`。故可用宽度变化时必须显式失效：`_tableFingerprints.delete(t)` → `processAllTables()`（走「首次见到」分支立即重排）→ `syncTableButtonPositions()`。调用点两处：`applyWideScreen`（消息区 1000 ↔ 840，实测 `.ds-markdown` 912 ↔ 752，用 `changed` 判断避免初始化多跑一轮）、`resize`（窗口 / 浏览器缩放 / 侧栏收放）。
+- **宽度失效 `invalidateTableLayout`（v5.6.2，v5.7.2 扩展）**：表宽与列宽都是**绝对 px 快照**，容器容量一变就会溢出；而指纹只含 `rows:cells`，**宽度变化不在指纹内**，已 `done` 的表格会被 `processAllTables` 直接 `return`。故可用宽度变化时必须显式失效：`_tableFingerprints.delete(t)` → `processAllTables()`（走「首次见到」分支立即重排）→ `syncTableButtonPositions()`。调用点三处：`applyWideScreen`（消息区 1000 ↔ 840，实测 `.ds-markdown` 912 ↔ 752，用 `changed` 判断避免初始化多跑一轮）、`window.resize`（窗口 / 浏览器缩放）、**`ResizeObserver`（消息可见区宽度，覆盖侧栏收放 / 分屏 / 滚动条出现等不触发 window.resize 的容器级变化）**。v5.7.2 起增加**宽度签名去重**：把当前所有 `.ds-markdown.clientWidth` 拼成字符串，签名相同则只同步按钮位置、不做全量测量（窗口仅高度变化、`resize` 与 `ResizeObserver` 双触发时省掉一轮）。
   ⚠ **只调 `processAllTables()` 而不清指纹 = 什么都没做**：`resize` 回调曾长期这样空转（2026-10-17 审计定位）。DOM 观察器也救不了：它是 `observe(body, {childList:true})`，不监听 attributes，且宽屏 class 挂在 `<html>` 上。
 - **导出**：三格式共用 `getCleanTableClone`（深拷贝 + 摘导出按钮/脚本标记 + 清 fixed/宽度/`min-width` 等内联样式）。
   **PNG 传 `{keepColGroup:true}` 保留列宽**，再用 `scaleCloneColumns(clone, srcW, targetW)` 把列宽从页面宽度等比换算到导出宽度（逐列取整、误差补到最后一列，保证 Σcol 精确等于目标宽；上限 `TABLE_EXPORT_MAX_WIDTH=1200`）——导出图的列宽分配与页面一致。CSV/MD 仍移除 `<colgroup>`（只读文本）：
@@ -161,8 +161,8 @@ flowchart LR
   - 📄 CSV：UTF-8 BOM + 引号/逗号/换行转义；
   - 📝 MD：复制到剪贴板；保留 `code`/`**`/`*` 行内语法、`|` 转义、`<br>` 折为空格。
 - **显隐**：`.table-internal-buttons` 默认 hover 显示；`html.ds-export-always`（`setTableButtonsAlways`）强制常显。
-- **按钮位置 `positionTableButtons`**：按钮组挂在**消息体 `.ds-markdown`** 上（不能放在 `<table>` 内——表格的 `overflow:hidden` 会把「表格之外」的部分裁掉）。`left = min(表格右边缘, 消息区宽度)`、`top = 表格底部 − 按钮组高度`：
-  「内容紧凑」时贴表格右边缘（仍在消息区内）、「铺满整行」时停在消息区边界（视觉上在消息区外）、表格横向溢出时也不越过边界（按钮始终可见）。
+- **按钮位置 `positionTableButtons`**：按钮组挂在**消息体 `.ds-markdown`** 上（不能放在 `<table>` 内——表格的 `overflow:hidden` 会把「表格之外」的部分裁掉）。`left = min(表格右边缘 − 消息体左边缘, min(消息区宽度, 视口右缘 − 消息体左边缘 − 按钮组宽度))`、`top = 表格底部 − 按钮组高度`：
+  「内容紧凑」时贴表格右边缘（仍在消息区内）、「铺满整行」时停在消息区边界（视觉上在消息区外）、表格横向溢出时也不越过边界。v5.7.2 起按**视口留白自适应**：右侧留白足够时保持「消息区外」；留白不足（窄窗口 / 消息区贴边）时把按钮收进视口，避免旧实现「只 min 消息区宽度、没扣按钮组自身 44px」导致右缘被裁。
   ⚠ 只设 `left/top`，**必须同时把 `right/bottom` 清成 auto**，否则 absolute 元素被双向拉伸（实测按钮组高度 112 → 629）。
 - **悬停域 `bindTableButtonHover`**：按钮在表格之外，`table:hover` 覆盖不到按钮区，鼠标穿过 12px 间隙时会丢失悬停 → 按钮消失。做法：把「表格 + 按钮组（其 `padding-left:12px` 即桥接区）」合并成一个悬停域，用 `is-visible` 类控制显隐，隐藏延迟 140ms 吸收指针短暂越界。
 
@@ -369,13 +369,15 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 `ctrl-bg↔surface` / `content-bg↔surface-2` 属语义不同（弹窗=遮罩上的半透明玻璃层，面板=实色分层容器），
 深色必然不等，审计只打印对照不断言。
 
-### 5.10 宽屏宽度档位（`applyWideScreen` + `WIDE_LEVELS`，v5.7.0）
+### 5.10 宽屏宽度档位（`applyWideScreen` + `WIDE_LEVELS`，v5.7.0 / v5.7.2）
 
 - **机制**：官网用 `--message-list-max-width` 控制消息列表最大宽度（实测默认 **840px**），
   `.ds-virtual-list-items` 靠 `padding-left/right: calc((100% - var(--message-list-max-width)) / 2)` 居中留白。
   脚本只在 `html.ds-wide-screen` 下把该变量覆盖成 `var(--ds-wide-max-width, 1000px)`，
   具体数值由 `applyWideScreen` 按档位写进 `html` 的内联 `--ds-wide-max-width`。
   **不写死像素**，档位切换无需刷新页面。
+- **作用域（v5.7.2 明确）**：选择器优先 `[class*="ds-virtual-list-items"]:has(.ds-markdown)`，保留旧的内联 style 子串条件兜底；
+  只覆盖**消息列表**。输入区 / 新对话页仍继承 `:root` 的 840px —— 这是设置面板「消息区加宽，三档宽度可选」的定义边界，不是遗漏。
 - **三档**（`WIDE_LEVELS`）：`standard` 1000（+160）/ `wide` 1160（+320）/ `wider` 1320（+480）。
   默认 `standard` = 历史行为，升级后老用户看到的宽度不变。
 - **生效边界（重要）**：数值是**绝对上限**而非相对增量，
@@ -384,8 +386,10 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
   1252 视口（可用 991）时 +151。窄窗口下「宽屏无效」是设计使然，不是缺陷。
 - **重算联动**：档位切换同样改变可用宽度，故 `applyWideScreen` 在「class 状态变化」或
   「宽屏开启且数值变化」时调用 `invalidateTableLayout()`；宽屏关着时改档位不改布局，不触发重算。
+  实测 1994 视口：standard / wide / wider 下 `.ds-markdown` 912 / 1072 / 1232，表格同步重排。
 - **面板依赖**：「宽屏宽度」下拉依赖「启用宽屏布局」，关开关即置灰（`refreshPanelDeps` 即时重算）；
-  「恢复默认设置」把档位写回 `standard`。
+  「恢复默认设置」把档位写回 `standard`。实机面板：导航「宽屏模式」、副标题「消息区加宽，三档宽度可选」，
+  开关「启用宽屏布局」+ 下拉「宽屏宽度」（三个选项），关闭开关后下拉 `disabled`、`.ds-markdown` 752 且表格进入滚动。
 
 ## 6. 典型运行序列
 

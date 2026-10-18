@@ -4,7 +4,7 @@
 
 ## 运行
 
-1. 准备 jsdom。本机已装在 `.workbuddy/binaries/node/workspace/node_modules`；其他环境安装 jsdom 后设置 `NODE_PATH` 指向其 `node_modules`。
+1. 准备 jsdom。本机装在用户级 `%USERPROFILE%\.workbuddy\binaries\node\workspace\node_modules`；`run-all-verify.js` 会自动探测该路径。其他环境安装 jsdom 后设置 `NODE_PATH` 指向其 `node_modules`。**直接单跑某个 jsdom 测试时务必显式设置 `NODE_PATH`**，否则会报 `Cannot find module 'jsdom'`（v5.7.2 修正文档路径）。
 2. 在仓库根运行：
 
    ```bash
@@ -33,7 +33,7 @@
 10. 表格列宽分配（性质断言 + 反向对照）
 11. 设置面板依赖 / reset 覆盖面
 12. 面板↔弹窗令牌同值
-13. 表格宽度失效链路（含反向对照）
+13. 表格宽度失效链路（宽屏 / resize / ResizeObserver → 重算 + 按钮定位 + 引用计数；13 条断言 + 反向对照）
 14. 5 处版本号一致性
 
 ## 已知限制

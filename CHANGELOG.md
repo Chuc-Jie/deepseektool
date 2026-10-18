@@ -1,5 +1,17 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v5.7.2 (2026-10-18)
+
+### 修复 · 宽屏 × 表格联合审计
+
+- **宽屏选择器**：CSS 规则增加 `[class*="ds-virtual-list-items"]:has(.ds-markdown)` 兜底，官网把 `--message-list-max-width` 引用移出内联 style 后仍能命中；作用域仍只限消息区（输入区 / 新对话页不跟随是该功能的定义边界）。
+- **容器级宽度失效**：新增 `ResizeObserver` 监听消息可见区（`.ds-virtual-list-visible-items`）宽度，覆盖侧栏收放 / 分屏 / 滚动条出现等不触发 `window.resize` 的场景；`invalidateTableLayout` 增加宽度签名去重，窗口仅高度变化或 `resize` 与 `ResizeObserver` 双触发时不重复全量测量。
+- **滚动模式突变**：新增 `TABLE_SCROLL_MAX_RATIO=1.35`，滚动表格内容总宽超过容器 1.35 倍时等比压缩，避免关闭宽屏时 8 列表格从 912px 突跳到 1510px；横向滚动条溢出时常显 `rgba(128,128,128,.12)` 底色，hover / focus 加深。
+- **导出按钮定位**：`left` 上限改为 `min(消息区宽度, 视口右缘 − 消息体左缘 − 按钮组宽度)`。右侧留白足够时仍停在消息区外；窄窗口下收进视口，不再右溢 44px 被裁。
+- **滚动宿主**：`_scrollHostUsers` 引用计数，多个表格共享 `.ds-scroll-area` 时只由最后一个使用者清理类名 / `maxWidth`；`MutationObserver` 处理 `removedNodes`，表格被虚拟列表回收时释放宿主样式。
+- **文档 / 验证台**：MAP、README、CHANGELOG 同步；`tests/README.md` 修正 jsdom 路径说明（用户级 `%USERPROFILE%\.workbuddy\...` + `NODE_PATH`）。
+- **未新增** `@grant` / `@require` / `@match` / 存储键，无新增设置项。
+
 ## v5.7.1 (2026-10-18)
 
 ### 修复 · 表格渲染与面板健壮性
