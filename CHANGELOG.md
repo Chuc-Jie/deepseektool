@@ -152,7 +152,7 @@
 - **动效**：新增 `dsPanelIn`（280ms `scale(.94) translateY(16px)`）与遮罩 180ms 淡入，
   曲线与弹窗 `.ds-md-dialog` 一致；切页动画的 `ease` 同步改为同款 `cubic-bezier`。
 - **遮罩**：保留深色但调为 `rgba(8,13,20,.55)` + `saturate(160%) blur(4px)`。面板是 920×640 的
-  常驻设置容器，弹窗的浅色雾会削弱模态聚焦感，故有意不照搬。
+  常驻设置容器，弹窗的浅色雾会削弱模态聚焦感，故有意不做同样处理。
 - 删除已死的 `--dsp-switch-off`（开关改用 `color-mix` 后零引用）。
 
 **未新增 `@grant` / `@require` / `@match` / 存储键。**

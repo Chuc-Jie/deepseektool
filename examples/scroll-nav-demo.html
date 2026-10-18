@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>滚动导航面板 · DeepSeek 右侧边栏复刻 Demo</title>
+<title>滚动导航面板 · DeepSeek 右侧边栏还原 Demo</title>
 <style>
   /* ============================================================
-     复刻目标：DeepSeek 聊天页右侧「滚动导航」面板
+     还原目标：DeepSeek 聊天页右侧「滚动导航」面板
      2026-08-15 实测还原：通过 Chrome DevTools 直连真实页面
      （chat.deepseek.com 长会话）逐项提取 CSS 规则与交互行为
 
@@ -455,7 +455,7 @@
 <body>
 <div class="app">
   <header class="topbar">
-    <span class="logo">DeepSeek 复刻</span>
+    <span class="logo">DeepSeek 还原</span>
     <span class="badge">滚动导航 Demo · 实测还原</span>
     <span class="spacer"></span>
     <span class="fake-btn" id="btnMore">生成更多消息</span>
@@ -502,7 +502,7 @@
   </main>
 
   <footer class="inputbar">
-    <div class="box">给 DeepSeek 复刻 Demo 发送消息</div>
+    <div class="box">给 DeepSeek 还原 Demo 发送消息</div>
     <div class="send">➤</div>
   </footer>
 </div>
@@ -883,7 +883,7 @@ document.getElementById('btnFew').addEventListener('click', () => {
   rebuildNav();
 });
 document.getElementById('btnInfo').addEventListener('click', () => {
-  alert('复刻说明（2026-08-15 实测还原，基于真实页面 CSS 规则）\n\n【显示/隐藏状态机】\n1. 收起态（默认）：面板透明、文本/徽标隐藏，只露出右侧一列指示器灰点，不遮挡对话\n2. hover 竖条/面板：白色卡片浮现（背景+三层阴影+文本显示+可点击）\n3. 移开鼠标：恢复收起态（transition .2s）\n\n【样式细节（实测）】\n· 竖条：白底 0.8 + 毛玻璃 blur(5px) + 圆角胶囊\n· 消息项：30px 高、右对齐（指示器靠右缘）、完整文本单行 ellipsis 截断\n· 分支徽标：9px 小标签（真实 _942b85d），部分消息带分支号\n· 当前项：蓝字 #3964FE(500) + 指示器 scale(1.5)\n· 上下 32px 渐变遮罩（hover 显示）\n· 滚动条：仅 hover 滚动区域显示、可拖拽（ds-scroll-area 同款）\n· 面板最多显示 10 条，超出面板内滚动（虚拟列表）\n· 键盘：↑/↓ 移动选中项，Enter/空格 跳转');
+  alert('实现说明（2026-08-15 实测，基于真实页面 CSS 规则）\n\n【显示/隐藏状态机】\n1. 收起态（默认）：面板透明、文本/徽标隐藏，只露出右侧一列指示器灰点，不遮挡对话\n2. hover 竖条/面板：白色卡片浮现（背景+三层阴影+文本显示+可点击）\n3. 移开鼠标：恢复收起态（transition .2s）\n\n【样式细节（实测）】\n· 竖条：白底 0.8 + 毛玻璃 blur(5px) + 圆角胶囊\n· 消息项：30px 高、右对齐（指示器靠右缘）、完整文本单行 ellipsis 截断\n· 分支徽标：9px 小标签（真实 _942b85d），部分消息带分支号\n· 当前项：蓝字 #3964FE(500) + 指示器 scale(1.5)\n· 上下 32px 渐变遮罩（hover 显示）\n· 滚动条：仅 hover 滚动区域显示、可拖拽（ds-scroll-area 同款）\n· 面板最多显示 10 条，超出面板内滚动（虚拟列表）\n· 键盘：↑/↓ 移动选中项，Enter/空格 跳转');
 });
 
 renderChat(64);
