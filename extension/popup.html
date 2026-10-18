@@ -17,22 +17,26 @@
       <span class="popup__version" id="version">—</span>
     </header>
 
-    <section class="popup__section" aria-labelledby="quick-actions-title">
-      <h2 class="popup__section-title" id="quick-actions-title">快捷操作</h2>
+    <section class="panel-card" aria-labelledby="start-title">
+      <h2 class="panel-card__title" id="start-title">快速开始</h2>
 
       <p class="status" id="status" data-tone="busy" role="status" aria-live="polite">
         正在检测当前页面…
       </p>
 
-      <div class="actions">
-        <button class="action action--primary" id="open-deepseek" type="button">
-          <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>
-          </svg>
-          <span>打开 DeepSeek</span>
-        </button>
+      <button class="action action--primary" id="open-deepseek" type="button">
+        <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>
+        </svg>
+        <span>打开 DeepSeek</span>
+      </button>
+    </section>
 
-        <button class="action action--primary" id="open-panel" type="button" hidden disabled>
+    <section class="panel-card" id="actions-card" aria-labelledby="actions-title" hidden>
+      <h2 class="panel-card__title" id="actions-title">快捷操作</h2>
+
+      <div class="actions">
+        <button class="action action--primary" id="open-panel" type="button" disabled>
           <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 7h8M18 7h2M4 17h2M10 17h10"/>
             <circle cx="15" cy="7" r="3"/>
@@ -41,7 +45,7 @@
           <span>打开设置面板</span>
         </button>
 
-        <button class="action" id="export-chat" type="button" hidden disabled>
+        <button class="action" id="export-chat" type="button" disabled>
           <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/>
           </svg>

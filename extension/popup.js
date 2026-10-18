@@ -14,6 +14,7 @@ const ui = {
   version: document.getElementById('version'),
   status: document.getElementById('status'),
   openDeepseek: document.getElementById('open-deepseek'),
+  actionsCard: document.getElementById('actions-card'),
   openPanel: document.getElementById('open-panel'),
   exportChat: document.getElementById('export-chat'),
 };
@@ -32,10 +33,9 @@ function setStatus(text, tone = 'busy') {
 function syncActions() {
   const disabled = !state.ready || state.busy;
 
+  ui.actionsCard.hidden = !state.ready;
   ui.openPanel.disabled = disabled;
   ui.exportChat.disabled = disabled;
-  ui.openPanel.hidden = !state.ready;
-  ui.exportChat.hidden = !state.ready;
 
   ui.openDeepseek.hidden = state.ready;
   ui.openDeepseek.disabled = state.busy;

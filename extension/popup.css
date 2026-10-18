@@ -128,8 +128,8 @@ body {
   white-space: nowrap;
 }
 
-/* ==================== 操作区 ==================== */
-.popup__section {
+/* ==================== 卡片 ==================== */
+.panel-card {
   display: grid;
   gap: 10px;
   padding: 14px;
@@ -138,7 +138,7 @@ body {
   background: var(--ds-surface);
 }
 
-.popup__section-title {
+.panel-card__title {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
