@@ -7,31 +7,48 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header class="head">
-    <img class="logo" src="icons/icon.svg" alt="" width="32" height="32">
-    <div class="titles">
-      <h1>DS 工具箱</h1>
-      <p>DeepSeek 对话页增强</p>
-    </div>
-  </header>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <img class="logo" src="icons/icon.svg" alt="" width="34" height="34">
+        <div class="brand-copy">
+          <strong class="brand-name">DS 工具箱</strong>
+          <p class="tagline">DeepSeek 对话页增强</p>
+        </div>
+      </div>
+      <span id="version" class="meta">v0.1.0</span>
+    </header>
 
-  <main class="body">
-    <p id="status" class="status" data-tone="busy">正在检测当前页面…</p>
+    <main class="app-content">
+      <section class="card" aria-labelledby="actions-title">
+        <h2 id="actions-title" class="card-title">快捷操作</h2>
+        <p id="status" class="status" data-tone="busy">正在检测当前页面…</p>
 
-    <button id="open-panel" class="btn btn-primary" type="button" disabled>
-      <span class="btn-ic">⚙</span>打开设置面板
-    </button>
-    <button id="export-chat" class="btn" type="button" disabled>
-      <span class="btn-ic">⇩</span>导出当前对话
-    </button>
+        <div class="actions">
+          <button id="open-panel" class="btn btn-primary" type="button" disabled>
+            <svg class="btn-ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h8M18 7h2M4 17h2M10 17h10"/>
+              <circle cx="15" cy="7" r="3"/>
+              <circle cx="7" cy="17" r="3"/>
+            </svg>
+            打开设置面板
+          </button>
+          <button id="export-chat" class="btn" type="button" disabled>
+            <svg class="btn-ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/>
+            </svg>
+            导出当前对话
+          </button>
+        </div>
+      </section>
 
-    <p class="note">设置保存在本扩展内，与用户脚本互不相通。</p>
-  </main>
+      <p class="note">设置保存在本扩展内，与用户脚本互不相通。</p>
+    </main>
 
-  <footer class="foot">
-    <span id="version">v0.0.0</span>
-    <span>与用户脚本版本二选一，避免重复注入</span>
-  </footer>
+    <footer class="app-footer">
+      <span>与用户脚本版本二选一，避免重复注入</span>
+    </footer>
+  </div>
 
   <script src="popup.js"></script>
 </body>
