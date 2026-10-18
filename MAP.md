@@ -354,7 +354,8 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 ### 5.9 统一控制面板（`openControlPanel` + 控件工厂）
 
 **构建**：单函数内联建整棵树，每次打开重建（`overlay.remove()` 后重新生成，避免状态残留）。
-左侧导航 `NAV_ITEMS`(9) + `NAV_EXTRA`(2) 与右侧 `sections`(11) 是两张并列表，key 一一对应；
+左侧导航 `NAV_ITEMS`(7) + `NAV_EXTRA`(2) 与右侧 `sections`(9) 是两张并列表，key 一一对应；
+「代码块折叠 / 外观 / 导出」已合并为 `fold` 分区，相关设置项同页展示。
 分区内容统一包进 `.ds-p-card`。设置项一律由控件工厂产出行式 `.ds-setting-item`：
 `createSettingRow`（外壳）/ `createNumberSetting` / `createToggleSetting` / `createSelectSetting`。
 

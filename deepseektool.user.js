@@ -235,9 +235,7 @@
         sidebar.className = 'ds-p-sidebar';
 
         const NAV_ITEMS = [
-            { key: 'fold', icon: 'code-tags', label: '代码块折叠' },
-            { key: 'codebg', icon: 'format-color-fill', label: '代码块外观' },
-            { key: 'codeexport', icon: 'image-multiple-outline', label: '代码块导出' },
+            { key: 'fold', icon: 'code-tags', label: '代码块' },
             { key: 'table', icon: 'table-large', label: '表格优化导出' },
             { key: 'mdexport', icon: 'language-markdown', label: '对话导出' },
             { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
@@ -323,17 +321,13 @@
         // 品牌标记：齿轮作为后景，官方鲸鱼完整保留为前景主体。
         // 鲸鱼 path 未做任何修改，仅缩放/平移；与扩展图标 / popup 头图同源。
         const BRAND_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
-            + '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
-            + '<stop offset="0" stop-color="#5b7cff"/><stop offset="1" stop-color="#2637a8"/>'
-            + '</linearGradient>'
-            + '<clipPath id="whaleClip"><rect x="0" y="0" width="35" height="26"/></clipPath></defs>'
-            + '<rect width="512" height="512" rx="120" fill="url(#bg)"/>'
+            + '<defs><clipPath id="whaleClip"><rect x="0" y="0" width="35" height="26"/></clipPath></defs>'
             + '<g transform="rotate(-18 256 256)">'
-            + '<path d="M60 256 A196 62 0 0 1 452 256" fill="none" stroke="#8ea6ff" stroke-width="12"/>'
-            + '<rect x="243" y="168" width="26" height="32" rx="8" fill="#8ea6ff"/>'
-            + '<rect x="46" y="243" width="32" height="26" rx="8" fill="#8ea6ff"/>'
-            + '<rect x="105" y="197" width="24" height="30" rx="8" fill="#8ea6ff" transform="rotate(-45 117 212)"/>'
-            + '<rect x="383" y="197" width="24" height="30" rx="8" fill="#8ea6ff" transform="rotate(45 395 212)"/>'
+            + '<path d="M60 256 A196 62 0 0 1 452 256" fill="none" stroke="#aebfff" stroke-width="12"/>'
+            + '<rect x="243" y="168" width="26" height="32" rx="8" fill="#aebfff"/>'
+            + '<rect x="46" y="243" width="32" height="26" rx="8" fill="#aebfff"/>'
+            + '<rect x="105" y="197" width="24" height="30" rx="8" fill="#aebfff" transform="rotate(-45 117 212)"/>'
+            + '<rect x="383" y="197" width="24" height="30" rx="8" fill="#aebfff" transform="rotate(45 395 212)"/>'
             + '</g>'
             + '<g transform="translate(112 149) scale(8.2)">'
             + '<g clip-path="url(#whaleClip)">'
@@ -341,11 +335,11 @@
             + '</g>'
             + '</g>'
             + '<g transform="rotate(-18 256 256)">'
-            + '<path d="M60 256 A196 62 0 0 0 452 256" fill="none" stroke="#dbe4ff" stroke-width="14"/>'
-            + '<rect x="243" y="312" width="26" height="32" rx="8" fill="#dbe4ff"/>'
-            + '<rect x="434" y="243" width="32" height="26" rx="8" fill="#dbe4ff"/>'
-            + '<rect x="105" y="285" width="24" height="30" rx="8" fill="#dbe4ff" transform="rotate(45 117 300)"/>'
-            + '<rect x="383" y="285" width="24" height="30" rx="8" fill="#dbe4ff" transform="rotate(-45 395 300)"/>'
+            + '<path d="M60 256 A196 62 0 0 0 452 256" fill="none" stroke="#ffffff" stroke-width="14"/>'
+            + '<rect x="243" y="312" width="26" height="32" rx="8" fill="#ffffff"/>'
+            + '<rect x="434" y="243" width="32" height="26" rx="8" fill="#ffffff"/>'
+            + '<rect x="105" y="285" width="24" height="30" rx="8" fill="#ffffff" transform="rotate(45 117 300)"/>'
+            + '<rect x="383" y="285" width="24" height="30" rx="8" fill="#ffffff" transform="rotate(-45 395 300)"/>'
             + '</g>'
             + '</svg>';
         const brandImg = document.createElement('img');
@@ -410,7 +404,7 @@
 
         /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
         const sections = [
-            { key: 'fold', icon: 'code-tags', title: '代码块折叠', sub: '长代码自动收起，随手展开', build: () => [
+            { key: 'fold', icon: 'code-tags', title: '代码块', sub: '折叠 · 外观 · 导出', build: () => [
                 createNumberSetting('自动折叠阈值', '代码行数超过该值时自动折叠（0 = 禁用）', '行', foldThreshold, value => {
                     foldThreshold = value;
                     GM_setValue(STORAGE_FOLD_THRESHOLD, value);
@@ -424,8 +418,6 @@
                     reapplyFoldToAllCodeBlocks();
                     showToast(`预览行数已更新为 ${value === 0 ? '关闭（完全隐藏）' : value}`);
                 }),
-            ] },
-            { key: 'codebg', icon: 'format-color-fill', title: '代码块外观', sub: '背景加深 · 与正文拉开层次', build: () => [
                 createToggleSetting('加深代码块背景', '浅色主题下代码块底色由近白的 #F9FAFB 加深，顶部工具条同色并补分隔线（深色主题不受影响）', codeBgEnhance, checked => {
                     codeBgEnhance = checked;
                     GM_setValue(STORAGE_CODE_BG, checked);
@@ -442,8 +434,6 @@
                     applyCodeBlockBg(codeBgEnhance, value);
                     showToast('代码块背景强度已更新');
                 }, () => !codeBgEnhance),
-            ] },
-            { key: 'codeexport', icon: 'image-multiple-outline', title: '代码块导出', sub: '一键导出为图片 · 8 项样式可调', build: () => [
                 createToggleSetting('代码块导出为图片按钮', '代码块右上角显示「导出」按钮：选择样式后将该代码块导出为图片（支持下载 PNG / 复制图片到剪贴板）', codeExportEnabled, checked => {
                     codeExportEnabled = checked;
                     GM_setValue(STORAGE_CODE_EXPORT_ENABLED, checked);
@@ -684,6 +674,7 @@
 
         /* ===== 分区切换 ===== */
         function showPage(key) {
+            if (!pages.some(p => p.dataset.page === key)) key = 'fold';
             openControlPanel._lastPage = key;
             pages.forEach(p => p.classList.toggle('active', p.dataset.page === key));
             navBtns.forEach(b => b.classList.toggle('active', b.dataset.target === key));
@@ -1105,7 +1096,6 @@
             --dsp-title: #181d26;
             --dsp-text: #181d26;
             --dsp-sub: rgba(24, 29, 38, .78);
-            --dsp-tertiary: rgba(24, 29, 38, .58);
             --dsp-line: #e0e2e6;
             --dsp-divider: rgba(24, 29, 38, .08);
             --dsp-ctrl-bg: #ffffff;
@@ -1135,7 +1125,6 @@
             --dsp-title: #eef3fb;
             --dsp-text: #eef3fb;
             --dsp-sub: rgba(238, 243, 251, .76);
-            --dsp-tertiary: rgba(238, 243, 251, .56);
             --dsp-line: rgba(216, 225, 240, .14);
             --dsp-divider: rgba(216, 225, 240, .08);
             --dsp-ctrl-bg: rgba(216, 225, 240, .06);
@@ -1179,13 +1168,17 @@
         .ds-p-sidebar::-webkit-scrollbar-track { background: transparent; }
         .ds-p-sidebar::-webkit-scrollbar-thumb { background: var(--dsp-scroll-thumb); border-radius: 999px; }
         .ds-p-logo {
-            display: flex; align-items: center; gap: 10px;
-            padding: 2px 12px 20px; color: var(--dsp-title);
+            display: flex; align-items: center; gap: 12px;
+            margin: 0 0 18px;
+            padding: 16px 14px;
+            border-radius: 16px;
+            background: #4d6bfe;
+            color: #ffffff;
         }
-        .ds-p-logo-ic { width: 26px; height: 26px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
-        .ds-p-logo-ic-img { width: 26px; height: 26px; display: block; }
+        .ds-p-logo-ic { width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .ds-p-logo-ic-img { width: 34px; height: 34px; display: block; }
         .ds-p-logo-t { font-size: 15px; font-weight: 600; letter-spacing: .2px; }
-        .ds-p-logo-s { font-size: 11px; color: var(--dsp-tertiary); margin-top: 2px; }
+        .ds-p-logo-s { font-size: 11px; color: rgba(255,255,255,.72); margin-top: 2px; }
         .ds-p-nav {
             display: flex; align-items: center; width: 100%;
             padding: 0; border: none; background: transparent; cursor: pointer;
