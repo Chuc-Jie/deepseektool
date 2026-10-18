@@ -64,37 +64,31 @@
     const STORAGE_MD_EXPORT_APPEND_DATE = 'deepseek_md_export_append_date'; // 文件名附加日期（默认开，避免重名覆盖）
     const LEGACY_MD_KEYS = ['deepseek_md_export_reasoning', 'deepseek_md_export_answer_only'];
 
-    let foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
-    let previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
-    let enablePreviewLines = previewLines > 0;
-    let tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
-    let tableButtonsAlways = GM_getValue(STORAGE_TABLE_BUTTONS_ALWAYS, false);  // 导出按钮恒定常显（默认关）
-    let autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
-    let simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
-    let tableThemeMode = normalizeEnum(STORAGE_TABLE_THEME_MODE, GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto'), ['auto', 'dual'], 'auto');
-    let tableHeadAlign = normalizeEnum(STORAGE_TABLE_HEAD_ALIGN, GM_getValue(STORAGE_TABLE_HEAD_ALIGN, 'auto'), ['auto', 'center'], 'auto');   // 默认跟随 Markdown 的对齐语义
-    // 列宽算法：旧键 deepseek_table_width_mode 的 'equal' 保留为均分选择；
-    // 'auto'（字符数权重）/ 'equal-minwidth'（与均分等价）/ 未设置 一律迁移为「智能」。
-    // 迁移后立即写新键，此后代码不再读旧键——否则会造出面板里看不见也关不掉的隐形状态。
-    let tableWidthAlgo = GM_getValue(STORAGE_TABLE_WIDTH_ALGO, null);
-    if (tableWidthAlgo !== 'smart' && tableWidthAlgo !== 'equal') {
-        tableWidthAlgo = GM_getValue(LEGACY_TABLE_WIDTH_MODE, null) === 'equal' ? 'equal' : 'smart';
-        GM_setValue(STORAGE_TABLE_WIDTH_ALGO, tableWidthAlgo);
-    }
-    let tableFill = normalizeEnum(STORAGE_TABLE_FILL, GM_getValue(STORAGE_TABLE_FILL, 'fill'), ['fill', 'compact'], 'fill');            // 默认铺满整行
-    let tableOverflow = normalizeEnum(STORAGE_TABLE_OVERFLOW, GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll'), ['scroll', 'squeeze'], 'scroll');  // 默认横向滚动
-    let wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
-    let wideScreenLevel = normalizeEnum(STORAGE_WIDE_LEVEL, GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT), Object.keys(WIDE_LEVELS), WIDE_LEVEL_DEFAULT);
-    let folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);  // 对话文件夹管理（默认关，opt-in）
-    let ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);          // Ctrl+Enter 发送（默认关，opt-in）
-    let pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);  // 置顶分组可折叠（默认关，opt-in）
-    let codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);                 // 代码块背景加深（默认开）
-    let codeBgLevel = normalizeEnum(STORAGE_CODE_BG_LEVEL, GM_getValue(STORAGE_CODE_BG_LEVEL, 'light'), ['light', 'medium', 'strong'], 'light');          // 加深强度（默认轻档）
-    let tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true); // PNG 导出圆角（默认开）
-    let mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);        // 对话导出（Markdown / JSON，默认开）
-    let mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true); // 文件名附加日期（默认开）
-    let codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);    // 代码块导图按钮（默认开）
-    let codeImagePrefs = GM_getValue(STORAGE_CODE_IMAGE_PREFS, null);          // 导图样式偏好（对象或 JSON 字符串）
+    // 设置的内存镜像：启动时与跨标签同步时都由 loadSettings() 统一刷新。
+    let foldThreshold = 20;
+    let previewLines = 0;
+    let enablePreviewLines = false;
+    let tableButtonsEnabled = true;
+    let tableButtonsAlways = false;
+    let autoCollapseThinking = true;
+    let simulateClickThinking = true;
+    let tableThemeMode = 'auto';
+    let tableHeadAlign = 'auto';
+    let tableWidthAlgo = null;
+    let tableFill = 'fill';
+    let tableOverflow = 'scroll';
+    let wideScreen = false;
+    let wideScreenLevel = WIDE_LEVEL_DEFAULT;
+    let folderManagerEnabled = false;
+    let ctrlEnterEnabled = false;
+    let pinGroupCollapsible = false;
+    let codeBgEnhance = true;
+    let codeBgLevel = 'light';
+    let tableExportRounded = true;
+    let mdExportEnabled = true;
+    let mdExportAppendDate = true;
+    let codeExportEnabled = true;
+    let codeImagePrefs = null;
 
     // 枚举设置脏值兜底：非法值写回默认值，避免面板下拉显示空白、逻辑走进未定义分支。
     // 写回存储是必要的 —— 只在内存里兜底会让脏值每次启动都重新出现。
@@ -103,6 +97,43 @@
         GM_setValue(key, fallback);
         return fallback;
     }
+
+    // 从存储读取全部设置。启动时调用一次；扩展环境下其他标签页改设置时再次调用。
+    function loadSettings() {
+        foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
+        previewLines = GM_getValue(STORAGE_PREVIEW_LINES, 0);
+        enablePreviewLines = previewLines > 0;
+        tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
+        tableButtonsAlways = GM_getValue(STORAGE_TABLE_BUTTONS_ALWAYS, false);
+        autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
+        simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
+        tableThemeMode = normalizeEnum(STORAGE_TABLE_THEME_MODE, GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto'), ['auto', 'dual'], 'auto');
+        tableHeadAlign = normalizeEnum(STORAGE_TABLE_HEAD_ALIGN, GM_getValue(STORAGE_TABLE_HEAD_ALIGN, 'auto'), ['auto', 'center'], 'auto');
+
+        // 列宽算法旧键迁移：迁移后立即写新键，此后代码不再读旧键。
+        tableWidthAlgo = GM_getValue(STORAGE_TABLE_WIDTH_ALGO, null);
+        if (tableWidthAlgo !== 'smart' && tableWidthAlgo !== 'equal') {
+            tableWidthAlgo = GM_getValue(LEGACY_TABLE_WIDTH_MODE, null) === 'equal' ? 'equal' : 'smart';
+            GM_setValue(STORAGE_TABLE_WIDTH_ALGO, tableWidthAlgo);
+        }
+
+        tableFill = normalizeEnum(STORAGE_TABLE_FILL, GM_getValue(STORAGE_TABLE_FILL, 'fill'), ['fill', 'compact'], 'fill');
+        tableOverflow = normalizeEnum(STORAGE_TABLE_OVERFLOW, GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll'), ['scroll', 'squeeze'], 'scroll');
+        wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
+        wideScreenLevel = normalizeEnum(STORAGE_WIDE_LEVEL, GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT), Object.keys(WIDE_LEVELS), WIDE_LEVEL_DEFAULT);
+        folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);
+        ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);
+        pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);
+        codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);
+        codeBgLevel = normalizeEnum(STORAGE_CODE_BG_LEVEL, GM_getValue(STORAGE_CODE_BG_LEVEL, 'light'), ['light', 'medium', 'strong'], 'light');
+        tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true);
+        mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);
+        mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
+        codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);
+        codeImagePrefs = GM_getValue(STORAGE_CODE_IMAGE_PREFS, null);
+    }
+
+    loadSettings();
 
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
@@ -164,6 +195,9 @@
         // 面板重建（如恢复默认设置）后回到上次所在分区，避免导航被打回第一页。
         // 挂在函数对象上而不是模块级变量：测试 harness 只提取本函数体，模块级变量会缺失。
         openControlPanel._lastPage = openControlPanel._lastPage || 'fold';
+        // 同理：运行时标记在函数体内计算，保证测试 harness 提取函数体后仍可执行。
+        const isExtensionRuntime = !!(document.documentElement
+            && document.documentElement.dataset.dsRuntime === 'extension');
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
         if (existingOverlay) existingOverlay.remove();
         // 面板每次重建 → 上一轮登记的依赖项作废（否则会持有已移除的节点）
@@ -508,8 +542,15 @@
                 }, () => !folderManagerEnabled),
             ] },
             {
-                key: 'help', icon: 'help-circle-outline', title: '帮助中心', sub: '前置条件 · 使用小贴士',
-                build: () => [
+                key: 'help', icon: 'help-circle-outline', title: '帮助中心',
+                sub: isExtensionRuntime ? '扩展 · 使用小贴士' : '前置条件 · 使用小贴士',
+                build: () => (isExtensionRuntime ? [
+                    createInfoIntro('运行方式', '本面板由「DeepSeek 功能增强工具箱」浏览器扩展提供，仅在 chat.deepseek.com 对话页生效。'),
+                    createInfoIntro('打开方法', '点击浏览器工具栏的扩展图标，在 popup 中选择「打开设置面板」。'),
+                    createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置保存在扩展本地，下次打开页面保持。'),
+                    createInfoIntro('多标签同步', '同一浏览器内多个 DeepSeek 标签页会同步设置；在其他标签页修改后，本页会自动应用。'),
+                    createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效；如遇异常欢迎反馈适配。'),
+                ] : [
                     createInfoIntro('前置安装条件', '请先安装以下任一用户脚本管理器，再在 DeepSeek 对话页打开本面板：'),
                     createLinkCardGrid([
                         createLinkCard('Tampermonkey（油猴）', '全球最流行的用户脚本管理器', 'https://www.tampermonkey.net/', 'shield-check-outline'),
@@ -518,7 +559,7 @@
                     createInfoIntro('打开方法', '点击浏览器工具栏 Tampermonkey / ScriptCat 图标 → 本脚本 →「脚本设置」'),
                     createInfoIntro('立即生效 · 自动保存', '改动设置即时生效、无需刷新；配置自动保存，下次打开页面保持。'),
                     createInfoIntro('功能失效排查', 'DeepSeek 大版本迭代可能导致个别功能失效；如遇异常欢迎反馈适配。'),
-                ],
+                ]),
             },
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
@@ -7021,6 +7062,8 @@
     }
 
     // ==================== 初始化 ====================
+    let folderRuntimeEnabled = false;
+
     function init() {
         applyTableThemeClass(tableThemeMode);
         applyTableHeadAlign(tableHeadAlign);
@@ -7036,6 +7079,7 @@
         if (folderManagerEnabled) {
             folderUnit.on();
             folderUnit.schedule();   // 页面加载即应用（不等会话链接出现前的首轮 DOM 变化）
+            folderRuntimeEnabled = true;
         }
         observeDOM();
 
@@ -7047,6 +7091,50 @@
             }, 100);
         });
     }
+
+    // ==================== 扩展环境：跨标签设置同步 ====================
+    // gm-shim 监听 chrome.storage.onChanged 并派发该事件；userscript 不会触发，监听无副作用。
+    const NON_LAYOUT_SETTING_KEYS = new Set([
+        STORAGE_FOLDER_DATA,
+        STORAGE_PIN_COLLAPSED,
+        STORAGE_MD_EXPORT_PREFS,
+        STORAGE_CODE_IMAGE_PREFS,
+    ]);
+
+    function applyRuntimeSettings() {
+        applyTableThemeClass(tableThemeMode);
+        applyTableHeadAlign(tableHeadAlign);
+        applyWideScreen(wideScreen, { skipInvalidate: true });
+        setTableButtonsAlways(tableButtonsAlways);
+        applyCodeBlockBg(codeBgEnhance, codeBgLevel);
+        deduplicateButtons();
+        processAllExistingCodeBlocks();
+        applyCodeExportButtons(codeExportEnabled);
+        processAllTables();
+        reapplyThinkingSections();
+
+        if (folderManagerEnabled) {
+            folderUnit.on();
+            folderUnit.schedule();
+            folderRuntimeEnabled = true;
+        } else if (folderRuntimeEnabled) {
+            folderUnit.off();
+            folderRuntimeEnabled = false;
+        }
+
+        // 面板打开时重建，让控件显示最新值；openControlPanel 会保留当前分区。
+        if (document.getElementById('ds-control-panel-overlay')) {
+            openControlPanel();
+        }
+    }
+
+    document.addEventListener('ds-storage-changed', (event) => {
+        const keys = event.detail && Array.isArray(event.detail.keys) ? event.detail.keys : [];
+        const relevant = keys.some((key) => key.startsWith('deepseek_') && !NON_LAYOUT_SETTING_KEYS.has(key));
+        if (!relevant) return;
+        loadSettings();
+        applyRuntimeSettings();
+    });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

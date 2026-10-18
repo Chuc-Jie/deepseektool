@@ -17,6 +17,7 @@ import { runUserScript } from '../../deepseektool.user.js';
 (async () => {
   try {
     await preloadStorage();
+    document.documentElement.dataset.dsRuntime = 'extension';
     window.html2canvas = html2canvas;
     runUserScript();
   } catch (err) {

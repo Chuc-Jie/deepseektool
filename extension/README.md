@@ -38,11 +38,14 @@ dist/                  构建产物（gitignore），加载扩展时选它
 
 ## 关键设计
 
-- **源码零改动**：`deepseektool.user.js` 保持 userscript 原样，继续发布油猴版本。
+- **单一源码**：扩展与 userscript 共用 `deepseektool.user.js`，通过兼容层与少量运行时分支适配，不维护第二份业务实现。
 - **GM_* 兼容层**：通过 esbuild `inject` 把 `GM_getValue` / `GM_setValue` /
   `GM_addStyle` / `GM_registerMenuCommand` 绑定到 `src/gm-shim.js`。
 - **存储预加载**：`chrome.storage.local.get(null)` 一次读入内存，`GM_getValue` 保持同步语义；
   `runUserScript()` 在预加载完成后才执行，避免顶层设置读取拿到默认值。
+- **跨标签同步**：`chrome.storage.onChanged` 更新内存缓存并派发 `ds-storage-changed`，
+  主脚本据此重新读取设置并热应用；本标签写入通过回环去重，不会重建面板。
+- **环境文案**：content-entry 在页面根节点标记扩展运行时，帮助页自动切换为扩展版说明。
 - **本地依赖**：html2canvas 打包进 `content.js`，无远程代码；图标本地生成。
 - **菜单替代**：popup 通过 `chrome.tabs.sendMessage` 触发原 `GM_registerMenuCommand` 的两个命令。
 

@@ -572,3 +572,14 @@ deepseektool.user.js 中的 GM_*
 
 M2：菜单/文案收尾（关于页安装条件改为扩展）、面板图标本地化、
 下载与剪贴板实测兜底；随后按第 8.2 节逐项实测，通过后再准备 M4 商店材料。
+
+### 12.6 P1 修复（2026-10-18）
+
+- **多标签设置同步**：`gm-shim` 监听 `chrome.storage.onChanged`，更新内存缓存；
+  本标签写入通过 pending 去重，不回环。主脚本新增 `loadSettings()` 与
+  `applyRuntimeSettings()`，收到 `ds-storage-changed` 后重新读取并热应用
+  （宽屏、表格、代码块、思考折叠、文件夹开关、面板重建）。
+- **帮助页环境文案**：content-entry 在 `documentElement.dataset.dsRuntime` 标记扩展运行时；
+  帮助页据此在「扩展说明」与「用户脚本安装说明」之间切换。
+- **验证**：jsdom 冒烟 8/8 通过——外部修改宽屏/代码块背景即时生效、本标签写入不触发重放、
+  扩展帮助文案正确；现有验证台 13 项脚本 + 版本核对全部通过。
