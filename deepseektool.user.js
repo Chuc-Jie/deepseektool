@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.7.3
+// @version      5.8.0
 // @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（三档宽度）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
@@ -203,6 +203,117 @@
         }
         // Shift+Enter 保持原生语义（换行）不做拦截
     }, true);
+    // ==================== 页面内设置入口（右下角悬浮按钮） ====================
+    // 位置与常见悬浮设置按钮一致：right 48 / bottom 25、38×38。
+    // 宽屏时按钮落在输入区右侧留白内；窄屏（输入区接近全宽）与输入区相交时自动移到其上方，
+    // 避免盖住发送按钮。入口与油猴菜单、扩展弹窗并列，互为补充。
+    const SETTINGS_FAB_SIZE = 38;
+    const SETTINGS_FAB_RIGHT = 48;
+    const SETTINGS_FAB_BOTTOM = 25;
+    let _settingsFabRaf = 0;
+    let _settingsFabSig = '';
+
+    // 取最靠底部、面积最大的可见输入框作为定锚点（排除面板 / 弹窗内的输入控件）
+    function findComposerInput() {
+        const nodes = document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]');
+        let best = null;
+        let bestScore = -Infinity;
+        for (let i = 0; i < nodes.length; i++) {
+            const node = nodes[i];
+            if (node.closest('#ds-control-panel-overlay, #ds-settings-fab, .ds-md-modal')) continue;
+            const rect = node.getBoundingClientRect();
+            if (rect.width < 80 || rect.height < 20) continue;
+            if (rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+            const style = window.getComputedStyle(node);
+            if (!style || style.display === 'none' || style.visibility === 'hidden') continue;
+            const score = (rect.bottom > window.innerHeight * 0.6 ? 10000 : 0)
+                + rect.bottom + Math.min(rect.width * rect.height, 100000) / 1000;
+            if (score > bestScore) { bestScore = score; best = node; }
+        }
+        return best;
+    }
+
+    // 从输入框向上找到含操作按钮的输入区外壳（发送 / 深度思考等按钮所在容器）
+    function findComposerContainer(input) {
+        const inputRect = input.getBoundingClientRect();
+        let el = input.parentElement;
+        for (let depth = 0; el && el !== document.body && depth < 12; depth++, el = el.parentElement) {
+            const rect = el.getBoundingClientRect();
+            if (rect.height > window.innerHeight * 0.75) break;
+            if (rect.width + 1 < inputRect.width) continue;
+            if (el.querySelector('button, [role="button"]')) return el;
+        }
+        return input;
+    }
+
+    function positionSettingsFab() {
+        const fab = document.getElementById('ds-settings-fab');
+        if (!fab || fab.hidden) return;
+        const input = findComposerInput();
+        const rect = input ? findComposerContainer(input).getBoundingClientRect() : null;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const sig = rect
+            ? [vw, vh, Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom)].join(':')
+            : [vw, vh, 'none'].join(':');
+        if (sig === _settingsFabSig) return;   // 位置未变：避免流式渲染期间反复写内联样式
+        _settingsFabSig = sig;
+        if (!rect) {
+            fab.style.removeProperty('right');
+            fab.style.removeProperty('bottom');
+            return;
+        }
+        const fabLeft = vw - SETTINGS_FAB_RIGHT - SETTINGS_FAB_SIZE;
+        const fabTop = vh - SETTINGS_FAB_BOTTOM - SETTINGS_FAB_SIZE;
+        const gap = 8;
+        const overlaps = fabLeft < rect.right + gap && fabLeft + SETTINGS_FAB_SIZE > rect.left - gap
+            && fabTop < rect.bottom + gap && fabTop + SETTINGS_FAB_SIZE > rect.top - gap;
+        if (!overlaps) {
+            // 默认位置（CSS 里的默认同位坐标）
+            fab.style.removeProperty('right');
+            fab.style.removeProperty('bottom');
+            return;
+        }
+        // 与输入区相交：贴到输入区上方，右缘对齐输入区
+        fab.style.right = Math.max(12, Math.round(vw - rect.right)) + 'px';
+        fab.style.bottom = Math.max(12, Math.round(vh - rect.top + 12)) + 'px';
+    }
+
+    function scheduleSettingsFabPosition() {
+        if (_settingsFabRaf) return;
+        _settingsFabRaf = requestAnimationFrame(() => {
+            _settingsFabRaf = 0;
+            positionSettingsFab();
+        });
+    }
+
+    function ensureSettingsFab() {
+        if (!document.body) return;
+        if (document.getElementById('ds-settings-fab')) return;
+        const fab = document.createElement('button');
+        fab.id = 'ds-settings-fab';
+        fab.className = 'ds-settings-fab';
+        fab.type = 'button';
+        fab.dataset.tooltip = '设置';
+        fab.setAttribute('aria-label', '设置');
+        fab.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'
+            + '<path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61'
+            + ' l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41'
+            + ' h-3.84c-0.24,0-0.44,0.17-0.48,0.41L9.18,5.18C8.59,5.42,8.06,5.74,7.56,6.12L5.17,5.16C4.95,5.08,4.7,5.15,4.59,5.36L2.67,8.68'
+            + ' c-0.11,0.2-0.06,0.47,0.12,0.61l2.03,1.58C4.78,11.36,4.76,11.68,4.76,12s0.02,0.64,0.07,0.94l-2.03,1.58'
+            + ' c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.43,2.37'
+            + ' c0.04,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.48-0.41l0.43-2.37c0.59-0.24,1.12-0.56,1.62-0.94l2.39,0.96'
+            + ' c0.22,0.08,0.47,0.01,0.59-0.22l1.92-3.32C21.41,13.76,21.36,13.49,21.18,13.35L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6'
+            + ' s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"></path></svg>';
+        fab.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openControlPanel();
+        });
+        document.body.appendChild(fab);
+        scheduleSettingsFabPosition();
+    }
+
     // ==================== 统一控制面板 ====================
     function openControlPanel() {
         // 面板重建（如恢复默认设置）后回到上次所在分区，避免导航被打回第一页。
@@ -213,6 +324,9 @@
             && document.documentElement.dataset.dsExtension === '1');
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
         if (existingOverlay) existingOverlay.remove();
+        // 面板打开期间隐藏右下角设置入口，关闭后恢复
+        const settingsFab = document.getElementById('ds-settings-fab');
+        if (settingsFab) settingsFab.hidden = true;
         // 面板每次重建 → 上一轮登记的依赖项作废（否则会持有已移除的节点）
         _panelDepWatchers.length = 0;
 
@@ -229,6 +343,14 @@
 
         const panel = document.createElement('div');
         panel.className = 'ds-panel';
+
+        // 统一关闭：移除遮罩并恢复右下角设置入口（测试 harness 不含 FAB 函数，用 typeof 守卫）
+        const closeOverlay = () => {
+            overlay.remove();
+            const fab = document.getElementById('ds-settings-fab');
+            if (fab) fab.hidden = false;
+            if (typeof scheduleSettingsFabPosition === 'function') scheduleSettingsFabPosition();
+        };
 
         /* ===== 左侧导航 ===== */
         const sidebar = document.createElement('aside');
@@ -395,7 +517,7 @@
         closeX.className = 'ds-p-close';
         closeX.textContent = '✕';
         closeX.setAttribute('aria-label', '关闭设置');
-        closeX.addEventListener('click', () => overlay.remove());
+        closeX.addEventListener('click', closeOverlay);
         topbar.appendChild(closeX);
         main.appendChild(topbar);
 
@@ -404,7 +526,7 @@
 
         /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
         // 关于页版本：扩展发行线独立（manifest.version），userscript 仍显示脚本版本。
-        // 不硬编码扩展版本，避免每次发版漏改；userscript 环境读不到 chrome.runtime 时回退 5.7.3。
+        // 不硬编码扩展版本，避免每次发版漏改；userscript 环境读不到 chrome.runtime 时回退 5.8.0。
         const aboutVersion = (() => {
             if (isExtensionRuntime) {
                 try {
@@ -415,7 +537,7 @@
                     if (v) return v;
                 } catch (e) { /* 忽略：回退到脚本版本 */ }
             }
-            return '5.7.3';
+            return '5.8.0';
         })();
         const sections = [
             { key: 'fold', icon: 'code-tags', title: '代码块', sub: '折叠 · 外观 · 导出', build: () => [
@@ -541,7 +663,7 @@
                     b.addEventListener('click', () => {
                         if (!mdExportEnabled) { showToast('请先开启「启用对话导出」'); return; }
                         if (mdExportUnit.isSelecting()) mdExportUnit.stopSelection();
-                        overlay.remove();          // 关掉设置面板，让位给勾选态
+                        closeOverlay();          // 关掉设置面板，让位给勾选态
                         mdExportUnit.beginExportFlow();
                     });
                     return b;
@@ -696,7 +818,7 @@
         navBtns.forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.target)));
         showPage(openControlPanel._lastPage);   // 首次为第一分区；恢复默认重建后回到原分区
 
-        footer.querySelector('#ds-panel-close-btn').addEventListener('click', () => overlay.remove());
+        footer.querySelector('#ds-panel-close-btn').addEventListener('click', closeOverlay);
         footer.querySelector('#ds-panel-reset').addEventListener('click', () => {
             if (confirm('确定恢复所有设置为默认值？\n\n文件夹分组数据会保留；对话导出的记忆和代码块导出图片的样式会清除。')) {
                 foldThreshold = 20; GM_setValue(STORAGE_FOLD_THRESHOLD, 20);
@@ -740,7 +862,7 @@
                 showToast('已恢复默认设置');
                 // 保留 300ms 让「已恢复」toast 在面板重建前可见；导航位置由 _lastPanelPage 保留，
                 // 不会再被打回第一页。
-                overlay.remove();
+                closeOverlay();
                 setTimeout(() => openControlPanel(), 300);
             }
         });
@@ -748,7 +870,7 @@
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
         overlay.addEventListener('click', e => {
-            if (e.target === overlay) overlay.remove();
+            if (e.target === overlay) closeOverlay();
             // 点击面板外部关闭所有下拉
             if (!e.target.closest('.ds-custom-select')) {
                 document.querySelectorAll('.ds-custom-select-dropdown').forEach(d => d.style.display = 'none');
@@ -1093,6 +1215,60 @@
         /* 对话导出勾选态下整体隐藏，避免与勾选交互互相干扰（与 .table-internal-buttons 同策略） */
         .ds-md-selection-active .ds-code-export-btn { display: none !important; }
         .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
+
+        /* ===== 页面内设置入口（右下角悬浮按钮） =====
+           位置与常见悬浮设置按钮一致：right 48 / bottom 25、38×38；
+           宽屏落在输入区右侧留白，窄屏与输入区相交时由 JS 移到输入区上方。 */
+        .ds-settings-fab {
+            position: fixed;
+            right: calc(48px + env(safe-area-inset-right, 0px));
+            bottom: calc(25px + env(safe-area-inset-bottom, 0px));
+            z-index: 10000;
+            box-sizing: border-box;
+            width: 38px; height: 38px; padding: 0;
+            display: inline-grid; place-items: center;
+            border: 1px solid #e0e2e6;
+            border-radius: 12px;
+            background: linear-gradient(180deg, #ffffff, #f8fafc);
+            color: #181d26;
+            box-shadow: 0 0 1px rgba(0, 0, 0, .18), 0 1px 2px rgba(45, 127, 249, .18);
+            cursor: pointer;
+            transition: transform 180ms cubic-bezier(.2, 0, 0, 1),
+                        border-color 180ms cubic-bezier(.2, 0, 0, 1),
+                        box-shadow 180ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-settings-fab:hover { transform: translateY(-1px); border-color: rgba(27, 97, 201, .22); }
+        .ds-settings-fab:active { transform: translateY(0); }
+        .ds-settings-fab:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(27, 97, 201, .22); }
+        .ds-settings-fab svg { width: 18px; height: 18px; display: block; }
+        /* 作者样式的 display 会覆盖 UA 的 [hidden]，必须显式声明 */
+        .ds-settings-fab[hidden] { display: none !important; }
+        body.dark .ds-settings-fab {
+            border-color: rgba(216, 225, 240, .14);
+            background: linear-gradient(180deg, #151f2e, #101a28);
+            color: #eef3fb;
+        }
+        /* 悬浮提示：贴在按钮左侧，不遮挡页面内容 */
+        .ds-settings-fab::after {
+            content: attr(data-tooltip);
+            position: absolute; right: calc(100% + 10px); top: 50%;
+            padding: 5px 9px; border-radius: 8px;
+            background: #181d26; color: #f9fcff;
+            font: 500 12px/1.35 system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            white-space: nowrap; pointer-events: none;
+            opacity: 0; visibility: hidden;
+            transform: translateY(-50%) translateX(4px);
+            transition: opacity 180ms cubic-bezier(.2, 0, 0, 1),
+                        visibility 180ms cubic-bezier(.2, 0, 0, 1),
+                        transform 180ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-settings-fab:hover::after,
+        .ds-settings-fab:focus-visible::after {
+            opacity: 1; visibility: visible; transform: translateY(-50%) translateX(0);
+        }
+        body.dark .ds-settings-fab::after { background: #eef3fb; color: #111826; }
+        /* 勾选态下隐藏，与表格 / 代码块按钮同策略 */
+        .ds-md-selection-active .ds-settings-fab { display: none !important; }
 
         /* ===== 设置面板 — 左右布局（深浅双主题） ===== */
         .ds-panel {
@@ -7145,6 +7321,8 @@
             if (hasNewTables) scheduleTableProcess();
             if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
             if (folderNeedsRescan) folderUnit.schedule();
+            // 输入区可能随 SPA 路由异步出现 / 重建：重算设置入口的避让位置（内部按签名去重）
+            scheduleSettingsFabPosition();
         });
         _domObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
@@ -7170,6 +7348,7 @@
             folderRuntimeEnabled = true;
         }
         observeDOM();
+        ensureSettingsFab();   // 右下角设置入口（位置与常见悬浮设置按钮一致）
 
         if (RUNTIME_CONFLICT) {
             setTimeout(() => showToast('检测到扩展版和油猴脚本版同时运行，请只保留一个，避免按钮重复。', 8000), 1200);
@@ -7181,7 +7360,11 @@
             window._resizeFix = setTimeout(() => {
                 invalidateTableLayout();
             }, 100);
+            scheduleSettingsFabPosition();
         });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', scheduleSettingsFabPosition);
+        }
     }
 
     // ==================== 扩展环境：跨标签设置同步 ====================

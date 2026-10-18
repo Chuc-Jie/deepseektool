@@ -12,6 +12,7 @@ const TARGET_ORIGIN = 'https://chat.deepseek.com';
 
 const ui = {
   version: document.getElementById('version'),
+  footerVersion: document.getElementById('footer-version'),
   status: document.getElementById('status'),
   openDeepseek: document.getElementById('open-deepseek'),
   actionsCard: document.getElementById('actions-card'),
@@ -209,6 +210,7 @@ async function runCommand(action) {
 async function init() {
   const manifest = globalThis.chrome?.runtime?.getManifest?.();
   ui.version.textContent = manifest ? `v${manifest.version}` : '预览';
+  ui.footerVersion.textContent = manifest ? `扩展版本 v${manifest.version}` : '扩展版本 预览';
 
   const tab = await getActiveTab();
   if (!isTargetTab(tab)) {

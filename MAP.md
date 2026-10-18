@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.7.3）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.8.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -374,6 +374,16 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 语义等价项靠 `audit-panel-tokens.js` 断言同值（v5.6.1 起纳入 `run-all-verify` 第 ⑫ 项）。
 `ctrl-bg↔surface` / `content-bg↔surface-2` 属语义不同（弹窗=遮罩上的半透明玻璃层，面板=实色分层容器），
 深色必然不等，审计只打印对照不断言。
+
+#### 5.9.1 页面内设置入口（`ensureSettingsFab` / `positionSettingsFab`，v5.8.0）
+
+- **创建**：`init()` 调用 `ensureSettingsFab()`，在 `body` 末尾挂一个 38×38 的 `button#ds-settings-fab.ds-settings-fab`（内联齿轮 SVG，`aria-label="设置"`、`data-tooltip="设置"`）。已存在则跳过，幂等。
+- **位置**：CSS 默认 `right: calc(48px + env(safe-area-inset-right, 0px))` / `bottom: calc(25px + env(safe-area-inset-bottom, 0px))`，与常见「设置」FAB 动作同位。
+- **窄屏避让**：`positionSettingsFab()` 取最靠底部、面积最大的可见输入框（`textarea` / `[contenteditable]` / `[role="textbox"]`，排除面板与弹窗内的控件），再向上找到含 `button` 的输入区外壳；若默认按钮矩形与外壳相交，则把按钮移到外壳上方 12px、右缘与外壳对齐（`right = vw - rect.right`）。计算按「视口 + 输入区矩形」签名去重，位置未变不写内联样式。
+- **重算时机**：`init`、窗口 `resize`、`visualViewport.resize`、DOM 观察器每轮分流末尾（SPA 异步渲染输入区）。
+- **显隐**：`openControlPanel()` 打开时 `hidden = true`；统一关闭函数 `closeOverlay()`（✕ / 底部关闭 / 点击遮罩 / 进入勾选态 / 恢复默认重建）恢复显示并重新定位。勾选态由 CSS `.ds-md-selection-active .ds-settings-fab` 隐藏。
+- **主题**：浅色白底深色齿轮；`body.dark` 下深蓝底浅色齿轮；悬停 / `:focus-visible` 在左侧显示深色气泡提示。
+- **测试注意**：面板测试 harness（`test-panel-deps.js`）只拼接 `openControlPanel` 区段，不含 FAB 函数；故 `closeOverlay`/打开逻辑只用 `typeof scheduleSettingsFabPosition === 'function'` 守卫，不直接调用模块级函数。
 
 ### 5.10 宽屏宽度档位（`applyWideScreen` + `WIDE_LEVELS`，v5.7.0 / v5.7.2）
 
