@@ -1,35 +1,58 @@
+'use strict';
+
 /**
- * 工具栏 popup：替代用户脚本的 GM_registerMenuCommand。
- * 通过 chrome.tabs.sendMessage 让 content script 执行对应命令。
+ * Popup 控制器。
+ * - 检测当前标签页是否为 DeepSeek 对话页
+ * - 通过 chrome.tabs.sendMessage 触发 content script 中的菜单命令
+ * - 非扩展环境（如本地 file:// 预览）安全降级为"未连接"
  */
 
-const TARGET_PREFIX = 'https://chat.deepseek.com/';
+const TARGET_ORIGIN = 'https://chat.deepseek.com';
 
-const els = {
+const ui = {
+  version: document.getElementById('version'),
   status: document.getElementById('status'),
   openPanel: document.getElementById('open-panel'),
   exportChat: document.getElementById('export-chat'),
-  version: document.getElementById('version'),
 };
 
-function setStatus(text, tone = '') {
-  els.status.textContent = text;
-  if (tone) els.status.dataset.tone = tone;
-  else delete els.status.dataset.tone;
+const state = {
+  ready: false,
+  busy: false,
+};
+
+function setStatus(text, tone = 'busy') {
+  ui.status.textContent = text;
+  ui.status.dataset.tone = tone;
+  ui.status.setAttribute('aria-busy', tone === 'busy' ? 'true' : 'false');
+}
+
+function syncButtons() {
+  const disabled = !state.ready || state.busy;
+  ui.openPanel.disabled = disabled;
+  ui.exportChat.disabled = disabled;
+}
+
+function hasExtensionApi() {
+  return Boolean(globalThis.chrome?.tabs?.query && globalThis.chrome?.runtime?.id);
 }
 
 async function getActiveTab() {
-  // file:// 预览或非扩展环境没有 chrome.tabs，返回 null 让 UI 显示未连接。
-  if (!globalThis.chrome?.tabs?.query) return null;
+  if (!hasExtensionApi()) return null;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
+  return tab ?? null;
 }
 
 function isTargetTab(tab) {
-  return Boolean(tab?.url && tab.url.startsWith(TARGET_PREFIX));
+  if (!tab?.url) return false;
+  try {
+    return new URL(tab.url).origin === TARGET_ORIGIN;
+  } catch {
+    return false;
+  }
 }
 
-async function sendCommand(action) {
+async function requestCommand(action) {
   const tab = await getActiveTab();
   if (!isTargetTab(tab)) {
     throw new Error('请先打开 chat.deepseek.com 对话页');
@@ -39,49 +62,55 @@ async function sendCommand(action) {
   try {
     response = await chrome.tabs.sendMessage(tab.id, { type: 'ds-toolbox', action });
   } catch {
-    // content script 尚未注入（页面未刷新 / 扩展刚安装）
-    throw new Error('无法连接到页面，请刷新 DeepSeek 页面后重试');
+    // content script 尚未注入：扩展刚安装、页面未刷新、或页面正在跳转
+    throw new Error('页面未就绪，请刷新 DeepSeek 后重试');
   }
 
   if (!response?.ok) {
-    throw new Error(
-      response?.error === 'command-not-ready'
-        ? '扩展尚未初始化完成，请刷新页面后重试'
-        : '操作未完成，请刷新页面后重试'
-    );
+    const message = response?.error === 'command-not-ready'
+      ? '扩展仍在初始化，请稍后重试'
+      : '操作未完成，请刷新后重试';
+    throw new Error(message);
   }
 }
 
-async function run(action, label) {
-  els.openPanel.disabled = true;
-  els.exportChat.disabled = true;
+async function run(action) {
+  if (state.busy || !state.ready) return;
+
+  state.busy = true;
+  syncButtons();
   setStatus('正在处理…', 'busy');
+
   try {
-    await sendCommand(action);
-    setStatus(label, 'ok');
-    setTimeout(() => window.close(), 250);
+    await requestCommand(action);
+    setStatus(action === 'open-panel' ? '已打开设置面板' : '已开始导出', 'ok');
+    window.setTimeout(() => window.close(), 240);
   } catch (err) {
+    state.busy = false;
+    syncButtons();
     setStatus(err.message, 'error');
-    els.openPanel.disabled = false;
-    els.exportChat.disabled = false;
   }
 }
 
 async function init() {
   const manifest = globalThis.chrome?.runtime?.getManifest?.();
-  els.version.textContent = manifest ? 'v' + manifest.version : 'v0.1.0';
+  ui.version.textContent = manifest ? `v${manifest.version}` : '预览';
 
   const tab = await getActiveTab();
-  const ready = isTargetTab(tab);
-  els.openPanel.disabled = !ready;
-  els.exportChat.disabled = !ready;
+  state.ready = isTargetTab(tab);
+  syncButtons();
   setStatus(
-    ready ? '已连接到当前对话页' : '请打开 chat.deepseek.com 对话页',
-    ready ? 'ok' : 'warn'
+    state.ready ? '已连接到当前对话页' : '请先打开 chat.deepseek.com 对话页',
+    state.ready ? 'ok' : 'warn'
   );
 
-  els.openPanel.addEventListener('click', () => run('open-panel', '已打开设置面板'));
-  els.exportChat.addEventListener('click', () => run('export-chat', '已开始导出'));
+  ui.openPanel.addEventListener('click', () => run('open-panel'));
+  ui.exportChat.addEventListener('click', () => run('export-chat'));
 }
 
-init().catch((err) => setStatus('初始化失败：' + err.message, 'error'));
+init().catch((err) => {
+  state.ready = false;
+  state.busy = false;
+  syncButtons();
+  setStatus(`初始化失败：${err.message}`, 'error');
+});

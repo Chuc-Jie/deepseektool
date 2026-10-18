@@ -7,48 +7,47 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="app">
-    <header class="app-header">
-      <div class="brand">
-        <img class="logo" src="icons/icon.svg" alt="" width="34" height="34">
-        <div class="brand-copy">
-          <strong class="brand-name">DS 工具箱</strong>
-          <p class="tagline">DeepSeek 对话页增强</p>
-        </div>
+  <main class="popup">
+    <header class="popup__header">
+      <img class="popup__logo" src="icons/icon.svg" alt="" width="34" height="34">
+      <div class="popup__identity">
+        <h1 class="popup__name">DS 工具箱</h1>
+        <p class="popup__tagline">DeepSeek 对话页增强</p>
       </div>
-      <span id="version" class="meta">v0.1.0</span>
+      <span class="popup__version" id="version">—</span>
     </header>
 
-    <main class="app-content">
-      <section class="card" aria-labelledby="actions-title">
-        <h2 id="actions-title" class="card-title">快捷操作</h2>
-        <p id="status" class="status" data-tone="busy">正在检测当前页面…</p>
+    <section class="popup__section" aria-labelledby="quick-actions-title">
+      <h2 class="popup__section-title" id="quick-actions-title">快捷操作</h2>
 
-        <div class="actions">
-          <button id="open-panel" class="btn btn-primary" type="button" disabled>
-            <svg class="btn-ic" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h8M18 7h2M4 17h2M10 17h10"/>
-              <circle cx="15" cy="7" r="3"/>
-              <circle cx="7" cy="17" r="3"/>
-            </svg>
-            打开设置面板
-          </button>
-          <button id="export-chat" class="btn" type="button" disabled>
-            <svg class="btn-ic" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/>
-            </svg>
-            导出当前对话
-          </button>
-        </div>
-      </section>
+      <p class="status" id="status" data-tone="busy" role="status" aria-live="polite">
+        正在检测当前页面…
+      </p>
 
-      <p class="note">设置保存在本扩展内，与用户脚本互不相通。</p>
-    </main>
+      <div class="actions">
+        <button class="action action--primary" id="open-panel" type="button" disabled>
+          <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h8M18 7h2M4 17h2M10 17h10"/>
+            <circle cx="15" cy="7" r="3"/>
+            <circle cx="7" cy="17" r="3"/>
+          </svg>
+          <span>打开设置面板</span>
+        </button>
 
-    <footer class="app-footer">
-      <span>与用户脚本版本二选一，避免重复注入</span>
+        <button class="action" id="export-chat" type="button" disabled>
+          <svg class="action__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 19h14"/>
+          </svg>
+          <span>导出当前对话</span>
+        </button>
+      </div>
+    </section>
+
+    <footer class="popup__footer">
+      <span>设置仅保存在本扩展</span>
+      <span>与用户脚本二选一</span>
     </footer>
-  </div>
+  </main>
 
   <script src="popup.js"></script>
 </body>
