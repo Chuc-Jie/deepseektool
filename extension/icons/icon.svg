@@ -1,22 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2563eb"/>
-      <stop offset="1" stop-color="#0b2454"/>
+      <stop offset="0" stop-color="#5b7cff"/>
+      <stop offset="1" stop-color="#2637a8"/>
     </linearGradient>
   </defs>
 
-  <!-- 底色：中性深蓝圆角方块，不使用 DeepSeek 官方视觉元素 -->
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
-
-  <!-- 对话气泡 -->
-  <rect x="112" y="116" width="288" height="212" rx="56" fill="#ffffff"/>
-  <path d="M184 300h96l-72 76v-76z" fill="#ffffff"/>
-
-  <!-- 代码符号 </> -->
-  <g fill="none" stroke="#2563eb" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M208 178l-38 42 38 42"/>
-    <path d="M304 178l38 42-38 42"/>
-  </g>
-  <path d="M274 170l-32 132" fill="none" stroke="#2563eb" stroke-width="24" stroke-linecap="round"/>
+  <!-- 品牌标记：抽象尾鳍 + 气泡点。保留深海/流动意象，不沿用官方鲸鱼轮廓。 -->
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <path d="M256 372c-8-46-30-82-78-108 42-2 68 16 78 44 10-28 36-46 78-44-48 26-70 62-78 108z" fill="#ffffff"/>
+  <circle cx="376" cy="150" r="26" fill="#bcd0ff"/>
 </svg>

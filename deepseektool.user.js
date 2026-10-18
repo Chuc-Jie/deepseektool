@@ -320,7 +320,21 @@
         logo.className = 'ds-p-logo';
         const logoIc = document.createElement('span');
         logoIc.className = 'ds-p-logo-ic';
-        logoIc.appendChild(makeIconImg('cog', 'ds-p-logo-ic-img', mdiNavUrl));
+        // 品牌标记：与扩展图标 / popup 头图同源（抽象尾鳍 + 气泡点）
+        const BRAND_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+            + '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+            + '<stop offset="0" stop-color="#5b7cff"/><stop offset="1" stop-color="#2637a8"/>'
+            + '</linearGradient></defs>'
+            + '<rect width="512" height="512" rx="120" fill="url(#bg)"/>'
+            + '<path d="M256 372c-8-46-30-82-78-108 42-2 68 16 78 44 10-28 36-46 78-44-48 26-70 62-78 108z" fill="#ffffff"/>'
+            + '<circle cx="376" cy="150" r="26" fill="#bcd0ff"/>'
+            + '</svg>';
+        const brandImg = document.createElement('img');
+        brandImg.className = 'ds-p-logo-ic-img';
+        brandImg.alt = '';
+        brandImg.draggable = false;
+        brandImg.src = 'data:image/svg+xml,' + encodeURIComponent(BRAND_ICON_SVG);
+        logoIc.appendChild(brandImg);
         const logoTx = document.createElement('div');
         logoTx.className = 'ds-p-logo-tx';
         logoTx.innerHTML = '<div class="ds-p-logo-t">脚本设置</div><div class="ds-p-logo-s">DeepSeek 功能增强工具箱</div>';
