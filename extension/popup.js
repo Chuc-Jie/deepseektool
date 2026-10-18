@@ -2,9 +2,10 @@
 
 /**
  * Popup 控制器。
- * - 检测当前标签页是否为 DeepSeek 对话页
+ * - 未打开 DeepSeek 时只提供「打开 DeepSeek」入口
+ * - 进入对话页后才显示「打开设置面板 / 导出当前对话」
  * - 通过 chrome.tabs.sendMessage 触发 content script 中的菜单命令
- * - 非扩展环境（如本地 file:// 预览）安全降级为"未连接"
+ * - 非扩展环境（如本地 file:// 预览）安全降级
  */
 
 const TARGET_ORIGIN = 'https://chat.deepseek.com';
@@ -12,6 +13,7 @@ const TARGET_ORIGIN = 'https://chat.deepseek.com';
 const ui = {
   version: document.getElementById('version'),
   status: document.getElementById('status'),
+  openDeepseek: document.getElementById('open-deepseek'),
   openPanel: document.getElementById('open-panel'),
   exportChat: document.getElementById('export-chat'),
 };
@@ -27,10 +29,16 @@ function setStatus(text, tone = 'busy') {
   ui.status.setAttribute('aria-busy', tone === 'busy' ? 'true' : 'false');
 }
 
-function syncButtons() {
+function syncActions() {
   const disabled = !state.ready || state.busy;
+
   ui.openPanel.disabled = disabled;
   ui.exportChat.disabled = disabled;
+  ui.openPanel.hidden = !state.ready;
+  ui.exportChat.hidden = !state.ready;
+
+  ui.openDeepseek.hidden = state.ready;
+  ui.openDeepseek.disabled = state.busy;
 }
 
 function hasExtensionApi() {
@@ -74,11 +82,48 @@ async function requestCommand(action) {
   }
 }
 
-async function run(action) {
+async function openDeepseekPage() {
+  if (state.busy) return;
+
+  state.busy = true;
+  syncActions();
+  setStatus('正在打开 DeepSeek…', 'busy');
+
+  try {
+    if (!hasExtensionApi()) {
+      window.open(`${TARGET_ORIGIN}/`, '_blank', 'noopener');
+      state.busy = false;
+      syncActions();
+      setStatus('已在新标签页打开 DeepSeek', 'ok');
+      return;
+    }
+
+    const tabs = await chrome.tabs.query({ url: `${TARGET_ORIGIN}/*` });
+    if (tabs.length) {
+      await chrome.tabs.update(tabs[0].id, { active: true });
+      if (tabs[0].windowId != null) {
+        try {
+          await chrome.windows.update(tabs[0].windowId, { focused: true });
+        } catch {
+          // 窗口聚焦失败不影响标签切换，忽略
+        }
+      }
+    } else {
+      await chrome.tabs.create({ url: `${TARGET_ORIGIN}/` });
+    }
+    window.close();
+  } catch (err) {
+    state.busy = false;
+    syncActions();
+    setStatus(`打开失败：${err.message}`, 'error');
+  }
+}
+
+async function runCommand(action) {
   if (state.busy || !state.ready) return;
 
   state.busy = true;
-  syncButtons();
+  syncActions();
   setStatus('正在处理…', 'busy');
 
   try {
@@ -87,7 +132,7 @@ async function run(action) {
     window.setTimeout(() => window.close(), 240);
   } catch (err) {
     state.busy = false;
-    syncButtons();
+    syncActions();
     setStatus(err.message, 'error');
   }
 }
@@ -98,19 +143,20 @@ async function init() {
 
   const tab = await getActiveTab();
   state.ready = isTargetTab(tab);
-  syncButtons();
+  syncActions();
   setStatus(
-    state.ready ? '已连接到当前对话页' : '请先打开 chat.deepseek.com 对话页',
+    state.ready ? '已连接到当前对话页' : '请先打开 DeepSeek 对话页',
     state.ready ? 'ok' : 'warn'
   );
 
-  ui.openPanel.addEventListener('click', () => run('open-panel'));
-  ui.exportChat.addEventListener('click', () => run('export-chat'));
+  ui.openDeepseek.addEventListener('click', openDeepseekPage);
+  ui.openPanel.addEventListener('click', () => runCommand('open-panel'));
+  ui.exportChat.addEventListener('click', () => runCommand('export-chat'));
 }
 
 init().catch((err) => {
   state.ready = false;
   state.busy = false;
-  syncButtons();
+  syncActions();
   setStatus(`初始化失败：${err.message}`, 'error');
 });
