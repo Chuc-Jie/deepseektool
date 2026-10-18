@@ -320,31 +320,28 @@
         logo.className = 'ds-p-logo';
         const logoIc = document.createElement('span');
         logoIc.className = 'ds-p-logo-ic';
-        // 品牌标记：齿轮外环（工具/设置）+ 中心几何鲸鱼（品牌姿态）+ 气泡点。
+        // 品牌标记：齿轮作为轻量外环，鲸鱼为主体；尾鳍穿过齿轮环，与环共享轮廓。
         // 与扩展图标 / popup 头图同源；鲸鱼与齿轮均为重绘组合，不复用官方路径。
         const BRAND_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
             + '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
             + '<stop offset="0" stop-color="#5b7cff"/><stop offset="1" stop-color="#2637a8"/>'
             + '</linearGradient></defs>'
             + '<rect width="512" height="512" rx="120" fill="url(#bg)"/>'
-            + '<g fill="#dbe4ff">'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(0 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(45 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(90 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(135 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(180 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(225 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(270 256 256)"/>'
-            + '<rect x="238" y="18" width="36" height="48" rx="12" transform="rotate(315 256 256)"/>'
+            + '<g fill="#cdd9ff">'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(0 256 256)"/>'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(60 256 256)"/>'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(120 256 256)"/>'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(180 256 256)"/>'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(240 256 256)"/>'
+            + '<rect x="241" y="36" width="30" height="34" rx="10" transform="rotate(300 256 256)"/>'
             + '</g>'
-            + '<circle cx="256" cy="256" r="190" fill="none" stroke="#dbe4ff" stroke-width="26"/>'
-            + '<g transform="translate(256 266) scale(0.5) translate(-256 -289)">'
+            + '<circle cx="256" cy="256" r="186" fill="none" stroke="#cdd9ff" stroke-width="18"/>'
+            + '<g transform="translate(256 262) scale(0.78) translate(-256 -289)">'
             + '<path d="M148 326C176 244 244 194 322 202C382 208 414 246 416 286C416 306 404 320 384 322C342 326 300 310 270 288C240 266 198 278 168 314Z" fill="#ffffff"/>'
             + '<path d="M148 326L96 292C108 322 108 354 96 384Z" fill="#ffffff"/>'
             + '<path d="M258 310L238 356C264 350 284 336 296 316Z" fill="#ffffff"/>'
             + '<circle cx="372" cy="270" r="11" fill="#3a50c4"/>'
             + '</g>'
-            + '<circle cx="356" cy="196" r="14" fill="#bcd0ff"/>'
             + '</svg>';
         const brandImg = document.createElement('img');
         brandImg.className = 'ds-p-logo-ic-img';
