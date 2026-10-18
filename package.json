@@ -2,7 +2,6 @@
   "name": "deepseektool-extension",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "description": "DeepSeek 功能增强工具箱 — Chrome MV3 扩展构建",
   "scripts": {
     "build": "node extension/build.mjs",
