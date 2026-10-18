@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.7.2
+// @version      5.7.3
 // @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（三档宽度）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
@@ -450,17 +450,22 @@
                     return b;
                 })()),
             ] },
-            { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「已思考」区域自动收起', build: () => [
-                createToggleSetting('自动折叠思考区域', 'AI 开始思考后自动收起「已思考」过程', autoCollapseThinking, checked => {
+            { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「思考过程」自动收起，可随时展开', build: () => [
+                createToggleSetting('自动折叠思考区域', 'AI 思考时自动收起「思考过程」；点击标题栏可随时展开，展开后本次不再自动收起', autoCollapseThinking, checked => {
                     autoCollapseThinking = checked;
                     GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
                     reapplyThinkingSections();
-                    showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}`);
+                    showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}${checked ? '' : '；已折叠的区域需手动展开'}`);
                 }),
-                createToggleSetting('模拟点击折叠', '通过模拟点击箭头折叠（保持原生交互）；关闭后用 CSS 直接折叠', simulateClickThinking, checked => {
+                createSettingNote('向上滚动时可能出现内容弹性跳动：这是 DeepSeek 官网虚拟列表加载更早消息时的滚动锚定行为，关闭自动折叠后同样存在。目前暂时没有办法解决。'),
+                createToggleSetting('模拟点击折叠', '通过模拟点击标题栏折叠（保持原生交互）；关闭后用 CSS 隐藏正文，点击标题栏仍可展开', simulateClickThinking, checked => {
                     simulateClickThinking = checked;
                     GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
-                    showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}（新产生的思考生效）`);
+                    // 切换折叠方式时清掉上一种方式留下的痕迹（CSS data / 用户豁免），再按新模式重新接管，
+                    // 否则 CSS 模式隐藏的正文会卡在「有 data 标记 → 不处理 → 也不显示」的状态。
+                    cleanupThinkState();
+                    reapplyThinkingSections();
+                    showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
             { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区加宽，三档宽度可选', build: () => [
@@ -518,7 +523,7 @@
             {
                 key: 'about', icon: 'information-outline', title: '关于', sub: '版本 · 许可 · 相关链接 · 致谢',
                 build: () => [
-                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.2'),
+                    createInfoIntro('版本', 'DeepSeek 功能增强工具箱 v5.7.3'),
                     createInfoIntro('许可', 'MIT License · 完全开源，可自由使用与修改'),
                     createLinkCardGrid([
                         createLinkCard('GitHub 脚本仓库', '源码 · 更新日志 · Issues', 'https://github.com/Chuc-Jie/deepseektool', 'github'),
@@ -795,6 +800,14 @@
         return block;
     }
 
+    // 设置页提示条（已知限制说明）：不参与开关逻辑，跟随面板主题
+    function createSettingNote(text) {
+        const note = document.createElement('div');
+        note.className = 'ds-setting-note';
+        note.textContent = text;
+        return note;
+    }
+
     // 设置变动后的刷新函数
     function reapplyFoldToAllCodeBlocks() {
         document.querySelectorAll('pre').forEach(pre => {
@@ -873,14 +886,16 @@
 
     function reapplyThinkingSections() {
         if (autoCollapseThinking) {
-            setupThinkContentHiding();
+            bindThinkClickWatcher();
+            // 两种模式互斥：模拟点击模式不需要 CSS 隐藏样式，切换时顺手清掉。
+            if (simulateClickThinking) removeThinkCssStyle();
+            else ensureThinkCssStyle();
             processAllThinkingSections();
         } else {
-            // 关闭时移除预隐藏样式
-            if (_thinkHideStyle) {
-                _thinkHideStyle.remove();
-                _thinkHideStyle = null;
-            }
+            // 关闭时移除 CSS 模式样式，并恢复被旧版本 inline display:none 隐藏的正文，
+            // 保证「关闭即恢复」；已经由原生点击折叠的区域仍需用户手动展开（DeepSeek 自己管理状态）。
+            removeThinkCssStyle();
+            cleanupThinkState();
         }
     }
 
@@ -1151,6 +1166,25 @@
             color: var(--dsp-sub); line-height: 1.55; user-select: text;
         }
         .ds-setting-ctrl { flex-shrink: 0; margin-left: 12px; }
+
+        /* 设置页已知限制提示条（如思考折叠的滚动跳动）：淡琥珀底 + 左侧强调条 */
+        .ds-setting-note {
+            margin: 8px 0 10px;
+            padding: 9px 12px 9px 13px;
+            border: 1px solid color-mix(in srgb, #d97706 24%, transparent);
+            border-left: 3px solid color-mix(in srgb, #d97706 62%, transparent);
+            border-radius: 10px;
+            background: color-mix(in srgb, #f59e0b 8%, transparent);
+            color: var(--dsp-sub);
+            font-size: 12px;
+            line-height: 1.65;
+            user-select: text;
+        }
+        body.dark .ds-setting-note {
+            border-color: color-mix(in srgb, #fbbf24 26%, transparent);
+            border-left-color: color-mix(in srgb, #fbbf24 64%, transparent);
+            background: color-mix(in srgb, #fbbf24 9%, transparent);
+        }
 
         /* Switch（滑杆式）—— 与导出弹窗 .ds-md-switch 同构：
            1px 描边 + color-mix 轨道底 + 品牌色选中态 + 统一 cubic-bezier 缓动 */
@@ -3449,105 +3483,144 @@
     }
 
     // ==================== AI思考区域自动折叠逻辑 ====================
-    function collapseThinkingSection(container) {
-        if (!autoCollapseThinking || container.hasAttribute('data-thinking-collapsed')) return;
-        container.setAttribute('data-thinking-collapsed', 'true');
+    // v5.7.3 重写。旧实现的两个硬伤（均已实机复现）：
+    //  ① 注入全局 `.ds-think-content{display:none!important}` 预隐藏，靠 capture 点击「一次性」移除；
+    //     移除后新思考不再受保护，且流式期间标题是「正在思考」扫不到 → 新思考永远不折叠；
+    //     若页面没有可折叠的历史思考区，CSS 会一直存在 → 新思考正文不可见，用户点击反而把它折叠。
+    //  ② CSS 回退模式写 inline display:none + data 标记，用户点击、关闭开关都无法恢复。
+    // 现方案：不预隐藏；只处理「有正文节点 = 展开态」的思考区（DeepSeek 折叠后会卸载正文，天然幂等）；
+    // 标题栏文本变化（正在思考 → 已思考）也触发重扫；用户手动展开后在该消息上打豁免标记。
+    const THINK_TITLE_SELECTOR = 'div[class*="_5ab5d64"]';
+    const THINK_TITLE_RE = /已思考|正在思考|思考中|Thinking|Thought/i;
+    const THINK_USER_ATTR = 'dsUserThinkExpanded';
+    const THINK_USER_SELECTOR = '[data-ds-user-think-expanded]';
+    let _thinkCssStyle = null;
+    let _thinkClickBound = false;
+    let _scriptClickTarget = null;
 
-        if (simulateClickThinking) {
-            // 模拟点击折叠箭头（保持原生交互）
-            let clickableArrow = null;
-            const icons = container.querySelectorAll('.ds-icon');
-            if (icons.length >= 2) clickableArrow = icons[icons.length-1];
-            else if (icons.length === 1) clickableArrow = icons[0];
-            if (!clickableArrow) {
-                const svg = container.querySelector('svg');
-                if (svg && svg.parentElement) clickableArrow = svg.parentElement;
-            }
-            if (clickableArrow && typeof clickableArrow.click === 'function') {
-                setTimeout(() => clickableArrow.click(), 100);
-            }
-        } else {
-            // CSS 直接折叠：隐藏思考内容区域
-            const thinkContent = findThinkContent(container);
-            if (thinkContent) {
-                thinkContent.dataset.dsScriptCollapsed = 'true';
-                thinkContent.style.display = 'none';
-            }
-        }
+    function isThinkTitleBar(el) {
+        return !!(el && el.textContent && THINK_TITLE_RE.test(el.textContent));
     }
 
-    // 从标题栏容器向上找到对应的 .ds-think-content 元素
+    // 标题栏 → 同一条消息内的思考正文。限定在 .ds-message 内，避免向上 querySelector 捞到别的消息。
     function findThinkContent(titleBar) {
-        // 向上查找 collapsible 包装器，再找其中的 think content
         let parent = titleBar.parentElement;
         while (parent && parent !== document.body) {
             const tc = parent.querySelector('.ds-think-content');
             if (tc) return tc;
+            if (parent.matches && parent.matches('.ds-message')) break;
             parent = parent.parentElement;
         }
         return null;
     }
 
-    let _thinkHideStyle = null;
-    let _thinkCaptureAdded = false;
+    // 正文 → 标题栏。当前 DOM 里两者同属 ._74c0879 容器，向上逐层找最近的思考标题栏。
+    function findThinkTitleBar(thinkContent) {
+        let parent = thinkContent.parentElement;
+        while (parent && parent !== document.body) {
+            const bar = parent.querySelector(THINK_TITLE_SELECTOR);
+            if (bar && isThinkTitleBar(bar)) return bar;
+            if (parent.matches && parent.matches('.ds-message')) break;
+            parent = parent.parentElement;
+        }
+        return null;
+    }
 
-    // 预隐藏思考内容（CSS 拦截），消除展开→折叠的布局偏移
-    function setupThinkContentHiding() {
-        if (!autoCollapseThinking) return;
-        // 注入 !important 样式使 .ds-think-content 初始不可见
-        if (!_thinkHideStyle) {
-            _thinkHideStyle = document.createElement('style');
-            _thinkHideStyle.id = 'ds-think-hide';
-            _thinkHideStyle.textContent = '.ds-think-content { display: none !important; }';
-            document.head.appendChild(_thinkHideStyle);
+    // 用户已手动展开的消息不再自动折叠；标记放在 .ds-message 上，标题栏重渲染也不会丢。
+    function thinkUserExpanded(titleBar) {
+        const msg = titleBar.closest && titleBar.closest('.ds-message');
+        return !!(msg && msg.dataset[THINK_USER_ATTR] === 'true');
+    }
+    function setThinkUserExpanded(titleBar, on) {
+        const msg = titleBar.closest && titleBar.closest('.ds-message');
+        if (!msg) return;
+        if (on) msg.dataset[THINK_USER_ATTR] = 'true';
+        else delete msg.dataset[THINK_USER_ATTR];
+    }
+
+    // CSS 回退模式：只隐藏带脚本标记的正文，避免旧版全局 !important 规则殃及新思考区。
+    function ensureThinkCssStyle() {
+        if (_thinkCssStyle && _thinkCssStyle.isConnected) return;
+        _thinkCssStyle = document.createElement('style');
+        _thinkCssStyle.id = 'ds-think-css-mode';
+        _thinkCssStyle.textContent = '.ds-think-content[data-ds-script-collapsed="true"] { display: none !important; }';
+        document.head.appendChild(_thinkCssStyle);
+    }
+    function removeThinkCssStyle() {
+        const st = document.getElementById('ds-think-css-mode');
+        if (st) st.remove();
+        _thinkCssStyle = null;
+    }
+
+    // 清理旧版本残留：全局预隐藏样式、inline display:none、data 标记、用户豁免。
+    function cleanupThinkState() {
+        const legacy = document.getElementById('ds-think-hide');
+        if (legacy) legacy.remove();
+        document.querySelectorAll('.ds-think-content[data-ds-script-collapsed]').forEach(tc => {
+            delete tc.dataset.dsScriptCollapsed;
+            tc.style.removeProperty('display');
+        });
+        document.querySelectorAll('[data-thinking-collapsed]').forEach(el => el.removeAttribute('data-thinking-collapsed'));
+        document.querySelectorAll(THINK_USER_SELECTOR).forEach(el => { delete el.dataset[THINK_USER_ATTR]; });
+    }
+
+    function collapseThinkingSection(titleBar, thinkContent) {
+        if (!autoCollapseThinking || !titleBar || !thinkContent) return false;
+        if (thinkUserExpanded(titleBar)) return false;
+        if (simulateClickThinking) {
+            // 实测：思考进行中 / 已完成都能通过点击标题栏收起，且收起状态能保持到思考结束。
+            // 用 _scriptClickTarget 区分脚本点击，避免 capture 里的「用户展开豁免」误判。
+            _scriptClickTarget = titleBar;
+            try { titleBar.click(); } finally { _scriptClickTarget = null; }
+        } else {
+            ensureThinkCssStyle();
+            thinkContent.dataset.dsScriptCollapsed = 'true';
         }
-        // 用户点击箭头时，在 capture 阶段提前移除 CSS，让 DeepSeek 正常创建可视内容
-        if (!_thinkCaptureAdded) {
-            _thinkCaptureAdded = true;
-            document.addEventListener('click', function dsThinkCapture(e) {
-                const clickable = e.target.closest('[class*="_5ab5d64"], [class*="c2b72bb8"]');
-                if (!clickable) return;
-                if (_thinkHideStyle) {
-                    _thinkHideStyle.remove();
-                    _thinkHideStyle = null;
-                }
-            }, true);
+        return true;
+    }
+
+    // 用户点击思考标题栏：CSS 模式下拦截并显示正文；模拟点击模式下记录「用户已展开」豁免。
+    function onThinkClickCapture(e) {
+        const bar = e.target && e.target.closest ? e.target.closest(THINK_TITLE_SELECTOR) : null;
+        if (!bar || !isThinkTitleBar(bar)) return;
+        if (bar === _scriptClickTarget) return;
+        const thinkContent = findThinkContent(bar);
+        // CSS 回退模式：正文只是视觉隐藏，DeepSeek 内部仍是展开态。
+        // 这里拦截点击并直接显示，避免「用户想展开、DeepSeek 却切到折叠」的反向行为。
+        if (thinkContent && thinkContent.dataset.dsScriptCollapsed === 'true') {
+            e.preventDefault();
+            e.stopPropagation();
+            delete thinkContent.dataset.dsScriptCollapsed;
+            setThinkUserExpanded(bar, true);
+            return;
         }
+        // 点击前有可见正文 = 用户正在收起 → 撤销豁免；否则用户正在展开 → 豁免自动折叠。
+        const expanded = !!(thinkContent && thinkContent.isConnected
+            && getComputedStyle(thinkContent).display !== 'none'
+            && thinkContent.getClientRects().length > 0);
+        setThinkUserExpanded(bar, !expanded);
+    }
+
+    function bindThinkClickWatcher() {
+        if (_thinkClickBound) return;
+        _thinkClickBound = true;
+        document.addEventListener('click', onThinkClickCapture, true);
     }
 
     function processAllThinkingSections() {
         if (!autoCollapseThinking) return;
-        // 基于稳定的 .ds-think-content 类名定位思考区域
+        bindThinkClickWatcher();
+        // 同一条消息可能因流式输出产生多个 .ds-think-content，它们共享同一个标题栏；
+        // 用 handled 去重，避免对同一标题栏点两次（第一次折叠、第二次又展开）。
+        const handled = new Set();
+        // 基于稳定的 .ds-think-content 类名定位「仍展开」的思考区域
         document.querySelectorAll('.ds-think-content').forEach(thinkContent => {
             // 排除代码块内的文本（避免脚本源码中的"已思考"文字误匹配）
             if (thinkContent.closest('pre, .md-code-block')) return;
             if (thinkContent.dataset.dsScriptCollapsed === 'true') return;
-
-            // 向上查找包含标题栏的 collapsible 包装器
-            let wrapper = thinkContent.parentElement;
-            while (wrapper && wrapper !== document.body) {
-                const titleBar = wrapper.querySelector('div[class*="_5ab5d64"]');
-                if (titleBar && titleBar.textContent && titleBar.textContent.includes('已思考')) {
-                    if (simulateClickThinking) {
-                        collapseThinkingSection(titleBar);
-                    } else {
-                        // CSS 回退：直接隐藏 think content
-                        if (!titleBar.hasAttribute('data-thinking-collapsed')) {
-                            titleBar.setAttribute('data-thinking-collapsed', 'true');
-                            thinkContent.dataset.dsScriptCollapsed = 'true';
-                            thinkContent.style.display = 'none';
-                        }
-                    }
-                    return;
-                }
-                wrapper = wrapper.parentElement;
-            }
-
-            // 未找到标题栏时，CSS 回退模式下直接隐藏
-            if (!simulateClickThinking) {
-                thinkContent.dataset.dsScriptCollapsed = 'true';
-                thinkContent.style.display = 'none';
-            }
+            const titleBar = findThinkTitleBar(thinkContent);
+            if (!titleBar || handled.has(titleBar)) return;
+            if (collapseThinkingSection(titleBar, thinkContent)) handled.add(titleBar);
         });
     }
 
@@ -6838,10 +6911,16 @@
 
             for (const m of mutations) {
                 // 流式输出时单元格文本可能只触发 characterData，不产生 childList。
-                // 只关心表格内的文本变化，避免代码高亮等高频更新引起无谓重排。
+                // 只关心表格 / 思考标题内的文本变化，避免代码高亮等高频更新引起无谓重排。
                 if (m.type === 'characterData') {
                     const p = m.target.parentElement;
                     if (p && p.closest('.ds-markdown table')) hasNewTables = true;
+                    // 「正在思考」→「已思考」是纯文本变化，不会产生 addedNodes；
+                    // 不在这里补一次扫描，思考结束后就永远不会折叠（实机复现）。
+                    if (!hasNewThinking && autoCollapseThinking && p && p.closest) {
+                        const bar = p.closest(THINK_TITLE_SELECTOR);
+                        if (bar && isThinkTitleBar(bar)) hasNewThinking = true;
+                    }
                     continue;
                 }
                 if (m.type !== 'childList') continue;
@@ -6933,10 +7012,8 @@
         deduplicateButtons();
         processAllExistingCodeBlocks();
         processAllTables();
-        if (autoCollapseThinking) {
-            setupThinkContentHiding();
-            processAllThinkingSections();
-        }
+        cleanupThinkState();        // 清掉旧版本残留的全局隐藏样式 / inline display:none
+        reapplyThinkingSections();  // 开 → 立即折叠；关 → 保持原样
         if (folderManagerEnabled) {
             folderUnit.on();
             folderUnit.schedule();   // 页面加载即应用（不等会话链接出现前的首轮 DOM 变化）

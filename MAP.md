@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.7.2）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.7.3）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -23,7 +23,7 @@
 | `deepseek_fold_preview_lines` | `previewLines` / `enablePreviewLines` | 0 | 折叠后保留预览行数 |
 | `deepseek_table_buttons_enabled` | `tableButtonsEnabled` | true | 是否注入表格导出按钮 |
 | `deepseek_table_buttons_always` | `tableButtonsAlways` | false | 导出按钮恒显（`html.ds-export-always`） |
-| `deepseek_auto_collapse_thinking` | `autoCollapseThinking` | true | AI「已思考」自动折叠总开关 |
+| `deepseek_auto_collapse_thinking` | `autoCollapseThinking` | true | AI 思考过程自动折叠总开关 |
 | `deepseek_simulate_click_thinking` | `simulateClickThinking` | true | 模拟点击 vs CSS 直接折叠 |
 | `deepseek_table_theme_mode` | `tableThemeMode` | 'auto' | 表格配色：auto / dual |
 | `deepseek_table_head_align` | `tableHeadAlign` | 'auto' | 表头对齐：auto（跟随内容）/ center |
@@ -56,7 +56,7 @@ flowchart LR
         Fold["代码块折叠<br/>addFoldButtonToCodeBlock"]
         CodeBg["代码块外观<br/>applyCodeBlockBg（html 类 + CSS 变量）"]
         Table["表格优化与导出<br/>applyTableStyles / 导出三格式"]
-        Think["AI 思考折叠<br/>CSS 预隐藏 + capture 点击释放"]
+        Think["AI 思考折叠<br/>展开态检测 + 模拟点击 / 定向 CSS"]
         Keys["Ctrl+Enter 快捷键<br/>capture keydown"]
     end
     subgraph Folder["folderUnit 子闭包（可选）"]
@@ -166,10 +166,15 @@ flowchart LR
   ⚠ 只设 `left/top`，**必须同时把 `right/bottom` 清成 auto**，否则 absolute 元素被双向拉伸（实测按钮组高度 112 → 629）。
 - **悬停域 `bindTableButtonHover`**：按钮在表格之外，`table:hover` 覆盖不到按钮区，鼠标穿过 12px 间隙时会丢失悬停 → 按钮消失。做法：把「表格 + 按钮组（其 `padding-left:12px` 即桥接区）」合并成一个悬停域，用 `is-visible` 类控制显隐，隐藏延迟 140ms 吸收指针短暂越界。
 
-### 5.4 AI 思考过程自动折叠
+### 5.4 AI 思考过程自动折叠（v5.7.3 重写）
 
-- **预隐藏（零布局偏移）**：注入 `#ds-think-hide`：`.ds-think-content{display:none!important}`；document **capture 阶段**监听折叠区点击 → 移除该 style → 官方正常创建可视内容。
-- **折叠执行** `processAllThinkingSections`：基于稳定的 `.ds-think-content` 类名 + 标题「已思考」向上找 wrapper；`simulateClickThinking` 开 → 模拟点击箭头（保持原生交互），关 → CSS 直接隐藏；`data-thinking-collapsed` / `dsScriptCollapsed` 防重。
+- **状态判据**：DeepSeek 折叠思考区时会卸载 `.ds-think-content` 正文节点，因此「存在正文节点 = 未折叠」。脚本只处理展开态，折叠后天然幂等，不再依赖 `data-thinking-collapsed` 这类易残留的标记。
+- **定位**：`findThinkTitleBar` 从正文向上、`findThinkContent` 从标题栏向上，均在最近的 `.ds-message` 处停止，避免跨消息误取；标题栏选择器为 `div[class*="_5ab5d64"]`，文本匹配 `已思考|正在思考|思考中|Thinking|Thought`。
+- **折叠执行** `processAllThinkingSections`：`simulateClickThinking` 开（默认）→ 直接 `titleBar.click()`（实测思考中 / 已完成都能收起，收起状态保持到思考结束）；关 → 仅给正文加 `data-ds-script-collapsed` 并由定向样式 `#ds-think-css-mode` 隐藏（不写 inline）。同一条消息的多个思考分片共享标题栏，按标题栏 `Set` 去重，避免点两次（折叠又展开）。
+- **用户展开豁免**：capture 点击监听区分脚本点击（`_scriptClickTarget`）与用户点击。用户在折叠态点击 → 在 `.ds-message` 上写 `data-ds-user-think-expanded="true"`，本次页面生命周期内自动扫描跳过该消息；用户再次点击收起时撤销豁免。CSS 模式下用户点击被拦截并直接显示正文，避免 DeepSeek 把「本已展开、只是视觉隐藏」的思考切到折叠。
+- **重扫触发**：`MutationObserver` 的 `childList` 新增 `.ds-think-content` 时 150ms 后扫描；标题栏内部的 `characterData`（「正在思考」→「已思考」）同样置 `hasNewThinking` —— 旧版漏了这条，导致新回复永远不折叠。
+- **开关与清理**：`reapplyThinkingSections` 开 → 绑定点击监听、按模式准备样式并扫描；关 → 移除 CSS 模式样式、清除 `data-ds-script-collapsed` / inline display / 用户豁免。`init` 先 `cleanupThinkState()` 清掉旧版本残留的 `#ds-think-hide`、inline `display:none` 与旧标记。
+- **已知边界**：原生点击折叠后正文节点被卸载，「导出思考过程」需要在页面上先手动展开该条（导出弹窗已有提示）。关闭总开关不会自动展开已经由原生折叠的区域，但不会再自动折叠，用户点击标题即可展开。另外，向上滚动加载更早消息时官网虚拟列表自身会出现内容弹性跳动（实测关闭折叠后同样存在，幅度未见放大），**目前暂时没有办法解决**；面板已在「自动折叠思考区域」下方标注提示。
 
 ### 5.5 对话文件夹管理（folderUnit 子闭包）
 
