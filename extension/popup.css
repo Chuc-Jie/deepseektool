@@ -86,13 +86,16 @@ html {
   background:
     radial-gradient(900px 500px at 80% -10%, var(--ds-brand-soft), transparent 55%),
     var(--ds-surface-canvas);
+  /* popup 由 Chrome 按内容自适应高度；禁用滚动可避免滚动条槽在右侧/底部
+     形成一条透明边（垂直滚动条还会挤压宽度、再触发水平滚动条）。 */
+  overflow: hidden;
 }
 
 body {
   width: 100%;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
+  overflow: hidden;
   font-family: var(--ds-font);
   font-size: 13px;
   letter-spacing: .1px;
