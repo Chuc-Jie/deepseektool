@@ -323,14 +323,12 @@ popup 需要 try/catch 并提示「请刷新页面后重试」。
 **不能。** Tampermonkey / ScriptCat 的 `GM_setValue` 数据存储在各自扩展的私有 IndexedDB 中，
 其他扩展无法访问；Manifest 也没有跨扩展存储读取能力。
 
-可行路径（按推荐度）：
+**已确认决策（2026-10-18）：暂不投入做旧设置导入。** 设置项数量不多、重新配置成本低，
+M1–M4 均不实现导出/导入功能；扩展首次安装页只需说明「设置需要在扩展内重新配置」。
 
-1. **给 userscript 增加「导出设置」**：把 23 个键序列化为 JSON 复制到剪贴板；
-   扩展提供「导入设置」粘贴框。一次开发，长期可用，也方便用户备份。
-2. 扩展首次安装时显示一次性引导，告诉用户「设置需重新配置」。
-3. 不接受自动迁移（跨扩展注入脚本跨扩展读取存储属于越权，不采用）。
-
-工作量：方案 1 约半天到一天，建议与 M1 一起做。
+背景：技术上唯一可行的迁移路径是「userscript 导出 JSON → 扩展粘贴导入」，
+需要两端各加一段 UI（约 0.5–1 天）。若后续用户反馈强烈，可作为独立小版本追加。
+跨扩展直接读取 TM/ScriptCat 存储属于越权，始终不采用。
 
 ### 5.3 双端并存策略
 
@@ -389,19 +387,23 @@ M1 的最低验收：在 Chrome 开发者模式加载 `dist/`，chat.deepseek.co
   - 远程图片：iconify 图标建议本地化，减少解释成本；
   - 商标：名称可描述兼容性，但不要用官方 logo、不要暗示官方出品；
   - 权限最小化：只申请实际使用的域名与 API。
-- **更新**：CWS 自动更新有审核延迟（数小时到数天），与 userscript 的即时 Release 不同。
-  建议扩展版本号与 userscript 同号（如 `5.7.3`），减少用户认知成本；CWS 每次上传必须递增。
+- **发布范围（已确认）**：只上 Chrome Web Store；Edge Add-ons、Firefox、Safari 暂不提交。
+- **版本号（已确认）**：扩展使用**独立版本线**，从 `0.1.0` 起步，不与 userscript 的
+  `5.x` 同号。理由：两者发布节奏与审核周期不同，同号会强迫 userscript 跟着扩展的
+  审核等待节奏走。CWS 每次上传仍必须递增扩展版本号。
+- **更新**：CWS 自动更新有审核延迟（数小时到数天），与 userscript 的即时 Release 不同；
+  这也是保留 userscript 渠道的主要原因之一。
 - **GitHub Release**：现有 `.github/workflows/release.yml` 可增加一个 job 构建
-  `deepseektool-extension-v5.7.3.zip` 并附加到 Release，方便无法访问商店的用户手动加载。
+  `deepseektool-extension-v0.1.0.zip` 并附加到 Release，方便无法访问商店的用户手动加载。
 - **非商店分发**：提供 zip + 「加载已解压的扩展程序」说明；不建议自托管 CRX
   （Chrome 对非商店扩展限制多，且更新体验差）。
 
-### 6.4 多浏览器
+### 6.4 多浏览器（暂不做）
 
-- Edge / Brave / Vivaldi 等 Chromium 内核可直接复用 MV3 包，只需各自商店重新提交。
-- Firefox MV3 差异较大（无 service worker 的同等生命周期、部分 API 用 `browser.*`、
-  `host_permissions` 需用户授权），建议作为第二阶段，用 `webextension-polyfill` 抹平。
-- Safari 需要 Xcode 转换与开发者账号，优先级最低。
+- **已确认**：当前只提交 Chrome Web Store，Edge / Firefox / Safari 不在本轮范围。
+- Chromium 内核（Edge / Brave / Vivaldi）理论上可复用同一 MV3 包，后续若要提交只需各商店走一遍审核。
+- Firefox MV3 差异较大（service worker 生命周期、`browser.*` 命名空间、host 权限授权方式），
+  届时用 `webextension-polyfill` 抹平；Safari 优先级最低。
 
 ---
 
@@ -412,7 +414,7 @@ M1 的最低验收：在 Chrome 开发者模式加载 `dist/`，chat.deepseek.co
 | M0 | 本调研 + 方案确认 | 已完成 | — |
 | M1 | 骨架：manifest / popup / 兼容层 / 异步 bootstrap / html2canvas 打包；能加载并跑通核心功能 | 2–3 天 | **存储异步化的初始化回归** |
 | M2 | 菜单替代、图标本地化、关于页文案、下载/剪贴板实测与兜底 | 1–2 天 | 中低 |
-| M3 | 设置导入/导出（两端）、双注入提示、Playwright e2e、回归验证台 | 3–5 天 | 中 |
+| M3 | 双注入提示、Playwright e2e、回归验证台、真实页面实测 | 3–5 天 | 中 |
 | M4 | 商店材料（隐私政策、截图、权限说明）、zip 发布、GitHub Release job | 1–2 天 + 审核等待 | 审核不确定 |
 
 > 单人估算总计约 1.5–2 周（不含商店审核等待）。M1 结束时即可判断是否继续投入。
@@ -449,15 +451,22 @@ M1 的最低验收：在 Chrome 开发者模式加载 `dist/`，chat.deepseek.co
 
 ---
 
-## 9. 待决策问题（需要作者拍板）
+## 9. 决策记录
 
-1. **发布范围**：只上 Chrome Web Store，还是同时提交 Edge Add-ons？是否接受审核延迟与账号成本？
-2. **双发行策略**：确认保留 userscript 渠道，还是扩展上线后逐步下线 userscript？
-3. **域名范围**：扩展是否只申请 `chat.deepseek.com`（推荐），还是保持现有三个域名？
-4. **设置同步**：是否需要在多设备间同步设置（引入 `chrome.storage.sync`）？M1 建议不做。
-5. **旧设置迁移**：是否投入做「userscript 导出 + 扩展导入」（推荐做，约 0.5–1 天）？
-6. **图标方案**：自绘中性图标，还是使用现有视觉元素？涉及商标风险，需要明确。
-7. **版本号策略**：扩展与 userscript 同号发布，还是独立版本线？
+已确认（2026-10-18）：
+
+| # | 决策 | 结论 |
+| --- | --- | --- |
+| 1 | 发布渠道 | **保留 userscript 渠道**；扩展只上 Chrome Web Store，Edge/Firefox/Safari 暂不提交 |
+| 2 | 旧设置迁移 | **不做**。设置项少、重配成本低；扩展内重新配置即可 |
+| 3 | 图标 | **自绘中性图标**，不使用 DeepSeek 官方视觉元素；具体方案见第 11 节 |
+| 4 | 版本号 | **扩展独立版本线**，从 `0.1.0` 起步，不与 userscript `5.x` 同号 |
+| 5 | 域名范围 | 扩展只申请 `chat.deepseek.com`（权限最小化，推荐方案） |
+
+暂缓/未定：
+
+6. **设置多设备同步**：M1 不做 `chrome.storage.sync`，后续根据反馈再评估。
+7. **扩展上架时间**：先把 M1 可加载包做出来，实机验证通过后再准备商店材料。
 
 ---
 
@@ -466,7 +475,100 @@ M1 的最低验收：在 Chrome 开发者模式加载 `dist/`，chat.deepseek.co
 - 这个脚本**非常适合**迁移到 MV3：没有 `unsafeWindow`、没有跨域请求、没有后台常驻逻辑，
   核心是纯 DOM/CSS 操作，content script 可以原样承载。
 - 真正的工作量只有三块：**异步存储引导**、**菜单入口替代**、**依赖与图标本地化**。
-- 最大的隐性成本不是技术，而是：**两套发行渠道的长期维护**、**旧设置无法自动迁移**、
-  **商店审核与更新节奏**。
+- 最大的隐性成本不是技术，而是：**两套发行渠道的长期维护**、**商店审核与更新节奏**；
+  旧设置迁移已确认不做，用户升级时需要在扩展内重新配置。
 - 建议先做 M1（2–3 天）产出可加载的扩展，用真实 DeepSeek 页面验证第 8.2 节的 8 个问题，
   再决定是否进入商店发布流程。
+
+---
+
+## 11. 图标方案调研（自绘）
+
+### 11.1 约束
+
+- Chrome 的 `manifest.icons` / `action.default_icon` 只接受位图（PNG），不接受 SVG；
+  至少提供 16/32/48/128 四个尺寸。
+- 图标是商店审核的商标风险点：**不能使用 DeepSeek 官方 logo、鲸鱼形象或品牌插画**，
+  也不能让用户误以为这是官方扩展。
+- 图标需要在 16px 下仍可辨识，因此图形必须粗、元素必须少、留白必须足。
+
+### 11.2 生成方案对比
+
+| 方案 | 优点 | 缺点 | 结论 |
+| --- | --- | --- | --- |
+| **SVG 源 + `sharp` 转 PNG** | 预编译二进制、Windows 免编译、构建链已用 Node、可复现 | 多一个 devDependency（libvips） | **采用** |
+| SVG 源 + `@resvg/resvg-js` | Rust 渲染、质量高、同样预编译 | 多一个依赖，收益与 sharp 接近 | 备选 |
+| `node-canvas` 绘制 | 纯 JS API 灵活 | Windows 需要 native 编译，CI 成本高 | 不采用 |
+| ImageMagick / Inkscape | 无 Node 依赖 | 外部工具不可复现，CI 需额外安装 | 不采用 |
+| 在线工具导出 PNG | 快 | 不可复现、无法随仓库演进、审核溯源差 | 不采用 |
+
+### 11.3 设计与实现
+
+- 设计：中性深蓝渐变圆角方块 + 白色对话气泡 + `</>` 代码符号。
+  语义上对应"对话页的代码/工具增强"，与 DeepSeek 官方视觉元素无关联。
+- 源文件：`extension/icons/icon.svg`（512×512，唯一需要提交的图标源）。
+- 构建：`extension/build.mjs` 用 `sharp(svg).resize(size).png()` 生成
+  `dist/icons/{16,32,48,128}.png`，PNG 作为构建产物不提交。
+- 验证：
+  1. `sharp().metadata()` 检查四个 PNG 的宽高；
+  2. 浏览器打开 SVG 与 popup 页面做视觉检查；
+  3. 16px 下确认气泡轮廓仍可辨认（`</>` 细节允许在 16px 下弱化）。
+
+### 11.4 商标与命名
+
+- 扩展名称保留「DeepSeek 功能增强工具箱」，用于描述兼容对象，属于常见的第三方兼容性命名；
+  商店描述中会明确「非官方扩展，与 DeepSeek 无隶属关系」。
+- 图标、商店截图、宣传图均不使用 DeepSeek 官方 logo 或品牌色作为主视觉。
+
+---
+
+## 12. M1 实施记录（2026-10-18）
+
+### 12.1 已完成
+
+- 建立 `extension/` 骨架：`manifest.json`、popup 三件套、GM 兼容层、content 入口、构建脚本。
+- 构建链：esbuild + html2canvas（本地打包）+ sharp（SVG → PNG 图标）。
+- 主脚本 **零改动**：`git diff ba17c2c -- deepseektool.user.js` 为空；
+  userscript 渠道不受影响。
+- 扩展版本线从 `0.1.0` 起步（已确认独立于 userscript 的 `5.x`）。
+- 图标源文件 `extension/icons/icon.svg`，构建时生成 `dist/icons/{16,32,48,128}.png`。
+- 详细构建/加载说明见 `extension/README.md`。
+
+### 12.2 实现方式
+
+```
+content-entry.js
+  ├─ await preloadStorage()        // chrome.storage.local.get(null) → 内存缓存
+  ├─ window.html2canvas = ...      // 本地打包的 html2canvas
+  └─ runUserScript()               // esbuild 打包步骤把 user.js 包成函数，延迟执行
+
+deepseektool.user.js 中的 GM_*
+  └─ esbuild inject → gm-shim.js（GM_getValue/GM_setValue/GM_addStyle/GM_registerMenuCommand）
+```
+
+这样不需要把顶层 20+ 处 `GM_getValue` 改成 `await`，也不需要拆 `folderUnit` IIFE；
+原有的同步初始化顺序在预加载完成后原样执行。
+
+### 12.3 验证结果
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm run build` | 成功，`dist/content.js` 749.2 KB（未压缩） |
+| `node --check dist/content.js` | 通过 |
+| manifest 引用完整性 | content.js / popup.html / 4 个 PNG 均存在 |
+| GM 符号 | 产物中 `GM_getValue` 等各只有 1 处定义，用户脚本调用可解析到 shim |
+| 远程代码 | `dist/content.js` 中无 `cdn.jsdelivr.net` 引用 |
+| jsdom 冒烟 | 注入 1 个 `<style>`；`html` 类为 `ds-table-auto ds-code-bg ds-code-bg-1`；`window.html2canvas` 为 function；无报错 |
+| 主脚本差异 | 相对 `master` 零 diff |
+
+### 12.4 仍未验证（需真实 Chrome）
+
+- 扩展加载与 popup → content script 消息链路
+- DeepSeek 页面 CSP 下的样式注入、下载、剪贴板
+- 表格/代码块 PNG、对话导出、文件夹持久化的真实行为
+- 与用户脚本同时启用时的冲突表现
+
+### 12.5 下一步
+
+M2：菜单/文案收尾（关于页安装条件改为扩展）、面板图标本地化、
+下载与剪贴板实测兜底；随后按第 8.2 节逐项实测，通过后再准备 M4 商店材料。

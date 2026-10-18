@@ -1,0 +1,19 @@
+{
+  "name": "deepseektool-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek 功能增强工具箱 — Chrome MV3 扩展构建",
+  "scripts": {
+    "build": "node extension/build.mjs",
+    "build:min": "node extension/build.mjs --minify",
+    "watch": "node extension/build.mjs --watch"
+  },
+  "dependencies": {
+    "html2canvas": "1.4.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "sharp": "^0.34.0"
+  }
+}

@@ -10,3 +10,6 @@ DeepSeek官网对话内容显示区域
 .codebuddy/
 docs/
 waitadd/
+
+node_modules/
+dist/

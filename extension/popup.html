@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeepSeek 功能增强工具箱</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="head">
+    <img class="logo" src="icons/48.png" alt="" width="32" height="32">
+    <div class="titles">
+      <h1>DS 工具箱</h1>
+      <p>DeepSeek 对话页增强</p>
+    </div>
+  </header>
+
+  <main class="body">
+    <p id="status" class="status" data-tone="busy">正在检测当前页面…</p>
+
+    <button id="open-panel" class="btn btn-primary" type="button" disabled>
+      <span class="btn-ic">⚙</span>打开设置面板
+    </button>
+    <button id="export-chat" class="btn" type="button" disabled>
+      <span class="btn-ic">⇩</span>导出当前对话
+    </button>
+
+    <p class="note">设置保存在本扩展内，与用户脚本互不相通。</p>
+  </main>
+
+  <footer class="foot">
+    <span id="version">v0.0.0</span>
+    <span>与用户脚本版本二选一，避免重复注入</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
