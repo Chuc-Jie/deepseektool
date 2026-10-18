@@ -46,7 +46,8 @@ dist/                  构建产物（gitignore），加载扩展时选它
 - **跨标签同步**：`chrome.storage.onChanged` 更新内存缓存并派发 `ds-storage-changed`，
   主脚本据此重新读取设置并热应用；本标签写入通过回环去重，不会重建面板。
 - **环境文案**：content-entry 在页面根节点标记扩展运行时，帮助页自动切换为扩展版说明。
-- **本地依赖**：html2canvas 打包进 `content.js`，无远程代码；图标本地生成。
+- **本地依赖**：html2canvas 打包进 `content.js`，无远程代码；扩展图标由 SVG 生成 PNG，
+  面板/表格图标内联为 data URI，不请求第三方图标服务。
 - **菜单替代**：popup 通过 `chrome.tabs.sendMessage` 触发原 `GM_registerMenuCommand` 的两个命令。
 
 ## 与用户脚本的关系

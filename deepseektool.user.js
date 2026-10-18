@@ -135,6 +135,17 @@
 
     loadSettings();
 
+    // ==================== 运行时标记与双注入检测 ====================
+    // content-entry 在扩展环境写入 dsExtension；userscript 没有该标记。
+    // 同一标签页同时注入两套实例时，由后启动的一方提示用户保留一个。
+    const IS_EXTENSION_INSTANCE = document.documentElement.dataset.dsExtension === '1';
+    if (!IS_EXTENSION_INSTANCE && !document.documentElement.dataset.dsRuntime) {
+        document.documentElement.dataset.dsRuntime = 'userscript';
+    }
+    const RUNTIME_CONFLICT = IS_EXTENSION_INSTANCE
+        ? document.documentElement.dataset.dsRuntime === 'userscript'
+        : document.documentElement.dataset.dsExtension === '1';
+
     const btnTextFold = '折叠';
     const btnTextUnfold = '展开';
 
@@ -156,7 +167,9 @@
             background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); color: white;
             padding: 10px 20px; border-radius: 8px; font-size: 14px;
             font-family: system-ui, -apple-system, sans-serif; z-index: 10001;
-            opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+            opacity: 0; transition: opacity 0.2s; pointer-events: none;
+            max-width: min(560px, calc(100vw - 32px)); white-space: normal;
+            text-align: center; line-height: 1.5;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         `;
         document.body.appendChild(toast);
@@ -197,7 +210,7 @@
         openControlPanel._lastPage = openControlPanel._lastPage || 'fold';
         // 同理：运行时标记在函数体内计算，保证测试 harness 提取函数体后仍可执行。
         const isExtensionRuntime = !!(document.documentElement
-            && document.documentElement.dataset.dsRuntime === 'extension');
+            && document.documentElement.dataset.dsExtension === '1');
         const existingOverlay = document.getElementById('ds-control-panel-overlay');
         if (existingOverlay) existingOverlay.remove();
         // 面板每次重建 → 上一轮登记的依赖项作废（否则会持有已移除的节点）
@@ -237,11 +250,35 @@
             { key: 'about', icon: 'information-outline', label: '关于' },
         ];
 
-        // iconify 图标：左侧导航 / logo（深蓝底固定亮色）；右侧标题需随主题取色
-        const ICON_HOST = 'https://api.iconify.design/mdi:';
+        // 面板图标：内联 MDI path（Apache-2.0，见 THIRD_PARTY_NOTICES.md），
+        // 生成 data URI，不依赖远程图标服务。左侧导航 / logo 固定亮色，右侧标题随主题取色。
+        const MDI_ICON_BODIES = {
+            "brain": "<path fill=\"currentColor\" d=\"M21.33 12.91c.09 1.55-.62 3.04-1.89 3.95l.77 1.49c.23.45.26.98.06 1.45c-.19.47-.58.84-1.06 1l-.79.25a1.69 1.69 0 0 1-1.86-.55L14.44 18c-.89-.15-1.73-.53-2.44-1.1c-.5.15-1 .23-1.5.23c-.88 0-1.76-.27-2.5-.79c-.53.16-1.07.23-1.62.22c-.79.01-1.57-.15-2.3-.45a4.1 4.1 0 0 1-2.43-3.61c-.08-.72.04-1.45.35-2.11c-.29-.75-.32-1.57-.07-2.33C2.3 7.11 3 6.32 3.87 5.82c.58-1.69 2.21-2.82 4-2.7c1.6-1.5 4.05-1.66 5.83-.37c.42-.11.86-.17 1.3-.17c1.36-.03 2.65.57 3.5 1.64c2.04.53 3.5 2.35 3.58 4.47c.05 1.11-.25 2.2-.86 3.13c.07.36.11.72.11 1.09m-5-1.41c.57.07 1.02.5 1.02 1.07a1 1 0 0 1-1 1h-.63c-.32.9-.88 1.69-1.62 2.29c.25.09.51.14.77.21c5.13-.07 4.53-3.2 4.53-3.25a2.59 2.59 0 0 0-2.69-2.49a1 1 0 0 1-1-1a1 1 0 0 1 1-1c1.23.03 2.41.49 3.33 1.3c.05-.29.08-.59.08-.89c-.06-1.24-.62-2.32-2.87-2.53c-1.25-2.96-4.4-1.32-4.4-.4c-.03.23.21.72.25.75a1 1 0 0 1 1 1c0 .55-.45 1-1 1c-.53-.02-1.03-.22-1.43-.56c-.48.31-1.03.5-1.6.56c-.57.05-1.04-.35-1.07-.9a.97.97 0 0 1 .88-1.1c.16-.02.94-.14.94-.77c0-.66.25-1.29.68-1.79c-.92-.25-1.91.08-2.91 1.29C6.75 5 6 5.25 5.45 7.2C4.5 7.67 4 8 3.78 9c1.08-.22 2.19-.13 3.22.25c.5.19.78.75.59 1.29c-.19.52-.77.78-1.29.59c-.73-.32-1.55-.34-2.3-.06c-.32.27-.32.83-.32 1.27c0 .74.37 1.43 1 1.83c.53.27 1.12.41 1.71.4q-.225-.39-.39-.81a1.038 1.038 0 0 1 1.96-.68c.4 1.14 1.42 1.92 2.62 2.05c1.37-.07 2.59-.88 3.19-2.13c.23-1.38 1.34-1.5 2.56-1.5m2 7.47l-.62-1.3l-.71.16l1 1.25zm-4.65-8.61a1 1 0 0 0-.91-1.03c-.71-.04-1.4.2-1.93.67c-.57.58-.87 1.38-.84 2.19a1 1 0 0 0 1 1c.57 0 1-.45 1-1c0-.27.07-.54.23-.76c.12-.1.27-.15.43-.15c.55.03 1.02-.38 1.02-.92\"/>",
+            "code-tags": "<path fill=\"currentColor\" d=\"m14.6 16.6l4.6-4.6l-4.6-4.6L16 6l6 6l-6 6zm-5.2 0L4.8 12l4.6-4.6L8 6l-6 6l6 6z\"/>",
+            "folder-outline": "<path fill=\"currentColor\" d=\"M20 18H4V8h16m0-2h-8l-2-2H4c-1.11 0-2 .89-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2\"/>",
+            "format-color-fill": "<path fill=\"currentColor\" d=\"M19 11.5s-2 2.17-2 3.5a2 2 0 0 0 2 2a2 2 0 0 0 2-2c0-1.33-2-3.5-2-3.5M5.21 10L10 5.21L14.79 10m1.77-1.06L7.62 0L6.21 1.41l2.38 2.38l-5.15 5.15c-.59.56-.59 1.53 0 2.12l5.5 5.5c.29.29.68.44 1.06.44s.77-.15 1.06-.44l5.5-5.5c.59-.59.59-1.56 0-2.12\"/>",
+            "help-circle-outline": "<path fill=\"currentColor\" d=\"M11 18h2v-2h-2zm1-16A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-14a4 4 0 0 0-4 4h2a2 2 0 0 1 2-2a2 2 0 0 1 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5a4 4 0 0 0-4-4\"/>",
+            "image-multiple-outline": "<path fill=\"currentColor\" d=\"M21 17H7V3h14m0-2H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2M3 5H1v16a2 2 0 0 0 2 2h16v-2H3m12.96-10.71l-2.75 3.54l-1.96-2.36L8.5 15h11z\"/>",
+            "information-outline": "<path fill=\"currentColor\" d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2z\"/>",
+            "language-markdown": "<path fill=\"currentColor\" d=\"M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6h17.12c.79 0 1.44.63 1.44 1.41v9.18c0 .78-.65 1.41-1.44 1.41M6.81 15.19v-3.66l1.92 2.35l1.92-2.35v3.66h1.93V8.81h-1.93l-1.92 2.35l-1.92-2.35H4.89v6.38zM19.69 12h-1.92V8.81h-1.92V12h-1.93l2.89 3.28z\"/>",
+            "monitor": "<path fill=\"currentColor\" d=\"M21 16H3V4h18m0-2H3c-1.11 0-2 .89-2 2v12a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2\"/>",
+            "send": "<path fill=\"currentColor\" d=\"m2 21l21-9L2 3v7l15 2l-15 2z\"/>",
+            "table-large": "<path fill=\"currentColor\" d=\"M4 3h16a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m0 4v3h4V7zm6 0v3h4V7zm10 3V7h-4v3zM4 12v3h4v-3zm0 8h4v-3H4zm6-8v3h4v-3zm0 8h4v-3h-4zm10 0v-3h-4v3zm0-8h-4v3h4z\"/>",
+            "cog": "<path fill=\"currentColor\" d=\"M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z\"/>",
+            "github": "<path fill=\"currentColor\" d=\"M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34c-.46-1.16-1.11-1.47-1.11-1.47c-.91-.62.07-.6.07-.6c1 .07 1.53 1.03 1.53 1.03c.87 1.52 2.34 1.07 2.91.83c.09-.65.35-1.09.63-1.34c-2.22-.25-4.55-1.11-4.55-4.92c0-1.11.38-2 1.03-2.71c-.1-.25-.45-1.29.1-2.64c0 0 .84-.27 2.75 1.02c.79-.22 1.65-.33 2.5-.33s1.71.11 2.5.33c1.91-1.29 2.75-1.02 2.75-1.02c.55 1.35.2 2.39.1 2.64c.65.71 1.03 1.6 1.03 2.71c0 3.82-2.34 4.66-4.57 4.91c.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2\"/>",
+            "web": "<path fill=\"currentColor\" d=\"M16.36 14c.08-.66.14-1.32.14-2s-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2m-5.15 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56M14.34 14H9.66c-.1-.66-.16-1.32-.16-2s.06-1.35.16-2h4.68c.09.65.16 1.32.16 2s-.07 1.34-.16 2M12 19.96c-.83-1.2-1.5-2.53-1.91-3.96h3.82c-.41 1.43-1.08 2.76-1.91 3.96M8 8H5.08A7.92 7.92 0 0 1 9.4 4.44C8.8 5.55 8.35 6.75 8 8m-2.92 8H8c.35 1.25.8 2.45 1.4 3.56A8 8 0 0 1 5.08 16m-.82-2C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2s.06 1.34.14 2M12 4.03c.83 1.2 1.5 2.54 1.91 3.97h-3.82c.41-1.43 1.08-2.77 1.91-3.97M18.92 8h-2.95a15.7 15.7 0 0 0-1.38-3.56c1.84.63 3.37 1.9 4.33 3.56M12 2C6.47 2 2 6.5 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2\"/>",
+            "shield-check-outline": "<path fill=\"currentColor\" d=\"M21 11c0 5.55-3.84 10.74-9 12c-5.16-1.26-9-6.45-9-12V5l9-4l9 4zm-9 10c3.75-1 7-5.46 7-9.78V6.3l-7-3.12L5 6.3v4.92C5 15.54 8.25 20 12 21m-2-4l-4-4l1.41-1.41L10 14.17l6.59-6.59L18 9\"/>",
+        };
+        function mdiIconDataUrl(name, color) {
+            const body = MDI_ICON_BODIES[name];
+            if (!body) return '';
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" color="'
+                + color + '" fill="' + color + '">' + body + '</svg>';
+            return 'data:image/svg+xml,' + encodeURIComponent(svg);
+        }
         const isPanelDark = () => document.body.classList.contains('dark');
-        const mdiNavUrl = (name) => ICON_HOST + name + '.svg?color=' + (isPanelDark() ? '%23e6eaf2' : '%23334155');
-        const mdiHeadUrl = (name) => ICON_HOST + name + '.svg?color=' + (isPanelDark() ? '%23e4e4e8' : '%231e293b');
+        const mdiNavUrl = (name) => mdiIconDataUrl(name, isPanelDark() ? '#e6eaf2' : '#334155');
+        const mdiHeadUrl = (name) => mdiIconDataUrl(name, isPanelDark() ? '#e4e4e8' : '#1e293b');
         function makeIconImg(name, cls, url) {
             const im = document.createElement('img');
             im.className = cls; im.src = url(name); im.alt = '';
@@ -3303,7 +3340,18 @@
         const bc = document.createElement('div');
         bc.className = 'table-internal-buttons';
 
-        // 导出按钮图标（iconify mdi SVG）；emoji 作加载失败兜底（二者择一，不叠加）
+        // 导出按钮图标：内联 SVG data URI（与面板图标同源），不依赖远程图标服务。
+        const TABLE_EXPORT_ICON_BODIES = {
+            png: '<path d="M19 19H5V5h14m0-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m-5.04 9.29l-2.75 3.54l-1.96-2.36L6.5 17h11z"/>',
+            csv: '<path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8zm4 18H6V4h7v5h5zm-8-1l2-4H9v-5h6v5l-2 4z"/>',
+            md: '<path d="M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6h17.12c.79 0 1.44.63 1.44 1.41v9.18c0 .78-.65 1.41-1.44 1.41M6.81 15.19v-3.66l1.92 2.35l1.92-2.35v3.66h1.93V8.81h-1.93l-1.92 2.35l-1.92-2.35H4.89v6.38zM19.69 12h-1.92V8.81h-1.92V12h-1.93l2.89 3.28z"/>',
+        };
+        const tableExportIconUrl = (name) => 'data:image/svg+xml,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" color="#5b6472" fill="#5b6472">'
+            + TABLE_EXPORT_ICON_BODIES[name] + '</svg>'
+        );
+
+        // 导出按钮图标（内联 data URI）；emoji 作最后兜底（二者择一，不叠加）
         const makeExportBtn = (emoji, icon, tooltip, onClick) => {
             const b = document.createElement('button');
             b.className = 'internal-export-btn';
@@ -3313,16 +3361,16 @@
             im.className = 'export-btn-ic';
             im.alt = '';
             im.draggable = false;
-            im.src = 'https://api.iconify.design/mdi:' + icon + '.svg?color=%235b6472';
+            im.src = tableExportIconUrl(icon);
             im.addEventListener('error', showEmoji);
             b.appendChild(im);
             b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
             return b;
         };
 
-        const pngBtn = makeExportBtn('📸', 'image-outline', '导出为 PNG', () => exportTableAsPNG(table));
-        const csvBtn = makeExportBtn('📄', 'file-delimited-outline', '导出为 CSV', () => exportTableAsCSV(table));
-        const mdBtn  = makeExportBtn('📝', 'language-markdown', '导出为 Markdown', () => exportTableAsMD(table));
+        const pngBtn = makeExportBtn('📸', 'png', '导出为 PNG', () => exportTableAsPNG(table));
+        const csvBtn = makeExportBtn('📄', 'csv', '导出为 CSV', () => exportTableAsCSV(table));
+        const mdBtn  = makeExportBtn('📝', 'md', '导出为 Markdown', () => exportTableAsMD(table));
 
         bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
         host.appendChild(bc);
@@ -7082,6 +7130,10 @@
             folderRuntimeEnabled = true;
         }
         observeDOM();
+
+        if (RUNTIME_CONFLICT) {
+            setTimeout(() => showToast('检测到扩展版与用户脚本版同时运行，请保留其中一个，避免按钮重复。', 8000), 1200);
+        }
 
         // resize 节流处理表格：窗口尺寸变化同样会改变可用宽度，必须让表格重新落宽
         window.addEventListener('resize', () => {
