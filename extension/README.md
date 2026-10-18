@@ -29,7 +29,7 @@ npm run build:min    # 压缩版
 extension/
   manifest.json        MV3 声明（storage + chat.deepseek.com）
   popup.html/css/js    工具栏入口：打开设置面板 / 导出对话
-  icons/icon.svg       品牌图标源（抽象燕尾 + 气泡点；构建生成 PNG，popup/面板复用）
+  icons/icon.svg       品牌图标源（几何鲸鱼 + 气泡；构建生成 PNG，popup/面板复用）
   src/gm-shim.js       GM_* → chrome.* 兼容层
   src/content-entry.js 预加载存储 → 挂载 html2canvas → 执行用户脚本
   build.mjs            esbuild 构建脚本
