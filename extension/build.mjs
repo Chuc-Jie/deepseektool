@@ -47,6 +47,7 @@ async function copyStatic() {
   }
 
   const svg = path.join(__dirname, 'icons', 'icon.svg');
+  await cp(svg, path.join(dist, 'icons', 'icon.svg'));
   for (const size of [16, 32, 48, 128]) {
     await sharp(svg).resize(size, size).png().toFile(path.join(dist, 'icons', `${size}.png`));
   }

@@ -19,6 +19,8 @@ function setStatus(text, tone = '') {
 }
 
 async function getActiveTab() {
+  // file:// 预览或非扩展环境没有 chrome.tabs，返回 null 让 UI 显示未连接。
+  if (!globalThis.chrome?.tabs?.query) return null;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
