@@ -80,21 +80,24 @@
 html, body, .app { min-height: 380px; }
 
 html {
-  /* 兜底：避免 popup 边缘因视口/缩放露出浏览器默认白底 */
-  background: var(--ds-surface-canvas);
+  width: 360px;
+  /* 背景画在 html 上并铺满画布：popup 窗口即使因 DPI 取整多出 1px，
+     也不会在右侧/底部露出浏览器白底或与 body 渐变产生色差。 */
+  background:
+    radial-gradient(900px 500px at 80% -10%, var(--ds-brand-soft), transparent 55%),
+    var(--ds-surface-canvas);
 }
 
 body {
-  width: 360px;
+  width: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
   font-family: var(--ds-font);
   font-size: 13px;
   letter-spacing: .1px;
   color: var(--ds-text);
-  background:
-    radial-gradient(900px 500px at 80% -10%, var(--ds-brand-soft), transparent 55%),
-    var(--ds-surface-canvas);
+  background: transparent;
 }
 
 .app {
