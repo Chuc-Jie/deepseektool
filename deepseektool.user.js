@@ -1175,8 +1175,8 @@
             background: #4d6bfe;
             color: #ffffff;
         }
-        .ds-p-logo-ic { width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
-        .ds-p-logo-ic-img { width: 34px; height: 34px; display: block; }
+        .ds-p-logo-ic { width: 38px; height: 38px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+        .ds-p-logo-ic-img { width: 38px; height: 38px; display: block; }
         .ds-p-logo-t { font-size: 15px; font-weight: 600; letter-spacing: .2px; }
         .ds-p-logo-s { font-size: 11px; color: rgba(255,255,255,.72); margin-top: 2px; }
         .ds-p-nav {
