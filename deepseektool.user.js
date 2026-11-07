@@ -15,6 +15,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_notification
+// @grant        GM_deleteValue
 // @require      https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
 // @run-at       document-end
 // @license      MIT
@@ -61,6 +63,7 @@
     const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
     const STORAGE_CODE_BG_LEVEL = 'deepseek_code_bg_level';             // 加深强度档位：light / medium / strong
     const STORAGE_TABLE_EXPORT_ROUNDED = 'deepseek_table_export_rounded'; // PNG 导出表格四角圆角（默认开）
+    const STORAGE_EXPORT_KEEP_CITES = 'deepseek_export_keep_cites';        // 导出保留引用角标（默认保留）
     const STORAGE_MD_EXPORT_ENABLED = 'deepseek_md_export_enabled';       // 对话导出总开关（Markdown / JSON，默认开）
     const STORAGE_CODE_EXPORT_ENABLED = 'deepseek_code_export_enabled';   // 代码块「导出为图片」按钮总开关（默认开）
     const STORAGE_CODE_IMAGE_PREFS = 'deepseek_code_image_prefs';         // 代码块导图样式偏好（JSON，记住上次选择）
@@ -97,6 +100,7 @@
     let codeBgEnhance = true;
     let codeBgLevel = 'light';
     let tableExportRounded = true;
+    let keepExportCites = true;       // 导出保留引用角标（还原成「数字 + 地址」；关闭则去掉）
     let mdExportEnabled = true;
     let mdExportAppendDate = true;
     let codeExportEnabled = true;
@@ -154,6 +158,7 @@
         codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);
         codeBgLevel = normalizeEnum(STORAGE_CODE_BG_LEVEL, GM_getValue(STORAGE_CODE_BG_LEVEL, 'light'), ['light', 'medium', 'strong'], 'light');
         tableExportRounded = GM_getValue(STORAGE_TABLE_EXPORT_ROUNDED, true);
+        keepExportCites = GM_getValue(STORAGE_EXPORT_KEEP_CITES, true);
         mdExportEnabled = GM_getValue(STORAGE_MD_EXPORT_ENABLED, true);
         mdExportAppendDate = GM_getValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
         codeExportEnabled = GM_getValue(STORAGE_CODE_EXPORT_ENABLED, true);
@@ -671,6 +676,11 @@
                     GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, checked);
                     showToast(`导出图片圆角已${checked ? '开启' : '关闭'}`);
                 }),
+                createToggleSetting('导出保留引用角标', 'Markdown / CSV 导出时保留表格引用角标（还原成「数字 + 地址」）；关闭则连同地址一起去掉（PNG 不含角标）', keepExportCites, checked => {
+                    keepExportCites = checked;
+                    GM_setValue(STORAGE_EXPORT_KEEP_CITES, checked);
+                    showToast(`引用角标已改为${checked ? '保留（带地址）' : '去掉'}`);
+                }),
             ] },
             { key: 'mdexport', icon: 'language-markdown', title: '对话导出', sub: '勾选内容 → 选格式（Markdown / JSON）→ 导出 .md / .json', build: () => [
                 createToggleSetting('启用对话导出', '开启后可以勾选消息导出；关闭后相关入口都会隐藏', mdExportEnabled, checked => {
@@ -877,6 +887,7 @@
                 codeBgEnhance = true; GM_setValue(STORAGE_CODE_BG, true);
                 codeBgLevel = 'light'; GM_setValue(STORAGE_CODE_BG_LEVEL, 'light');
                 tableExportRounded = true; GM_setValue(STORAGE_TABLE_EXPORT_ROUNDED, true);
+                keepExportCites = true; GM_setValue(STORAGE_EXPORT_KEEP_CITES, true);
                 mdExportEnabled = true; GM_setValue(STORAGE_MD_EXPORT_ENABLED, true);
                 mdExportUnit.clearPrefs();                  // 清掉「记住我的选择」+ v1 遗留键
                 mdExportAppendDate = true; GM_setValue(STORAGE_MD_EXPORT_APPEND_DATE, true);
@@ -3641,13 +3652,14 @@
     // 引用角标（`<a href=…>`，文字形如「-9」）与外链图标（纯短横、且前面已有正文）都不是正文：
     // 返回 null=非装饰 / ''=丢弃 / 字符串=替换成的文本。判据取自实测导出文件；
     // **图标就是「纯短横的 span」，故意不要求 href/类名** —— 宁可极少见地误删正文里的短横，也不让图标回到导出里。
+    // keepExportCites 关闭时角标连同地址一起去掉（图标不受开关影响，永远丢弃）。
     function exportDecoText(el, forMarkdown) {
         const t = (el.textContent || '').trim(), href = el.getAttribute ? el.getAttribute('href') : null;
         const isCite = !!href && /^[-–—]\s*\d{1,3}$/.test(t);
         const prev = el.previousSibling;
         const isIcon = !isCite && /^[-–—]+$/.test(t) && !!prev && !!(prev.textContent || '').trim();
         if (!isCite && !isIcon) return null;
-        if (isIcon) return '';
+        if (isIcon || (isCite && !keepExportCites)) return '';
         const label = t.replace(/^[-–—\s]+/, '');
         return forMarkdown ? `[${label}](${href})` : `${label} (${href})`;
     }
