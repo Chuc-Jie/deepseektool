@@ -28,8 +28,14 @@
     const STORAGE_PREVIEW_LINES = 'deepseek_fold_preview_lines';
     const STORAGE_TABLE_BUTTONS_ENABLED = 'deepseek_table_buttons_enabled';
     const STORAGE_TABLE_BUTTONS_ALWAYS = 'deepseek_table_buttons_always';  // 导出按钮恒定显示（默认关）
-    const STORAGE_AUTO_COLLAPSE_THINKING = 'deepseek_auto_collapse_thinking';
-    const STORAGE_SIMULATE_CLICK_THINKING = 'deepseek_simulate_click_thinking';
+    // 思维链显示方式（三态，一个键）：preview = 定高预览窗口 / hidden = 只显示标题行 / native = 交还原生
+    const STORAGE_THINK_DISPLAY = 'deepseek_think_display_mode';
+    const STORAGE_THINK_PREVIEW_HEIGHT = 'deepseek_think_preview_height';  // 预览窗口最高高度（px）
+    const STORAGE_THINK_PREVIEW_MIN = 'deepseek_think_preview_min';        // 预览最小高度阈值（0 = 任何长度都套）
+    // 定高表达式的上下限交给 CSS：80px 以下看不出在滚内容，500px 以上这窗口就不是「概览」了。
+    // 内联夹断与 CSS 双路共用这一份字面量；JS 只做输入夹取（80–500，见设置项参数）。
+    const MAX_THINK_PREVIEW_PX = 500;
+    const THINK_PREVIEW_MAX_H = `clamp(80px, var(--ds-think-preview-height, 200px), ${MAX_THINK_PREVIEW_PX}px)`;
     const STORAGE_TABLE_THEME_MODE = 'deepseek_table_theme_mode';
     const STORAGE_TABLE_HEAD_ALIGN = 'deepseek_table_head_align';   // 表头对齐：auto（跟随内容）/ center
     const STORAGE_TABLE_WIDTH_ALGO = 'deepseek_table_width_algo';   // 列宽算法：smart / equal
@@ -49,6 +55,7 @@
     const STORAGE_FOLDER_MANAGER = 'deepseek_folder_manager_enabled';   // 对话文件夹管理总开关（默认关）
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
+    const STORAGE_NOTIFY_DONE = 'deepseek_notify_done';                 // 回复完成系统提醒（默认开，仅后台标签页提醒）
     const STORAGE_PIN_COLLAPSED = 'deepseek_pin_group_collapsed';       // 原生「置顶」分组折叠态（默认展开）
     const STORAGE_PIN_COLLAPSIBLE = 'deepseek_pin_group_collapsible';   // 原生「置顶」分组折叠能力开关（默认关，opt-in）
     const STORAGE_CODE_BG = 'deepseek_code_bg_enhance';                 // 代码块背景加深（默认开）
@@ -63,6 +70,8 @@
     const STORAGE_MD_EXPORT_PREFS = 'deepseek_md_export_prefs';             // 弹窗「记住我的选择」落库（JSON）
     const STORAGE_MD_EXPORT_APPEND_DATE = 'deepseek_md_export_append_date'; // 文件名附加日期（默认开，避免重名覆盖）
     const LEGACY_MD_KEYS = ['deepseek_md_export_reasoning', 'deepseek_md_export_answer_only'];
+    // 「自动折叠 / 模拟点击」两个开关随思考预览窗口一起退役：启动时把这两个键删掉，不留残留值
+    const LEGACY_THINK_KEYS = ['deepseek_auto_collapse_thinking', 'deepseek_simulate_click_thinking'];
 
     // 设置的内存镜像：启动时与跨标签同步时都由 loadSettings() 统一刷新。
     let foldThreshold = 20;
@@ -70,8 +79,10 @@
     let enablePreviewLines = false;
     let tableButtonsEnabled = true;
     let tableButtonsAlways = false;
-    let autoCollapseThinking = true;
-    let simulateClickThinking = true;
+    // 显示方式默认值：高度为 0 视为「交还原生」，否则「定高预览窗口」（两者都在 loadSettings 里按存储值覆盖）
+    let thinkDisplayMode = 'preview';
+    let thinkPreviewHeight = 200;        // 预览窗口最高高度（px；实际下限 80px 由 CSS clamp 兜住）
+    let thinkPreviewMinHeight = 300;     // 预览最小高度阈值（px）：思维链总高低于它就不套窗口
     let tableThemeMode = 'auto';
     let tableHeadAlign = 'auto';
     let tableWidthAlgo = null;
@@ -81,6 +92,7 @@
     let wideScreenLevel = WIDE_LEVEL_DEFAULT;
     let folderManagerEnabled = false;
     let ctrlEnterEnabled = false;
+    let notifyOnDone = true;
     let pinGroupCollapsible = false;
     let codeBgEnhance = true;
     let codeBgLevel = 'light';
@@ -98,6 +110,16 @@
         return fallback;
     }
 
+    // 异步/批处理入口的隔离壳：回调抛错时后续步骤会被整体跳过，且控制台没有任何痕迹，
+    // 用户侧表现只是「新内容出现后部分功能没跟上」。只在「一批多步」的入口用，别铺到每个函数上。
+    function safeRun(fn, label) {
+        try {
+            return fn();
+        } catch (e) {
+            console.error('[deepseektool] ' + label + '异常:', e);
+        }
+    }
+
     // 从存储读取全部设置。启动时调用一次；扩展环境下其他标签页改设置时再次调用。
     function loadSettings() {
         foldThreshold = GM_getValue(STORAGE_FOLD_THRESHOLD, 20);
@@ -105,8 +127,12 @@
         enablePreviewLines = previewLines > 0;
         tableButtonsEnabled = GM_getValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
         tableButtonsAlways = GM_getValue(STORAGE_TABLE_BUTTONS_ALWAYS, false);
-        autoCollapseThinking = GM_getValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
-        simulateClickThinking = GM_getValue(STORAGE_SIMULATE_CLICK_THINKING, true);
+        thinkPreviewHeight = GM_getValue(STORAGE_THINK_PREVIEW_HEIGHT, 200);
+        // 高度为 0 视为「交还原生」，否则「定高预览窗口」——沿用旧版「高度即开关」的直觉
+        thinkDisplayMode = normalizeEnum(STORAGE_THINK_DISPLAY,
+            GM_getValue(STORAGE_THINK_DISPLAY, thinkPreviewHeight > 0 ? 'preview' : 'native'),
+            ['preview', 'hidden', 'native'], thinkPreviewHeight > 0 ? 'preview' : 'native');
+        thinkPreviewMinHeight = GM_getValue(STORAGE_THINK_PREVIEW_MIN, 300);
         tableThemeMode = normalizeEnum(STORAGE_TABLE_THEME_MODE, GM_getValue(STORAGE_TABLE_THEME_MODE, 'auto'), ['auto', 'dual'], 'auto');
         tableHeadAlign = normalizeEnum(STORAGE_TABLE_HEAD_ALIGN, GM_getValue(STORAGE_TABLE_HEAD_ALIGN, 'auto'), ['auto', 'center'], 'auto');
 
@@ -123,6 +149,7 @@
         wideScreenLevel = normalizeEnum(STORAGE_WIDE_LEVEL, GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT), Object.keys(WIDE_LEVELS), WIDE_LEVEL_DEFAULT);
         folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);
         ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);
+        notifyOnDone = GM_getValue(STORAGE_NOTIFY_DONE, true);
         pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);
         codeBgEnhance = GM_getValue(STORAGE_CODE_BG, true);
         codeBgLevel = normalizeEnum(STORAGE_CODE_BG_LEVEL, GM_getValue(STORAGE_CODE_BG_LEVEL, 'light'), ['light', 'medium', 'strong'], 'light');
@@ -186,6 +213,8 @@
         if (!ctrlEnterEnabled) return;
         if (e.target && e.target.tagName !== 'TEXTAREA') return;
         if (e.key !== 'Enter') return;
+        // 中文输入法选词时的 Enter（isComposing / keyCode 229）是确认候选词，必须放行
+        if (e.isComposing || e.keyCode === 229) return;
         if (_supressNextEnter) { _supressNextEnter = false; return; }
         if (e.ctrlKey || e.metaKey) {
             // Ctrl/Cmd+Enter → 视同 Enter（发送/换行取决于表单当前语义），不携带 ctrl/meta
@@ -360,7 +389,7 @@
             { key: 'fold', icon: 'code-tags', label: '代码块' },
             { key: 'table', icon: 'table-large', label: '表格优化导出' },
             { key: 'mdexport', icon: 'language-markdown', label: '对话导出' },
-            { key: 'thinking', icon: 'brain', label: 'AI 思考折叠' },
+            { key: 'thinking', icon: 'brain', label: 'AI 思考显示' },
             { key: 'wide', icon: 'monitor', label: '宽屏模式' },
             { key: 'chat', icon: 'send', label: '聊天发送' },
             { key: 'folder', icon: 'folder-outline', label: '对话文件夹' },
@@ -680,23 +709,25 @@
                     return b;
                 })()),
             ] },
-            { key: 'thinking', icon: 'brain', title: 'AI 思考折叠', sub: '「思考过程」自动收起，可随时展开', build: () => [
-                createToggleSetting('自动折叠思考区域', 'AI 思考时自动收起「思考过程」；点标题可以展开，展开后本次不会自动收起', autoCollapseThinking, checked => {
-                    autoCollapseThinking = checked;
-                    GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, checked);
-                    reapplyThinkingSections();
-                    showToast(`自动折叠思考区域已${checked ? '开启' : '关闭'}${checked ? '' : '；已折叠的区域需手动展开'}`);
-                }),
+            { key: 'thinking', icon: 'brain', title: 'AI 思考显示', sub: '思维链显示方式 · 定高预览 / 只显示标题行 / 原生', build: () => [
+                createSelectSetting('显示方式', '定高预览：思维链收进定高窗口、可滚动查看 · 只显示标题行：正文完全隐藏 · 原生：交还页面默认行为；三种方式下点标题行都能展开', [
+                    { value: 'preview', label: '定高预览窗口' },
+                    { value: 'hidden', label: '只显示标题行' },
+                    { value: 'native', label: '交还原生' },
+                ], thinkDisplayMode, value => setThinkDisplayMode(value)),
+                createNumberSetting('预览最小高度阈值', '思维链总高超过该值时显示预览窗口（0 = 任何长度都显示）', 'px', thinkPreviewMinHeight, value => {
+                    thinkPreviewMinHeight = value;
+                    GM_setValue(STORAGE_THINK_PREVIEW_MIN, value);
+                    safeRun(applyThinkPreviewHeight, '思考预览定高重应用');
+                    showToast(`预览最小高度阈值已更新为 ${value}px`);
+                }, 0, () => thinkDisplayMode !== 'preview'),
+                createNumberSetting('思考预览最高高度', `预览窗口的最高高度（有效范围 80–${MAX_THINK_PREVIEW_PX}px）`, 'px', thinkPreviewHeight, value => {
+                    thinkPreviewHeight = value;
+                    GM_setValue(STORAGE_THINK_PREVIEW_HEIGHT, value);
+                    safeRun(applyThinkPreviewHeight, '思考预览定高重应用');
+                    showToast(`思考预览最高高度已更新为 ${value}px`);
+                }, MAX_THINK_PREVIEW_PX, () => thinkDisplayMode !== 'preview', 80),
                 createSettingNote('向上滚动时内容可能轻微跳动：这是 DeepSeek 页面加载更早消息时的正常现象，和本功能无关，目前无法消除。'),
-                createToggleSetting('点击标题折叠', '开启后模拟点击标题来折叠，和官网交互一致；关闭后直接隐藏正文，点标题仍然可以展开', simulateClickThinking, checked => {
-                    simulateClickThinking = checked;
-                    GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, checked);
-                    // 切换折叠方式时清掉上一种方式留下的痕迹（CSS data / 用户豁免），再按新模式重新接管，
-                    // 否则 CSS 模式隐藏的正文会卡在「有 data 标记 → 不处理 → 也不显示」的状态。
-                    cleanupThinkState();
-                    reapplyThinkingSections();
-                    showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}`);
-                }),
             ] },
             { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区加宽，三档宽度可选', build: () => [
                 createToggleSetting('启用宽屏布局', '消息区扩展至全宽，减少左右留白', wideScreen, checked => {
@@ -716,12 +747,17 @@
                     showToast(`宽屏宽度：${WIDE_LEVELS[value].label}`);
                 }, () => !wideScreen),
             ] },
-            { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送与快捷键', build: () => [
+            { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送 · 快捷键 · 完成提醒', build: () => [
                 createToggleSetting('Ctrl+Enter 发送', '开启后 Ctrl+Enter 发送、Enter 换行；关闭后恢复官网默认（Enter 发送）', ctrlEnterEnabled, checked => {
                     ctrlEnterEnabled = checked;
                     GM_setValue(STORAGE_CTRL_ENTER, checked);
                     if (!checked) showToast('已恢复 Enter 发送，Shift+Enter 换行');
                     else showToast('已开启 Ctrl+Enter 发送，Enter 换行');
+                }),
+                createToggleSetting('回复完成提醒', '回复生成结束时发一条系统通知（只在本标签页处于后台时提醒；需脚本管理器支持 GM_notification）', notifyOnDone, checked => {
+                    notifyOnDone = checked;
+                    GM_setValue(STORAGE_NOTIFY_DONE, checked);
+                    showToast(`回复完成提醒已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
             { key: 'folder', icon: 'folder-outline', title: '对话文件夹', sub: '左侧历史栏分组管理（可选模块）', build: () => [
@@ -824,8 +860,9 @@
                 foldThreshold = 20; GM_setValue(STORAGE_FOLD_THRESHOLD, 20);
                 previewLines = 0; enablePreviewLines = false; GM_setValue(STORAGE_PREVIEW_LINES, 0);
                 tableButtonsEnabled = true; GM_setValue(STORAGE_TABLE_BUTTONS_ENABLED, true);
-                autoCollapseThinking = true; GM_setValue(STORAGE_AUTO_COLLAPSE_THINKING, true);
-                simulateClickThinking = true; GM_setValue(STORAGE_SIMULATE_CLICK_THINKING, true);
+                thinkDisplayMode = 'preview'; GM_setValue(STORAGE_THINK_DISPLAY, 'preview');
+                thinkPreviewHeight = 200; GM_setValue(STORAGE_THINK_PREVIEW_HEIGHT, 200);
+                thinkPreviewMinHeight = 300; GM_setValue(STORAGE_THINK_PREVIEW_MIN, 300);
                 tableThemeMode = 'auto'; GM_setValue(STORAGE_TABLE_THEME_MODE, 'auto');
                 tableHeadAlign = 'auto'; GM_setValue(STORAGE_TABLE_HEAD_ALIGN, 'auto');
                 tableWidthAlgo = 'smart'; GM_setValue(STORAGE_TABLE_WIDTH_ALGO, 'smart');
@@ -834,6 +871,7 @@
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
                 wideScreenLevel = WIDE_LEVEL_DEFAULT; GM_setValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT);
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
+                notifyOnDone = true; GM_setValue(STORAGE_NOTIFY_DONE, true);
                 tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
                 pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
                 codeBgEnhance = true; GM_setValue(STORAGE_CODE_BG, true);
@@ -857,7 +895,7 @@
                 applyWideScreen(false);
                 reapplyFoldToAllCodeBlocks();
                 toggleTableButtons(true);
-                reapplyThinkingSections();
+                safeRun(applyThinkPreviewHeight, '思考预览定高重应用');
                 document.querySelectorAll('.ds-markdown table').forEach(t => applyTableStyles(t));
                 showToast('已恢复默认设置');
                 // 保留 300ms 让「已恢复」toast 在面板重建前可见；导航位置由 _lastPanelPage 保留，
@@ -925,15 +963,20 @@
         return item;
     }
 
-    function createNumberSetting(labelText, description, unit, currentValue, onChange) {
+    // maxPositive：有上限时夹到该值；disabled：依赖的开关没开时置灰（同 createToggleSetting）；
+    // minPositive：下限（默认 0）。三者都可省略。
+    function createNumberSetting(labelText, description, unit, currentValue, onChange, maxPositive, disabled, minPositive) {
+        const min = minPositive > 0 ? minPositive : 0;
         const wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex; gap:6px; align-items:center;';
         const input = document.createElement('input');
-        input.type = 'number'; input.value = currentValue; input.min = 0; input.step = 1;
+        input.type = 'number'; input.value = currentValue; input.min = min; input.step = 1;
+        if (maxPositive > 0) input.max = maxPositive;
         input.className = 'ds-panel-input';
         input.addEventListener('change', () => {
             let val = parseInt(input.value, 10);
-            if (isNaN(val) || val < 0) val = 0;
+            if (isNaN(val) || val < min) val = min;
+            if (maxPositive > 0 && val > maxPositive) val = maxPositive;
             input.value = val;
             onChange(val);
             refreshPanelDeps();
@@ -945,7 +988,7 @@
             u.textContent = unit;
             wrap.appendChild(u);
         }
-        return createSettingRow(labelText, description, wrap);
+        return createSettingRow(labelText, description, wrap, disabled);
     }
 
     function createToggleSetting(labelText, description, checked, onToggle, disabled) {
@@ -1122,21 +1165,6 @@
         });
     }
 
-    function reapplyThinkingSections() {
-        if (autoCollapseThinking) {
-            bindThinkClickWatcher();
-            // 两种模式互斥：模拟点击模式不需要 CSS 隐藏样式，切换时顺手清掉。
-            if (simulateClickThinking) removeThinkCssStyle();
-            else ensureThinkCssStyle();
-            processAllThinkingSections();
-        } else {
-            // 关闭时移除 CSS 模式样式，并恢复被旧版本 inline display:none 隐藏的正文，
-            // 保证「关闭即恢复」；已经由原生点击折叠的区域仍需用户手动展开（DeepSeek 自己管理状态）。
-            removeThinkCssStyle();
-            cleanupThinkState();
-        }
-    }
-
     function applyTableThemeClass(mode) {
         const html = document.documentElement;
         html.classList.remove('ds-table-auto', 'ds-table-dual');
@@ -1214,7 +1242,51 @@
         .ds-code-export-btn svg { width: 20px; height: 20px; display: block; }
         /* 对话导出勾选态下整体隐藏，避免与勾选交互互相干扰（与 .table-internal-buttons 同策略） */
         .ds-md-selection-active .ds-code-export-btn { display: none !important; }
-        .ds-fold-preview::after { content: " ..."; display: block; text-align: center; color: inherit; opacity: 0.6; margin-top: 4px; }
+        /* 折叠预览的底部渐变遮罩（替代「 ... 」文字提示）；底色调跟随代码块底色：加深开 → 用 --ds-code-bg，
+           否则退回官网代码块底色。指针事件关掉，不挡块内滚动/选中。 */
+        .ds-fold-preview { position: relative; }
+        .ds-fold-preview::after {
+            content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 48px;
+            /* 百分比按 pre 的**已用高度**解析（折叠态即被 max-height 夹断后的高度），
+               所以「只显示 1~2 行」时遮罩会跟着缩，不会把整窗内容压成底色。 */
+            max-height: 45%;
+            background: linear-gradient(to bottom, transparent 0%, var(--ds-fold-mask-bg, var(--dsw-alias-markdown-code-block-banner, #f9fafb)) 100%);
+            pointer-events: none; z-index: 1;
+        }
+        body.dark .ds-fold-preview::after {
+            --ds-fold-mask-bg: var(--dsw-alias-markdown-code-block-banner, #1e1e2d);
+        }
+        /* 必须限定浅色：背景加深的色板只服务浅色（深色下代码块仍是官网底色），
+           否则这条会以同特异性、更靠后的顺序盖掉上面的深色规则，深色主题里折出浅灰渐变。 */
+        html.ds-code-bg body:not(.dark) .ds-fold-preview::after { --ds-fold-mask-bg: var(--ds-code-bg); }
+
+        /* ===== 思考区域「定高滚动预览窗口」：默认态（CSS 夹断），流式生成时自动生效。
+           分段结构下表头容器由 JS 整根移出滚动容器（见 splitThinkHeaderBand），越头几何上不可能。
+           窗口**不画边框、不加圆角** —— 夹断只靠高度差表达（少一圈视觉噪音，更贴近原生观感）。 */
+        .ds-think-preview {
+            display: block !important;       /* 避免内容盒为 display:contents/inline 而无盒子，导致 max-height/overflow 失效 */
+            position: relative !important;   /* 保留定位参照：删掉会改锚点 */
+            min-height: 0 !important;        /* 思考区若是 flex 子项，默认 min-height:auto 会撑破 max-height */
+            max-height: ${THINK_PREVIEW_MAX_H} !important;   /* 下限 80px / 上限 500px 由这个表达式兜住 */
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            box-sizing: border-box;
+        }
+        /* 预览窗口定位包裹层：滚动容器外包一层相对定位容器（表头带会被搬进这一层，见 splitThinkHeaderBand）。
+           wrap 本身不参与布局，高度由内部滚动容器撑开；保留 position: relative —— 它同时是表头带的包含块，
+           去掉会改变表头带在「页面用绝对定位排它」时的参照。 */
+        .ds-think-preview-wrap { position: relative; }
+        /* wrap 插进「思考内容盒 → 正文」之间后，页面自己那条「上一个块 + 正文」的关系型间距规则不再匹配：
+           实测正文 margin-top 由 10px 变 0。按实测原值补回（页面若改了间距，改这一个数即可）；
+           wrap 拆掉后本规则自然失效、不留残留。 */
+        .ds-think-preview-wrap + .ds-assistant-message-main-content { margin-top: 10px !important; }
+        /* 防止内部 flex 子项（默认 min-height:auto）被内容撑破外层 max-height。
+           **标题行必须排除**：页面给标题文字的自然值是 min-height:auto，一并压成 0 会让标题行在夹断态
+           矮 6px（实测行高 34 → 28）。标题行只有一行高，本来就不可能撑破 80–500px 的夹断。
+           注：pinHeadRowHeight 写的是 .ds-think-preview-headrow 上的内联 min-height（非 !important），
+           要等表头带被 splitThinkHeaderBand 移出滚动容器后才生效 —— 这正是我们要的顺序。 */
+        .ds-think-preview > * { min-height: 0 !important; }
+        .ds-think-preview > .ds-think-preview-head { min-height: auto !important; }
 
         /* ===== 页面内设置入口（右下角悬浮按钮） =====
            位置与常见悬浮设置按钮一致：right 48 / bottom 25、38×38；
@@ -2272,6 +2344,33 @@
             border-bottom: 1px solid var(--ds-code-bg-line) !important;
         }
 
+        /* ===== 表格放大层（只读）：表内「放大」钮 → 全屏遮罩 + 表格克隆 =====
+           克隆体包一层 .ds-markdown，页面样式表与脚本主题配色靠这个祖先选择器命中，主题自动跟随。
+           脚本注入的 .ds-markdown table 带 width:100% !important，只有内联 !important 压得住，
+           故关键尺寸一律由 JS 用 setProperty(..., 'important') 写入。 */
+        #ds-table-zoom-box {
+            box-sizing: border-box;
+            max-width: 75vw; max-height: 84vh; overflow: auto;
+            padding: 16px; border-radius: 10px; background: #fff;
+            box-shadow: 0 12px 40px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.08);
+        }
+        body.dark #ds-table-zoom-box { background: #1a1a24; }
+        #ds-table-zoom-box .ds-markdown { margin: 0; }
+        /* 单元格换行 + 不可断内容兜底（white-space 由 JS 分阶段切：量宽度时必须 nowrap） */
+        #ds-table-zoom-box .ds-markdown th, #ds-table-zoom-box .ds-markdown td {
+            box-sizing: border-box; overflow-wrap: anywhere; word-break: break-word;
+        }
+        #ds-table-zoom-box .ds-markdown img { max-width: 100%; }
+        /* 关闭钮挂在遮罩上（不是内容盒）：内容盒自己会滚，绝对定位在里面会跟着滚走 */
+        #ds-table-zoom-close {
+            position: absolute; top: 22px; right: 26px;
+            width: 32px; height: 32px; border: none; border-radius: 8px;
+            background: rgba(255,255,255,.14); color: #fff;
+            font-size: 20px; line-height: 1; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #ds-table-zoom-close:hover { background: rgba(255,255,255,.26); }
+
         /* ==================== 代码块导出为图片 — 弹窗 ====================
            复用脚本弹窗主题令牌 --ds-md-*（其定义在 body 上、含深色覆盖，见上方说明）。
            这里只定义本功能自己的类名与布局，不重复定义色板。 */
@@ -2410,7 +2509,8 @@
             preEl.classList.remove('ds-fold-preview');
         }
         const iconDiv = btn.querySelector('.fold-icon');
-        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_UP;
+        // 折叠态：下箭头 = 「点击展开」（箭头表达下一步动作，不是当前状态）
+        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_DOWN;
         btn.querySelector('span').textContent = btnTextUnfold;
         btn.setAttribute('aria-label', '展开代码块');
     }
@@ -2427,7 +2527,8 @@
             preEl.style.display = '';
         }
         const iconDiv = btn.querySelector('.fold-icon');
-        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_DOWN;
+        // 展开态：上箭头 = 「点击折叠」
+        if (iconDiv) iconDiv.innerHTML = ICON_CHEVRON_UP;
         btn.querySelector('span').textContent = btnTextFold;
         btn.setAttribute('aria-label', '折叠代码块');
     }
@@ -2476,7 +2577,7 @@
         btn.className = 'ds-fold-btn';
         const iconDiv = document.createElement('div');
         iconDiv.className = 'fold-icon';
-        iconDiv.innerHTML = isFolded ? ICON_CHEVRON_UP : ICON_CHEVRON_DOWN;
+        iconDiv.innerHTML = isFolded ? ICON_CHEVRON_DOWN : ICON_CHEVRON_UP;   // 折叠态⌄（点击展开）/ 展开态⌃（点击折叠）
         const textSpan = document.createElement('span');
         textSpan.textContent = isFolded ? btnTextUnfold : btnTextFold;
         btn.appendChild(iconDiv);
@@ -2493,8 +2594,17 @@
             } else {
                 currentlyFolded = false;
             }
+            // 原地折叠/展开：让按钮的视口位置不变。块高一收一展差几千 px，浏览器滚动锚定还会自己挑候选去补
+            //（常挑到块内已被裁掉的行）→「页面自己滚一段」。锚按钮而非块顶：按钮被钉在顶部那态下，锚块顶会把
+            //整块推出视野；只补这一帧、不逐帧跟随（逐帧会与页面/浏览器自身的补偿互相打架）。
+            const anchorTop = btn.getBoundingClientRect().top;
+            const vl = preEl.closest && preEl.closest('.ds-virtual-list');
+            // 必须确认它真的在滚：类名在、但滚动的是页面时，写错元素等于没补
+            const scroller = (vl && vl.scrollHeight > vl.clientHeight) ? vl : document.scrollingElement;
             if (currentlyFolded) expandBlock(preEl, btn);
             else collapseBlock(preEl, btn);
+            const dy = btn.getBoundingClientRect().top - anchorTop;
+            if (scroller && Math.abs(dy) > 1) scroller.scrollTop += dy;
         });
         return btn;
     }
@@ -2988,6 +3098,10 @@
     }
 
     function applyTableStyles(table) {
+        // 放大层里的克隆表由 layoutZoomTable 独占管理：本函数会把宽度钉在聊天区宽度（虚拟列表容器宽）
+        // 并按列宽策略重写列宽 —— 那正是「放大后表格没变大、长列还被挤成一行几个字」的原因。
+        // guard 放在这个共用入口，所有调用路径（processAllTables / 开关切换 / 恢复默认）一并挡住。
+        if (table.closest('#' + TABLE_ZOOM_ID)) return;
         // 流式构建中可能只出现了 <table> 还没有任何单元格：此时无从对齐列宽，直接跳过。
         // 指纹状态机会在单元格出现后（指纹变化）重新调度，不会永久漏处理。
         if (!table.rows.length) return;
@@ -3253,6 +3367,10 @@
 
             // 深拷贝表格：保留 colgroup，使导出图的列宽分配与页面一致
             const clone = getCleanTableClone(table, { keepColGroup: true });
+            // 引用角标 / 外链图标一律不画进 PNG（坐标按原页面算，脱离页面会飘到别的列）；CSV/MD 走文本清洗
+            clone.querySelectorAll('a, span, sup, i, em').forEach(el => {
+                if (exportDecoText(el, false) !== null) el.remove();
+            });
             scaleCloneColumns(clone, srcW, targetW);
 
             // 收集页面上表格相关样式（全局注入 + DeepSeek 变量）；传入源表格以便抄其单元格文字色
@@ -3424,6 +3542,19 @@
         return css;
     }
 
+    // 导出按钮的统一入口：兜住异常并给出反馈。PNG 导出是 async，同步 try/catch 兜不住 rejected promise，
+    // 漏掉时用户只看到「点了没反应」（异常留在控制台的 unhandled rejection 里）。
+    function runTableExport(fn, table, label) {
+        const onErr = e => {
+            console.error('[deepseektool] ' + label + '导出异常:', e);
+            alert(label + '导出失败：' + (e && e.message ? e.message : e));
+        };
+        try {
+            const r = fn(table);
+            if (r && typeof r.catch === 'function') r.catch(onErr);
+        } catch (e) { onErr(e); }
+    }
+
     function exportTableAsCSV(table) {
         const clone = getCleanTableClone(table);   // 基于清洗克隆，避免读取页面注入样式/按钮
         const rows = [];
@@ -3478,9 +3609,54 @@
         });
         if (!rows.length) { alert('无数据'); return; }
         const md = rows.map(r => '| ' + r.join(' | ') + ' |').join('\n');
-        navigator.clipboard.writeText(md)
-            .then(() => showToast('表格已复制为 Markdown'))
-            .catch(() => alert('复制失败，请手动复制'));
+        copyTextWithFallback(md, '表格已复制为 Markdown');
+    }
+
+    // 通用剪贴板写入：Clipboard API → 隐藏 textarea + execCommand 兜底（非安全上下文 / 沙盒下 API 不可用或被拒），
+    // 两条路都失败才报错。兜底自身也可能抛（execCommand 在个别环境会异常）→ 包住。
+    function copyTextWithFallback(text, successMsg) {
+        const fallback = () => {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select(); ta.setSelectionRange(0, ta.value.length);
+            const ok = document.execCommand('copy');
+            ta.remove();
+            return ok;
+        };
+        const done = () => showToast(successMsg);
+        const tryFallback = () => {
+            let ok = false;
+            try { ok = fallback(); } catch (e) { console.error('[deepseektool] 剪贴板兜底写入异常:', e); }
+            if (ok) done(); else alert('复制失败，请手动复制');
+        };
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).then(done).catch(tryFallback);
+        } else {
+            tryFallback();
+        }
+    }
+
+    // 引用角标（`<a href=…>`，文字形如「-9」）与外链图标（纯短横、且前面已有正文）都不是正文：
+    // 返回 null=非装饰 / ''=丢弃 / 字符串=替换成的文本。判据取自实测导出文件；
+    // **图标就是「纯短横的 span」，故意不要求 href/类名** —— 宁可极少见地误删正文里的短横，也不让图标回到导出里。
+    function exportDecoText(el, forMarkdown) {
+        const t = (el.textContent || '').trim(), href = el.getAttribute ? el.getAttribute('href') : null;
+        const isCite = !!href && /^[-–—]\s*\d{1,3}$/.test(t);
+        const prev = el.previousSibling;
+        const isIcon = !isCite && /^[-–—]+$/.test(t) && !!prev && !!(prev.textContent || '').trim();
+        if (!isCite && !isIcon) return null;
+        if (isIcon) return '';
+        const label = t.replace(/^[-–—\s]+/, '');
+        return forMarkdown ? `[${label}](${href})` : `${label} (${href})`;
+    }
+
+    // 单元格链接补地址：MD 出 [文字](地址)、CSV 出「文字 (地址)」；裸 URL（文字===地址）不重复书写
+    function linkText(a, forMarkdown) {
+        const href = a.getAttribute('href') || '', label = a.textContent.trim();
+        if (!href || label === href) return label;
+        return forMarkdown ? `[${label}](${href})` : `${label} (${href})`;
     }
 
     // 提取带 Markdown 行内语法（`code` / **加粗** / *斜体*）的单元格文本，并对管道符做转义；
@@ -3491,9 +3667,12 @@
             if (n.nodeType === Node.TEXT_NODE) text += n.textContent;
             else if (n.nodeName === 'BR') text += '\n';
             else if (n.nodeType === Node.ELEMENT_NODE) {
-                if (n.tagName === 'CODE') text += '`' + n.textContent + '`';
+                const deco = exportDecoText(n, true);
+                if (deco !== null) text += deco;
+                else if (n.tagName === 'CODE') text += '`' + n.textContent + '`';
                 else if (n.tagName === 'STRONG' || n.tagName === 'B') text += '**' + n.textContent + '**';
                 else if (n.tagName === 'EM' || n.tagName === 'I') text += '*' + n.textContent + '*';
+                else if (n.tagName === 'A') text += linkText(n, true);
                 else text += getCellTextForMarkdown(n);
             }
         });
@@ -3506,7 +3685,10 @@
         cell.childNodes.forEach(n => {
             if (n.nodeType === Node.TEXT_NODE) t += n.textContent;
             else if (n.nodeName === 'BR') t += '\n';
-            else if (n.nodeType === Node.ELEMENT_NODE) t += getCellText(n);
+            else if (n.nodeType === Node.ELEMENT_NODE) {
+                const deco = exportDecoText(n, false);
+                t += (deco !== null) ? deco : ((n.tagName === 'A') ? linkText(n, false) : getCellText(n));
+            }
         });
         // 保留 <br> 产生的换行，压缩其他空白字符
         t = t.replace(/[^\S\n]+/g, ' ').replace(/ *\n */g, '\n').trim();
@@ -3521,6 +3703,8 @@
 
     function addButtonsToTable(table) {
         if (!tableButtonsEnabled) return;
+        // 放大层里的克隆表不给挂按钮：克隆体没有事件监听，挂上去就是一排点不动的死按钮
+        if (table.closest('#' + TABLE_ZOOM_ID)) return;
         const existing = _btnsOfTable.get(table);
         if (existing && existing.isConnected) return;   // 已挂且仍在文档中
         if (existing) existing.remove();
@@ -3561,6 +3745,7 @@
             png: '<path d="M19 19H5V5h14m0-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m-5.04 9.29l-2.75 3.54l-1.96-2.36L6.5 17h11z"/>',
             csv: '<path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8zm4 18H6V4h7v5h5zm-8-1l2-4H9v-5h6v5l-2 4z"/>',
             md: '<path d="M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6 3.44 6h17.12c.79 0 1.44.63 1.44 1.41v9.18c0 .78-.65 1.41-1.44 1.41M6.81 15.19v-3.66l1.92 2.35l1.92-2.35v3.66h1.93V8.81h-1.93l-1.92 2.35l-1.92-2.35H4.89v6.38zM19.69 12h-1.92V8.81h-1.92V12h-1.93l2.89 3.28z"/>',
+            zoom: '<path d="M5 5h5V3H3v7h2V5m14 0v5h2V3h-7v2h5M5 19v-5H3v7h7v-2H5m14 0h-5v2h7v-7h-2v5z"/>',
         };
         const tableExportIconUrl = (name) => 'data:image/svg+xml,' + encodeURIComponent(
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" color="#5b6472" fill="#5b6472">'
@@ -3584,11 +3769,12 @@
             return b;
         };
 
-        const pngBtn = makeExportBtn('📸', 'png', '导出为 PNG', () => exportTableAsPNG(table));
-        const csvBtn = makeExportBtn('📄', 'csv', '导出为 CSV', () => exportTableAsCSV(table));
-        const mdBtn  = makeExportBtn('📝', 'md', '导出为 Markdown', () => exportTableAsMD(table));
+        const pngBtn = makeExportBtn('📸', 'png', '导出为 PNG', () => runTableExport(exportTableAsPNG, table, 'PNG'));
+        const csvBtn = makeExportBtn('📄', 'csv', '导出为 CSV', () => runTableExport(exportTableAsCSV, table, 'CSV'));
+        const mdBtn  = makeExportBtn('📝', 'md', '导出为 Markdown', () => runTableExport(exportTableAsMD, table, 'Markdown'));
+        const zoomBtn = makeExportBtn('⛶', 'zoom', '放大查看（只读，Esc / 点空白关闭）', () => openTableZoom(table));
 
-        bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn);
+        bc.appendChild(pngBtn); bc.appendChild(csvBtn); bc.appendChild(mdBtn); bc.appendChild(zoomBtn);
         host.appendChild(bc);
         _btnsOfTable.set(table, bc);
         _tableOfBtns.set(bc, table);
@@ -3650,6 +3836,174 @@
                 if (table && table.isConnected) positionTableButtons(table, bc);
             });
         });
+    }
+
+    // ==================== 表格放大层（只读） ====================
+    const TABLE_ZOOM_ID = 'ds-table-zoom-overlay';
+    const TABLE_ZOOM_BOX_ID = 'ds-table-zoom-box';
+    const TABLE_ZOOM_COL_MIN = 80;   // 列宽下限：连它都分不到就不压了，改横向滚动（与「均分 + 最小宽度保护」同口径）
+    const TABLE_ZOOM_PAD = 32;       // 内容盒左右 padding 合计（#ds-table-zoom-box 为 16px × 2）
+
+    function closeTableZoom() {
+        const ov = document.getElementById(TABLE_ZOOM_ID);
+        if (ov) ov.remove();
+        document.removeEventListener('keydown', onZoomEsc, true);
+        window.removeEventListener('resize', onZoomResize);
+        clearTimeout(_tableZoomResizeTimer);
+    }
+
+    function onZoomEsc(e) {
+        if (e.key !== 'Escape') return;
+        // 模态层：Esc 只用来关它，别让页面或其它模块同时响应
+        e.preventDefault(); e.stopPropagation();
+        closeTableZoom();
+    }
+
+    let _tableZoomResizeTimer = null;
+    function onZoomResize() {
+        clearTimeout(_tableZoomResizeTimer);
+        _tableZoomResizeTimer = setTimeout(() => {
+            const box = document.getElementById(TABLE_ZOOM_BOX_ID);
+            if (box) layoutZoomTable(box);   // 可用宽度变了 → 按新宽度重算列宽
+        }, 150);
+    }
+
+    // 列宽分配（纯函数，check-table-zoom-cols.js 跑边界）：装得下就原样返回（自然宽度，不拉伸）；
+    // 装不下时阈值 A = target/n —— 自然宽 ≤ A 的列保持自然宽（短列不跟随压窄，仍一行放得下），> A 的列
+    // 均分剩余；均分后不足 80px 就返回 null，交给横向滚动。小列恒 ≤ A ≤ 大列，不会出现小列比大列宽。
+    function distributeCols(natural, target) {
+        const n = natural.length;
+        if (!n || !(target > 0)) return null;
+        const total = natural.reduce((a, b) => a + b, 0);
+        if (total <= target + 0.5) return natural;           // 装得下 → 自然宽度原样（调用方只读）
+        const avg = target / n;
+        const smallTotal = natural.reduce((s, w) => s + (w <= avg ? w : 0), 0);
+        const bigCount = natural.filter(w => w > avg).length;
+        if (!bigCount) return null;
+        const bigW = (target - smallTotal) / bigCount;       // 均分后的长列宽度
+        if (bigW < TABLE_ZOOM_COL_MIN) return null;          // 压不动 → 不压，交给横向滚动
+        return natural.map(w => (w <= avg ? w : bigW));
+    }
+
+    // 测量期临时展平硬换行（<br> → 空格、块级子元素 → 行内并在其前补空格）：硬换行会把 max-content 卡在
+    // 「最长一行」上，量到的自然宽度偏小（实测同一段文字：纯长句 602px、含 <br> 只有 280px）。
+    // 只服务测量，返回的还原函数必须在读完宽度后立刻调用。
+    function flattenCellBreaks(cells) {
+        const restore = [];
+        cells.forEach(cell => {
+            cell.querySelectorAll('br').forEach(br => {
+                const sp = document.createTextNode(' ');
+                br.parentNode.replaceChild(sp, br);
+                restore.push(() => { if (sp.parentNode) sp.parentNode.replaceChild(br, sp); });
+            });
+            cell.querySelectorAll('p, div, li').forEach(el => {
+                el.style.setProperty('display', 'inline', 'important');
+                restore.push(() => el.style.removeProperty('display'));
+                // 块级之间原本靠换行分隔，展平后要补一个空格，否则两段文字会粘在一起（测量偏窄）
+                const gap = document.createTextNode(' ');
+                el.parentNode.insertBefore(gap, el);
+                restore.push(() => { if (gap.parentNode) gap.parentNode.removeChild(gap); });
+            });
+        });
+        return () => restore.forEach(fn => fn());
+    }
+
+    function layoutZoomTable(box) {
+        const table = box.querySelector('table');
+        const headRow = table && (table.querySelector('thead tr') || table.querySelector('tr'));
+        if (!table || !headRow || !headRow.cells.length) return;
+        const cells = table.querySelectorAll('th, td');
+        // 内联 !important 才压得住 .ds-markdown table 的 `width: 100% !important`
+        const set = (el, prop, val) => el.style.setProperty(prop, val, 'important');
+
+        // 页面会在单元格上留 min/max-width 约束（来自类规则而非内联，克隆清洗碰不到），
+        // fixed 布局下它把写死的列宽整个扭曲（写 218px 渲染成 369.5px）→ 压成 0 / none。
+        cells.forEach(c => { set(c, 'min-width', '0'); set(c, 'max-width', 'none'); });
+
+        // <col> 的宽度在 fixed 布局下**优先于首行单元格**，同样会盖掉写死的列宽 → 清成 auto。
+        // 选择器必须用 'col'：页面把 <col> 直接挂在 <table> 下，'colgroup col' 会漏掉。
+        table.querySelectorAll('col').forEach(c => set(c, 'width', 'auto'));
+
+        // 阶段一：nowrap 铺开 + 展平硬换行，量每列的真实自然宽度（浏览器按整列 max-content 算，不用采样估算）
+        set(table, 'table-layout', 'auto');
+        set(table, 'width', 'max-content');
+        set(table, 'max-width', 'none');
+        cells.forEach(c => set(c, 'white-space', 'nowrap'));
+        const restoreBreaks = flattenCellBreaks(cells);
+        const natural = Array.from(headRow.cells, c => c.getBoundingClientRect().width);
+        restoreBreaks();   // 量完立刻还原：展平只服务测量，内容与渲染不受影响
+
+        // 阶段二：定宽 —— 宽度定了，装不下的文本才开始换行（阶段一不能换行，否则量不到真实宽度）
+        cells.forEach(c => set(c, 'white-space', 'normal'));
+        table.querySelectorAll('pre').forEach(p => set(p, 'white-space', 'pre-wrap'));   // 代码块默认不换行，会溢出到邻列
+
+        // 可用宽度**按 75vw 算，不能读 box.clientWidth**：盒子是 shrink-to-fit，表格窄时盒子跟着缩，
+        // 读到的可用宽会被表格当前宽度绑架（实测展平量到 604，却因 W 读成 373 又压回 373）。
+        const W = Math.round(window.innerWidth * 0.75) - TABLE_ZOOM_PAD + 1;
+        // 每列需求向上取整 +1：max-content 常是小数（实测某列 159.41），写回的宽度只能是整 px，
+        // `Math.round` 少掉的那零点几 px 恰好让「刚好占满一行」的单元格多折一个字。
+        const need = natural.map(v => Math.ceil(v) + 1);
+        const naturalTotal = need.reduce((a, b) => a + b, 0);
+        // 目标总宽 = 各列自然宽之和，只有超过可用宽才压缩（窄表该多宽就多宽，不做下限、不铺满）。
+        const widths = distributeCols(need, Math.min(naturalTotal, W));
+        // 写死宽度（fixed + 每列 px）：不能退回 max-content 表达「自然宽度」——
+        // max-content 会再次被硬换行卡在「最长一行」上（实测展平量到 614、退回后渲染又变回 373）。
+        const total = widths && naturalTotal > W + 0.5 ? W : naturalTotal;
+        set(table, 'table-layout', 'fixed');
+        set(table, 'width', Math.round(total) + 'px');
+        for (let i = 0; i < headRow.cells.length; i++) {
+            set(headRow.cells[i], 'width', Math.round((widths || need)[i]) + 'px');
+        }
+    }
+
+    function openTableZoom(table) {
+        if (!table || !table.isConnected) return;
+        closeTableZoom();   // 单实例（与控制面板同款写法）
+
+        const overlay = document.createElement('div');
+        overlay.id = TABLE_ZOOM_ID;
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.45); backdrop-filter: blur(6px);
+            /* 与控制面板同层（10001）：遮罩后插入，所以盖在面板之上；toast 每次都是新建并追加到 body 末尾，
+               同层下同样盖在遮罩之上 —— 再抬高遮罩反而会把 toast 压到下面。 */
+            z-index: 10001; display: flex; align-items: center; justify-content: center;
+        `;
+        const box = document.createElement('div');
+        box.id = TABLE_ZOOM_BOX_ID;
+
+        // 克隆 + 包一层 .ds-markdown：页面与脚本的表格视觉全靠这个祖先选择器命中（不包就只剩网页默认样式）
+        const md = document.createElement('div');
+        md.className = 'ds-markdown';
+        const clone = getCleanTableClone(table);
+        // 单元格里的脚本注入按钮在克隆体上没有事件（死按钮）→ 摘掉；顺手把被折叠的代码块还原
+        clone.querySelectorAll('.ds-fold-btn-wrapper, .ds-fold-btn, .ds-code-export-btn').forEach(el => el.remove());
+        clone.querySelectorAll('pre').forEach(p => {
+            p.style.removeProperty('max-height');
+            p.style.removeProperty('overflow');
+            p.style.removeProperty('display');
+            // 类名不带折叠态：只是还原了内联样式的话，`.ds-fold-preview::after` 的渐变遮罩
+            // 仍会画在展开后的代码块底部（pre 的 height 不再被夹断，遮罩跟着落在最后几行上）。
+            p.classList.remove('ds-fold-preview');
+        });
+        md.appendChild(clone);
+        box.appendChild(md);
+
+        const close = document.createElement('button');
+        close.id = 'ds-table-zoom-close';
+        close.type = 'button';
+        close.textContent = '×';
+        close.setAttribute('aria-label', '关闭');
+        close.addEventListener('click', closeTableZoom);
+
+        overlay.appendChild(box);
+        overlay.appendChild(close);
+        overlay.addEventListener('click', e => { if (e.target === overlay) closeTableZoom(); });
+        document.body.appendChild(overlay);
+
+        layoutZoomTable(box);   // 必须已入文档：要读布局
+        document.addEventListener('keydown', onZoomEsc, true);
+        window.addEventListener('resize', onZoomResize);
     }
 
     // 表格指纹追踪：记录每个表格的稳定计数，连续 2 次指纹不变即视为稳定
@@ -3749,7 +4103,8 @@
     let _tableDebounceTimer = null;
     function scheduleTableProcess() {
         clearTimeout(_tableDebounceTimer);
-        _tableDebounceTimer = setTimeout(processAllTables, TABLE_DEBOUNCE_MS);
+        // 异步执行必须隔离：抛错会静默中断本轮全部表格处理，且没有日志可查
+        _tableDebounceTimer = setTimeout(() => safeRun(processAllTables, '表格刷新'), TABLE_DEBOUNCE_MS);
     }
 
     // 可用宽度变了（宽屏切换 / 窗口缩放 / 浏览器缩放 / 侧栏收放）→ 所有表格必须按新宽度重算。
@@ -3806,145 +4161,636 @@
         _lastTableWidth = el.getBoundingClientRect().width;
     }
 
-    // ==================== AI思考区域自动折叠逻辑 ====================
-    // v5.7.3 重写。旧实现的两个硬伤（均已实机复现）：
-    //  ① 注入全局 `.ds-think-content{display:none!important}` 预隐藏，靠 capture 点击「一次性」移除；
-    //     移除后新思考不再受保护，且流式期间标题是「正在思考」扫不到 → 新思考永远不折叠；
-    //     若页面没有可折叠的历史思考区，CSS 会一直存在 → 新思考正文不可见，用户点击反而把它折叠。
-    //  ② CSS 回退模式写 inline display:none + data 标记，用户点击、关闭开关都无法恢复。
-    // 现方案：不预隐藏；只处理「有正文节点 = 展开态」的思考区（DeepSeek 折叠后会卸载正文，天然幂等）；
-    // 标题栏文本变化（正在思考 → 已思考）也触发重扫；用户手动展开后在该消息上打豁免标记。
-    const THINK_TITLE_SELECTOR = 'div[class*="_5ab5d64"]';
-    const THINK_TITLE_RE = /已思考|正在思考|思考中|Thinking|Thought/i;
-    const THINK_USER_ATTR = 'dsUserThinkExpanded';
-    const THINK_USER_SELECTOR = '[data-ds-user-think-expanded]';
-    let _thinkCssStyle = null;
-    let _thinkClickBound = false;
-    let _scriptClickTarget = null;
+    // ==================== AI 思考区域「定高滚动预览窗口」 ====================
+    // 只做视觉态（定高夹断 + 滚动），不折叠、不模拟点击；原版那套「自动折叠 + 模拟点击」已整体移除。
 
-    function isThinkTitleBar(el) {
-        return !!(el && el.textContent && THINK_TITLE_RE.test(el.textContent));
-    }
-
-    // 标题栏 → 同一条消息内的思考正文。限定在 .ds-message 内，避免向上 querySelector 捞到别的消息。
+    // 从标题行向上找「它自己那一段」的 .ds-think-content。**必须限定在同一条消息内**：越过消息边界会
+    // 命中别的块的正文（表现为「点 A 块却撤掉 B 块的夹断 + 页面位移」）。收起态正文不在 DOM 里 → null。
     function findThinkContent(titleBar) {
+        const msg = titleBar.closest ? titleBar.closest('.ds-message') : null;
+        const stopAt = msg || document.body;
         let parent = titleBar.parentElement;
-        while (parent && parent !== document.body) {
+        while (parent && parent !== stopAt) {
             const tc = parent.querySelector('.ds-think-content');
             if (tc) return tc;
-            if (parent.matches && parent.matches('.ds-message')) break;
             parent = parent.parentElement;
+        }
+        // 兜底：先限定在「标题行自己所属的统一容器」里找，避免落到同一条消息内**另一个**思考块的正文
+        const owner = findThinkWrapper(titleBar);
+        const segs = owner ? owner.querySelectorAll('.ds-think-content') : null;
+        if (segs && segs.length) return segs[0];
+        return msg ? msg.querySelector('.ds-think-content') : null;
+    }
+
+    let _thinkCaptureAdded = false;
+
+    // 给思考内容加 CSS 夹断（max-height + overflow-y:auto）：视觉态、非折叠动作，流式生成时自动生效。
+    const THINK_FOLLOW_TOLERANCE = 24;        // 距底部多少 px 内视为「跟随最新」状态
+    const _thinkPreviewState = new WeakMap(); // 思考内容盒（不含标题行）-> { enabled, following, scrollHooked }
+
+    // 取真正在滚的元素：虚拟列表存在**且确实在滚**才用它，否则退回文档 —— 类名在、但实际滚的是页面时，
+    // 写错元素等于没跟/没补。
+    function thinkScrollHost() {
+        const vl = document.querySelector('.ds-virtual-list');
+        return (vl && vl.scrollHeight > vl.clientHeight) ? vl : document.scrollingElement;
+    }
+
+    // 语义查找思考标题行（不依赖打包哈希类）：遍历叶子 div，取含「已思考」或「正在思考」的最深元素。
+    // 两种文案都要认 —— 流式期是「正在思考」，只认「已思考」等于哈希类失效时**正在生成中的块全部失联**。
+    function findThinkTitleBarBySemantic(container) {
+        if (!container || !container.getElementsByTagName) return null;
+        let best = null;
+        const all = container.getElementsByTagName('div');
+        for (let i = 0; i < all.length; i++) {
+            const el = all[i];
+            if (el.children && el.children.length) continue; // 只取叶子 div
+            const t = (el.textContent || '').trim();
+            if (!t.includes('已思考') && !t.includes('正在思考')) continue;
+            best = el; // 取文档顺序最靠后的叶子 div（实测即最内层的文案节点）
+        }
+        return best;
+    }
+
+    // 查找「统一思考容器」：一次思考 = 标题行 + 多个交替的 [思考文本段 .ds-think-content] + [工具调用区]，
+    // 它们共用一个父容器。预览必须作用在这层，否则每个思考段/工具区会被各自夹断成多个窗口。
+    function findThinkWrapper(tc) {
+        let node = tc.parentElement;
+        while (node && node !== document.body) {
+            // 跳过自建包裹层（必须 continue）：回退结构下它包住含标题行的整块，会被误判成统一容器 → 内叠
+            if (node.classList && node.classList.contains('ds-think-preview-wrap')) {
+                node = node.parentElement;
+                continue;
+            }
+            // 只查 node 自身子树（不可放宽到「整条消息」）：那会命中别的思考块的标题行，在错误祖先层误判。
+            if (node.querySelector) {
+                if (node.querySelector('div[class*="_5ab5d64"]')) return node;
+                if (findThinkTitleBarBySemantic(node)) return node;
+            }
+            node = node.parentElement;
         }
         return null;
     }
 
-    // 正文 → 标题栏。当前 DOM 里两者同属 ._74c0879 容器，向上逐层找最近的思考标题栏。
-    function findThinkTitleBar(thinkContent) {
-        let parent = thinkContent.parentElement;
-        while (parent && parent !== document.body) {
-            const bar = parent.querySelector(THINK_TITLE_SELECTOR);
-            if (bar && isThinkTitleBar(bar)) return bar;
-            if (parent.matches && parent.matches('.ds-message')) break;
-            parent = parent.parentElement;
+    // 预览窗口夹在哪一层：**优先**「思考内容盒」（统一容器的直接子级里、含全部思考段与工具调用区、
+    // 不含标题行的那层）；不满足时退回整块统一容器 —— 一次思考只能有一个窗口，绝不能每个搜索段各框一个。
+    function findThinkContentBox(tc) {
+        // 已有预览窗口直接复用：分离表头后标题行已移出滚动容器，再走 findThinkWrapper 会误判到更外层
+        const existing = tc.closest && tc.closest('.ds-think-preview');
+        if (existing) return existing;
+        const wrap = findThinkWrapper(tc);
+        if (!wrap) return tc;
+        let node = tc;
+        while (node.parentElement && node.parentElement !== wrap) node = node.parentElement;
+        // 归一化：自建包裹层里真正的内容盒是「包含 tc 的那个子元素」。函数必须幂等 —— 同一结构任意次
+        // 调用都要返回同一元素，否则会无限内叠。
+        if (node.classList && node.classList.contains('ds-think-preview-wrap')) {
+            node = [...node.children].find(c => c.contains(tc)) || node;
         }
-        return null;
+        const titleBar = wrap.querySelector('div[class*="_5ab5d64"]') || findThinkTitleBarBySemantic(wrap);
+        // 结构不典型（该层把标题行也包含进来）→ 无法分离，退回整块容器
+        if (titleBar && node.contains(titleBar)) return wrap;
+        // 覆盖度校验：内容盒必须包含该思考块的全部内容段，否则退回整块容器（保证「一次思考 = 一个窗口」）。
+        if (node.querySelectorAll('.ds-think-content').length !== wrap.querySelectorAll('.ds-think-content').length) {
+            return wrap;
+        }
+        return node;
     }
 
-    // 用户已手动展开的消息不再自动折叠；标记放在 .ds-message 上，标题栏重渲染也不会丢。
-    function thinkUserExpanded(titleBar) {
-        const msg = titleBar.closest && titleBar.closest('.ds-message');
-        return !!(msg && msg.dataset[THINK_USER_ATTR] === 'true');
-    }
-    function setThinkUserExpanded(titleBar, on) {
-        const msg = titleBar.closest && titleBar.closest('.ds-message');
-        if (!msg) return;
-        if (on) msg.dataset[THINK_USER_ATTR] = 'true';
-        else delete msg.dataset[THINK_USER_ATTR];
+    // 元素内部自带的「已思考」标题行。**只查自身子树** —— 放宽到消息级会把别的思考块的标题行误判成表头带。
+    function findThinkHeadInside(tc) {
+        if (!tc.querySelector) return null;
+        return tc.querySelector('div[class*="_5ab5d64"]') || findThinkTitleBarBySemantic(tc);
     }
 
-    // CSS 回退模式：只隐藏带脚本标记的正文，避免旧版全局 !important 规则殃及新思考区。
-    function ensureThinkCssStyle() {
-        if (_thinkCssStyle && _thinkCssStyle.isConnected) return;
-        _thinkCssStyle = document.createElement('style');
-        _thinkCssStyle.id = 'ds-think-css-mode';
-        _thinkCssStyle.textContent = '.ds-think-content[data-ds-script-collapsed="true"] { display: none !important; }';
-        document.head.appendChild(_thinkCssStyle);
-    }
-    function removeThinkCssStyle() {
-        const st = document.getElementById('ds-think-css-mode');
-        if (st) st.remove();
-        _thinkCssStyle = null;
+    // 「展开补偿」的锚点 ＝ **我们真正搬动的那个节点**：表头带（`ds-think-preview-headrow`）。
+    // 夹断生效时它已被 splitThinkHeaderBand 移出内容盒，所以 findThinkHeadInside(unit) 查不到（它只查自身
+    // 子树）；退回内容盒当锚点，就会把「表头带归位」的高度差也算成位移 → 每次展开凭空补一下。结构里没有独立
+    // 表头带（标题行与内容同层）时才退回标题行本身 —— 判据取自同一 headrow 标记（splitThinkHeaderBand
+    // 另需它是「内容盒的直接子级」才搬）。
+    function thinkShiftAnchor(unit) {
+        const wrap = unit.parentElement;
+        const head = (wrap && wrap.classList.contains('ds-think-preview-wrap') ? findThinkHeadInside(wrap) : null) ||
+            findThinkHeadInside(unit);
+        if (!head) return unit;
+        const row = head.parentElement;
+        return (row && row.classList.contains('ds-think-preview-headrow')) ? row : head;
     }
 
-    // 清理旧版本残留：全局预隐藏样式、inline display:none、data 标记、用户豁免。
-    function cleanupThinkState() {
-        const legacy = document.getElementById('ds-think-hide');
-        if (legacy) legacy.remove();
-        document.querySelectorAll('.ds-think-content[data-ds-script-collapsed]').forEach(tc => {
-            delete tc.dataset.dsScriptCollapsed;
-            tc.style.removeProperty('display');
+    // ==================== 分离表头带 ====================
+    // 把「纯表头容器」整根移出滚动容器放进包裹层：内容与滚动条被几何限制在表头以下，「内容越过表头 /
+    // 滚动条压住表头」两个死结从结构上消失。幂等，只搬带 headrow 标记的直接子级。
+    function splitThinkHeaderBand(tc) {
+        const head = findThinkHeadInside(tc);
+        const row = head && head.parentElement;
+        if (!row || !row.classList.contains('ds-think-preview-headrow')) return;
+        const wrap = tc.parentElement;
+        if (!wrap || !wrap.classList.contains('ds-think-preview-wrap')) return;
+        if (row.parentElement === wrap) return;   // 已分离
+        if (row.parentElement !== tc) return;     // 只搬「容器直接子级」的表头带，其余结构不动
+        wrap.insertBefore(row, tc);
+    }
+
+    // 分离的逆操作：把表头带放回滚动容器首位。**必须在拆包裹层之前调用** ——
+    // wrap.remove() 会把还留在里面的 React 节点一起销毁，页面后续更新该思考块时会崩。
+    function restoreThinkHeaderBand(tc) {
+        const wrap = tc.parentElement;
+        if (!wrap || !wrap.classList.contains('ds-think-preview-wrap')) return;
+        // 每个 child 都插到 tc.firstChild，倒序才能还原兄弟顺序；跳过非元素节点（页面自己也可能往这层
+        // 塞过东西，访问 classList 会抛错并连带中断整轮 refresh）。
+        [...wrap.children].reverse().forEach(child => {
+            if (child === tc) return;
+            if (!child.classList) return;
+            child.classList.remove('ds-think-preview-headrow');
+            tc.insertBefore(child, tc.firstChild);
         });
-        document.querySelectorAll('[data-thinking-collapsed]').forEach(el => el.removeAttribute('data-thinking-collapsed'));
-        document.querySelectorAll(THINK_USER_SELECTOR).forEach(el => { delete el.dataset[THINK_USER_ATTR]; });
     }
 
-    function collapseThinkingSection(titleBar, thinkContent) {
-        if (!autoCollapseThinking || !titleBar || !thinkContent) return false;
-        if (thinkUserExpanded(titleBar)) return false;
-        if (simulateClickThinking) {
-            // 实测：思考进行中 / 已完成都能通过点击标题栏收起，且收起状态能保持到思考结束。
-            // 用 _scriptClickTarget 区分脚本点击，避免 capture 里的「用户展开豁免」误判。
-            _scriptClickTarget = titleBar;
-            try { titleBar.click(); } finally { _scriptClickTarget = null; }
-        } else {
-            ensureThinkCssStyle();
-            thinkContent.dataset.dsScriptCollapsed = 'true';
+    // 在滚动容器外包一层相对定位层（表头带会被搬进它里面，见 splitThinkHeaderBand）。幂等。
+    // tc 已脱离文档时返回 null —— 否则 insertBefore 会抛 DOMException，调用方需据此放弃本轮。
+    function ensureThinkPreviewWrap(tc) {
+        let wrap = tc.parentElement;
+        if (wrap && wrap.classList.contains('ds-think-preview-wrap')) return wrap;
+        const parent = tc.parentElement;
+        if (!parent) return null;
+        wrap = document.createElement('div');
+        wrap.className = 'ds-think-preview-wrap';
+        parent.insertBefore(wrap, tc);
+        wrap.appendChild(tc);
+        return wrap;
+    }
+
+    // 拆除包裹层，恢复 wrapper 原父级结构（removeThinkPreview / 收起态清理时调用）
+    function unwrapThinkPreviewWrap(tc) {
+        restoreThinkHeaderBand(tc);   // 先把分离出去的表头带放回去，再拆 —— 否则它会随 wrap 一起被销毁
+        const parent = tc.parentElement;
+        if (parent && parent.classList.contains('ds-think-preview-wrap')) {
+            const grand = parent.parentElement;
+            if (grand) grand.insertBefore(tc, parent);
+            parent.remove();
+        }
+    }
+
+    // 该块是否还留着我们的痕迹（夹断 class 或包裹层）：用于「该清就清」的判定
+    function hasThinkPreviewResidue(wrapper) {
+        return wrapper.classList.contains('ds-think-preview') ||
+            !!(wrapper.parentElement && wrapper.parentElement.classList.contains('ds-think-preview-wrap'));
+    }
+
+    // 是否「页面原生收起」（收起态只剩表头高度）。**必须实测几何** —— 收起后我们的标记往往还在，查标记
+    // 会误判成「展开」→ 点击被脚本接管、原生 toggle 被阻断，表现为「收起来之后再也点不开」。
+    function isThinkCollapsedLive(tc) {
+        const head = findThinkHeadInside(tc);
+        const boxH = tc.getBoundingClientRect().height;
+        if (!head) return boxH <= 0;
+        return (boxH - head.getBoundingClientRect().height) <= 12;
+    }
+
+    // 是否「真的在夹断」（内容高于定高）：决定点击是「脚本接管展开」还是「交还原生」的判据。
+    function isThinkPreviewClamped(tc) {
+        return !!(tc && tc.scrollHeight > tc.clientHeight + 1);
+    }
+
+    // 是否「真的不可见」：自身或任一祖先被 display:none / visibility:hidden / opacity:0 藏起来。
+    // **必须沿祖先链查** —— 页面收起正文是把外层容器设为 opacity:0，段落自身仍是 1。
+    function isNodeHidden(el, root) {
+        let n = el;
+        while (n && n.nodeType === Node.ELEMENT_NODE) {
+            const cs = getComputedStyle(n);
+            if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return true;
+            if (n === root) break;
+            n = n.parentElement;
+        }
+        return false;
+    }
+
+    // 页面是否已把正文藏起来（它自己认为「已收起」）：只要页面认为已收起，这一击就必须交还原生去展开。
+    function isThinkBodyHidden(tc) {
+        if (!tc || !tc.querySelectorAll || !tc.nodeType) return true;
+        const segs = tc.querySelectorAll('.ds-think-content');
+        if (!segs.length) return true;   // 连段落都没有 → 收起态
+        for (let i = 0; i < segs.length; i++) {
+            if (!isNodeHidden(segs[i], tc)) return false;
         }
         return true;
     }
 
-    // 用户点击思考标题栏：CSS 模式下拦截并显示正文；模拟点击模式下记录「用户已展开」豁免。
-    function onThinkClickCapture(e) {
-        const bar = e.target && e.target.closest ? e.target.closest(THINK_TITLE_SELECTOR) : null;
-        if (!bar || !isThinkTitleBar(bar)) return;
-        if (bar === _scriptClickTarget) return;
-        const thinkContent = findThinkContent(bar);
-        // CSS 回退模式：正文只是视觉隐藏，DeepSeek 内部仍是展开态。
-        // 这里拦截点击并直接显示，避免「用户想展开、DeepSeek 却切到折叠」的反向行为。
-        if (thinkContent && thinkContent.dataset.dsScriptCollapsed === 'true') {
-            e.preventDefault();
-            e.stopPropagation();
-            delete thinkContent.dataset.dsScriptCollapsed;
-            setThinkUserExpanded(bar, true);
+    // 是否「交还原生」（两个开关都没开）：已套上的会被撤掉。
+    function isThinkPreviewOff() {
+        return thinkDisplayMode === 'native';
+    }
+
+    // 是否「只显示标题行」：正文压成 0；标题行分不出来的结构由 enforceThinkPreviewInline 自行回退
+    function isThinkHiddenMode() {
+        return thinkDisplayMode === 'hidden';
+    }
+
+    // 切换显示方式：落盘 → 重套（内部会刷新/重建）→ 提示。面板两个开关都走这一处
+    function setThinkDisplayMode(mode) {
+        thinkDisplayMode = mode;
+        GM_setValue(STORAGE_THINK_DISPLAY, mode);
+        safeRun(applyThinkPreviewHeight, '思考预览定高重应用');   // 失败也要把下面的提示发出去，否则开关点了像没生效
+        showToast('思维链显示方式：' + (mode === 'preview' ? '定高预览窗口' : mode === 'hidden' ? '只显示标题行' : '原生'));
+    }
+
+    // 正文总高 ≤ 阈值时不套窗口（阈值 0 = 不设）。用 scrollHeight：夹断生效时它仍是正文真实总高。
+    function isThinkTooShortForPreview(tc) {
+        const min = thinkPreviewMinHeight > 0 ? thinkPreviewMinHeight : 0;
+        if (!min) return false;
+        return (tc.scrollHeight || 0) <= min;
+    }
+
+    // 应用思考预览定高：写 CSS 变量（CSS/内联双路读它）→ 刷新已套的窗口 → 重建被关掉过的窗口。
+    function applyThinkPreviewHeight() {
+        const off = isThinkPreviewOff();
+        // 所有窗口会同时改高：锚点必须取「用户正看着的那个窗口」（锚在视口外的窗口上等于没补）；
+        // 视口里没有窗口时退到视口中心元素兜底。
+        const vh = window.innerHeight;
+        let anchor = null;
+        document.querySelectorAll('.ds-think-preview').forEach(el => {
+            const r = el.getBoundingClientRect();
+            if (!anchor && r.bottom > 0 && r.top < vh) anchor = el;
+        });
+        anchor = anchor || document.elementFromPoint(Math.floor(window.innerWidth / 2), Math.floor(vh / 2));
+        const beforeTop = anchor ? anchor.getBoundingClientRect().top : 0;
+        // 关闭时变量仍写一个安全值（200px），避免 CSS 里 var() 回退到 0 把内容压没
+        document.documentElement.style.setProperty('--ds-think-preview-height',
+            (off ? 200 : Math.max(1, thinkPreviewHeight)) + 'px');
+        // 已套的窗口：关闭 / 低于阈值 → 撤掉；否则按新高度重新夹断
+        document.querySelectorAll('.ds-think-preview').forEach(wrapper => {
+            const state = _thinkPreviewState.get(wrapper) || {};
+            if (off || (!isThinkHiddenMode() && isThinkTooShortForPreview(wrapper))) { softenThinkPreview(wrapper, state); return; }
+            if (state.enabled) enforceThinkPreviewInline(wrapper, state);
+        });
+        // 0 → 非 0 时上面的选择器已经捞不到窗口（class 早被撤掉），必须整轮重扫才能重建
+        refreshThinkPreviews();
+        // 把所有窗口的高度变化在锚点上补掉 → 视口里看到的内容原地不动
+        if (anchor && anchor.isConnected) {
+            const dy = anchor.getBoundingClientRect().top - beforeTop;
+            if (Math.abs(dy) > 1) {
+                const scroller = thinkScrollHost();
+                if (scroller) scroller.scrollTop += dy;
+            }
+        }
+    }
+
+    // 标题行「自然高度」：一旦我们把表头带搬出内容盒，页面会用**另一种更紧凑的结构**重渲染标题行
+    //（实测同一页面对比：原生 = 图标16 + 文字span34 + 图标14 → 行高 34；夹断态 = 两个 div(28/24) → 行高 28）。
+    // 展开后恢复原高 → 视觉上就是「标题行内的文字轻微下移」。做法：在**表头带被移出内容盒之前**（即本函数
+    // 首次执行时）记下它的自然高度，
+    // 夹断期间用内联 min-height 顶住；取历史最大值（流式期间会量到偏矮的临时值），夹断结束由
+    // clearThinkHeadMarks 撤掉。不写死像素值 —— 主题/字号变化时自校准。
+    const _headRowNaturalH = new WeakMap();
+    function pinHeadRowHeight(row) {
+        if (!row || !row.getBoundingClientRect) return;
+        const h = Math.round(row.getBoundingClientRect().height);
+        if (h >= 20 && h > (_headRowNaturalH.get(row) || 0)) _headRowNaturalH.set(row, h);
+        const nat = _headRowNaturalH.get(row);
+        if (nat) row.style.minHeight = nat + 'px';
+    }
+
+    // 内联夹断做双保险，防页面动态/高特异性样式覆盖导致「撑破」；定高写 var() 以便变量一变浏览器自己重算。
+    function enforceThinkPreviewInline(tc, state) {
+        if (!state.enabled) return;
+        // 「只显示标题行」只有在标题行确实已被移出容器（findThinkHeadInside 为空）时才敢压成 0；分不出来的结构照旧走窗口
+        const hide = isThinkHiddenMode() && !findThinkHeadInside(tc);
+        tc.style.setProperty('max-height', hide ? '0px' : THINK_PREVIEW_MAX_H, 'important');
+        tc.style.setProperty('overflow-y', hide ? 'hidden' : 'auto', 'important');
+        tc.style.setProperty('overflow-x', 'hidden', 'important');
+        // 包裹层必须已在（enableThinkPreview 先建后夹）：没有它说明这轮预览没建立起来 → 不标记表头。
+        const wrap = tc.parentElement;
+        if (!wrap || !wrap.classList || !wrap.classList.contains('ds-think-preview-wrap')) return;
+        // 标记标题行与「纯表头容器」（splitThinkHeaderBand 的唯一判据）；每轮重做 —— 虚拟列表重建会丢 class。
+        const head = findThinkHeadInside(tc);
+        if (!head) return;
+        head.classList.add('ds-think-preview-head');
+        const row = head.parentElement;
+        if (row && row !== tc) {
+            // 父级只比标题行高 ≤12px（容 padding）才算纯表头容器；还包着正文就不能搬（会把正文一起移出去）
+            const headerOnly = (row.getBoundingClientRect().height - head.getBoundingClientRect().height) <= 12;
+            row.classList.toggle('ds-think-preview-headrow', headerOnly);
+            if (headerOnly) pinHeadRowHeight(row);   // 顶住「夹断态标题行被渲染得更紧凑」的 6px
+        }
+    }
+
+    // 启用预览窗口：加夹断 class + 包一层定位层（表头带会被搬进它里面，见 splitThinkHeaderBand）
+    function enableThinkPreview(tc, state) {
+        // 虚拟列表滚动重建时 class 可能被清掉而 state 仍在，此时必须允许重新启用
+        if (state.enabled && tc.classList.contains('ds-think-preview')) return;
+        state.enabled = true;
+        state.following = true;
+        tc.classList.add('ds-think-preview');
+        // 先建包裹层（表头带要搬进去）；tc 已脱离文档时建不了 → 立即回退为「不处理」。
+        if (!ensureThinkPreviewWrap(tc)) {
+            tc.classList.remove('ds-think-preview');
+            state.enabled = false;
             return;
         }
-        // 点击前有可见正文 = 用户正在收起 → 撤销豁免；否则用户正在展开 → 豁免自动折叠。
-        const expanded = !!(thinkContent && thinkContent.isConnected
-            && getComputedStyle(thinkContent).display !== 'none'
-            && thinkContent.getClientRects().length > 0);
-        setThinkUserExpanded(bar, !expanded);
+        enforceThinkPreviewInline(tc, state);  // 夹断 + 标记纯表头容器（下面的分离依赖这个标记）
+        splitThinkHeaderBand(tc);              // 分离表头带：移出滚动容器，内容/滚动条被几何限制在表头以下
+        enforceThinkPreviewInline(tc, state);  // 分离后重算：「只显示标题行」要等标题行真的移出来才敢压成 0
+        if (!state.scrollHooked) {
+            state.scrollHooked = true;
+            let last = tc.scrollTop;
+            tc.addEventListener('scroll', () => {
+                // 判据用「用户意图」（滚动方向），**不能**每拍按「是否贴底」重算：追新只往下写 scrollTop，
+                // 而 scroll 事件是异步派发的 —— 快速流式时，从写入到事件到达之间内容可能又长了超过容差，
+                // 贴底判定会把它误判成「用户上滚」→ 追新静默停摆；之后没有任何 scroll 事件能把它翻回来
+                //（用户不碰窗口就一直不跟，直到这次生成结束）。贴底 → 恢复（也覆盖「内容收缩被浏览器
+                // 夹回底部」的情况）；scrollTop 变小且不在底部 → 用户上滚 → 停。与 followManagedThink 同一判据。
+                if (tc.scrollTop + tc.clientHeight >= tc.scrollHeight - THINK_FOLLOW_TOLERANCE) {
+                    state.following = true;
+                } else if (tc.scrollTop < last - 1) {
+                    state.following = false;
+                }
+                last = tc.scrollTop;
+            }, { passive: true });
+        }
     }
 
-    function bindThinkClickWatcher() {
-        if (_thinkClickBound) return;
-        _thinkClickBound = true;
-        document.addEventListener('click', onThinkClickCapture, true);
+    // 摘掉表头带标记（-head / -headrow）：残留会干扰下一轮重算；扫子树，不依赖 findThinkHeadInside 命中。
+    // 同时撤掉 pinHeadRowHeight 写的内联 min-height（夹断结束就该把标题行完全交还页面）。
+    function clearThinkHeadMarks(tc) {
+        const unpin = row => { row.classList.remove('ds-think-preview-headrow'); row.style.removeProperty('min-height'); };
+        const head = findThinkHeadInside(tc) ||
+            (tc.querySelector && tc.querySelector('.ds-think-preview-head'));
+        if (head) {
+            head.classList.remove('ds-think-preview-head');
+            if (head.parentElement) unpin(head.parentElement);
+        }
+        tc.querySelectorAll('.ds-think-preview-headrow').forEach(unpin);
     }
 
-    function processAllThinkingSections() {
-        if (!autoCollapseThinking) return;
-        bindThinkClickWatcher();
-        // 同一条消息可能因流式输出产生多个 .ds-think-content，它们共享同一个标题栏；
-        // 用 handled 去重，避免对同一标题栏点两次（第一次折叠、第二次又展开）。
-        const handled = new Set();
-        // 基于稳定的 .ds-think-content 类名定位「仍展开」的思考区域
-        document.querySelectorAll('.ds-think-content').forEach(thinkContent => {
-            // 排除代码块内的文本（避免脚本源码中的"已思考"文字误匹配）
-            if (thinkContent.closest('pre, .md-code-block')) return;
-            if (thinkContent.dataset.dsScriptCollapsed === 'true') return;
-            const titleBar = findThinkTitleBar(thinkContent);
-            if (!titleBar || handled.has(titleBar)) return;
-            if (collapseThinkingSection(titleBar, thinkContent)) handled.add(titleBar);
+    // 释放预览：摘夹断、清内联与表头标记。**默认不搬 DOM**（不传 hard）—— 搬节点会打断页面自身的
+    // 收起/展开（点不动），所以轻量清理只撤夹断（表头带留在包裹层里）；hard=true 才完整拆除（拆 wrap + 表头带归位）。
+    function softenThinkPreview(tc, state, hard) {
+        tc.classList.remove('ds-think-preview');
+        tc.style.removeProperty('max-height');
+        tc.style.removeProperty('overflow-y');
+        tc.style.removeProperty('overflow-x');
+        clearThinkHeadMarks(tc);
+        const wrap = tc.parentElement;
+        if (hard && wrap && wrap.classList.contains('ds-think-preview-wrap')) unwrapThinkPreviewWrap(tc);
+        if (state) state.enabled = false;
+    }
+
+    // 完整拆除（去夹断 → 原生全展开；或折叠前的清理）：只在「原生 toggle 已被我们阻断」时用
+    function removeThinkPreview(tc, state) { softenThinkPreview(tc, state, true); }
+
+    // 自动跟最新：流式时预览窗口自动滚到最底部，跟随思考输出
+    function followThinkPreview(tc, state) {
+        if (!state.enabled || !state.following || isThinkHiddenMode()) return;   // 隐藏模式没有滚动条，不必跟随
+        tc.scrollTop = tc.scrollHeight;
+    }
+
+    // 用户手动展开过的块：页面不会自己跟随（它那次「展开」被我们拦下了）→ 这里只把最新一行滚进视野。
+    // **判据必须是「用户意图」，不能用「最新一行离底部多远」**：手动展开后最新一行必然远在视口下方（超长块
+    // 动辄上万 px），距离判据会把它当成「用户已上滚」→ 永远不跟；而我们不动、距离就永远不缩小，无法自愈。
+    // 意图靠**滚动方向**识别：本功能只往下写 scrollTop，所以 scrollTop 变小只可能是用户自己上滚 → 停跟；
+    // 滚回底部 → 恢复。已完成生成的块也不跟（没有「最新一行」要追，跟了就是展开瞬间被莫名推一下）。
+    function followManagedThink(wrapper) {
+        if (!wrapper || isThinkPreviewOff()) return;
+        if (isThinkCollapsedLive(wrapper) || isThinkBodyHidden(wrapper)) return;   // 已收起 / 正文不显示 → 不跟
+        const head = findThinkHeadInside(wrapper);
+        if (head && head.textContent.includes('已思考')) return;                  // 已完成 → 不跟
+        const scroller = thinkScrollHost();
+        if (!scroller) return;
+        const state = _thinkPreviewState.get(wrapper) || {};
+        if (!state.managedHooked) {
+            state.managedHooked = true;
+            state.managedFollowing = true;
+            let last = scroller.scrollTop;
+            scroller.addEventListener('scroll', () => {
+                if (scroller.scrollTop < last - 1) state.managedFollowing = false;
+                else if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - THINK_FOLLOW_TOLERANCE) state.managedFollowing = true;
+                last = scroller.scrollTop;
+            }, { passive: true });
+            _thinkPreviewState.set(wrapper, state);
+        }
+        if (!state.managedFollowing) return;
+        let node = wrapper;
+        while (node.lastElementChild) node = node.lastElementChild;   // 最新一行
+        const gap = node.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom;
+        if (gap > 0) scroller.scrollTop += gap;
+    }
+
+    // 统一刷新入口（MutationObserver 驱动、已节流）：以「统一容器」为单位去重，一次思考只作用一次。
+    function refreshThinkPreviews() {
+        const wrappers = new Set();
+        document.querySelectorAll('.ds-think-content').forEach(tc => {
+            // 排除代码块内的文本（避免脚本源码中的「已思考」文字误匹配）
+            if (tc.closest('pre, .md-code-block')) return;
+            const wrapper = findThinkContentBox(tc);   // 单位元素：优先思考内容盒；结构不典型时退回整块容器
+            if (wrapper) wrappers.add(wrapper);
+        });
+        wrappers.forEach(wrapper => {
+            const msg = wrapper.closest('.ds-message');
+            if (isUserManaged(msg)) {        // 用户已接管（点过标题行）：不再套窗口，只做轻量跟随
+                followManagedThink(wrapper);
+                return;
+            }
+            // 已收起 / 功能关闭 → 撤视觉 + 把结构还回去。结构必须还 —— 残留包裹层会干扰页面自身的重渲染
+            // 与点击处理（实测：收起后再点标题行打不开思考区）。
+            // 隐藏模式下「0 高夹断」会让几何判据失真 → 改用「页面自己是否把正文藏起来」判断收起态
+            const pageCollapsed = isThinkHiddenMode() ? isThinkBodyHidden(wrapper) : isThinkCollapsedLive(wrapper);
+            if (pageCollapsed || isThinkPreviewOff()) {
+                if (hasThinkPreviewResidue(wrapper)) {
+                    softenThinkPreview(wrapper, _thinkPreviewState.get(wrapper) || {});   // 先摘视觉
+                }
+                unwrapThinkPreviewWrap(wrapper);   // 再拆结构（表头带归位 + 拆 wrap）
+                return;
+            }
+            if (!isThinkHiddenMode() && isThinkTooShortForPreview(wrapper)) {
+                // 正文不足「预览最小高度」阈值：不套预览（已套上的轻量撤掉），整块原生展示
+                if (hasThinkPreviewResidue(wrapper)) {
+                    softenThinkPreview(wrapper, _thinkPreviewState.get(wrapper) || {});
+                }
+                return;
+            }
+
+            const state = _thinkPreviewState.get(wrapper) || {};
+            // class 丢失（虚拟列表重建清掉了我们加的样式）也要重新启用预览
+            if (!wrapper.classList.contains('ds-think-preview')) {
+                enableThinkPreview(wrapper, state);
+            }
+            // 只维持 UI（跟随滚动 / 重申内联夹断）
+            followThinkPreview(wrapper, state);
+            if (state.enabled) enforceThinkPreviewInline(wrapper, state); // 防 DeepSeek 动态样式覆盖导致「撑破」
+            _thinkPreviewState.set(wrapper, state);
+        });
+    }
+
+    let _thinkRefreshTimer = null;
+    let _lastThinkRefreshAt = 0;
+    // 刷新调度＝节流 + 尾调用：纯防抖在流式高频 mutation 下会被无限顺延（内容已溢出、视口却停在顶部，
+    // 直到输出停顿才一次性刷新）。节流（≥150ms 立即跑）保证流式期间定期跟随，尾调用保最终必跑一次。
+    function scheduleThinkPreviewRefresh() {
+        const now = Date.now();
+        if (now - _lastThinkRefreshAt >= 150) {
+            _lastThinkRefreshAt = now;
+            safeRun(refreshThinkPreviews, '思考预览刷新');   // 与尾调用分支一致：单轮抛错不拖垮同批的快捷键按钮/文件夹刷新
+            return;
+        }
+        if (_thinkRefreshTimer) return; // 已有尾调用在途，合并
+        _thinkRefreshTimer = setTimeout(() => {
+            _thinkRefreshTimer = null;
+            _lastThinkRefreshAt = Date.now();
+            safeRun(refreshThinkPreviews, '思考预览刷新');
+        }, 150);
+    }
+
+    // 标题行兜底判据（哈希类失效时）。必须严格：目标在 .ds-think-content 内不算；只认文本以「已思考」或
+    // 「正在思考」开头且 ≤20 字的元素 —— 大容器文本会含整段思考内容。
+    function isThinkTitleBarHit(target) {
+        if (!target || target.nodeType !== Node.ELEMENT_NODE) return null;
+        if (target.closest && target.closest('.ds-think-content')) return null;
+        let node = target;
+        for (let i = 0; node && node !== document.body && i < 3; i++) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const t = (node.textContent || '').trim();
+                if ((t.startsWith('已思考') || t.startsWith('正在思考')) && t.length <= 20) return node;
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    // 点思考标题/箭头（capture）：不拦截，走原生收起/展开；脚本只标记「用户已接管」并拆掉预览结构。
+    // 签名集合必须有一份不依赖元素身份的记录 —— 页面重渲染会连 data-ds-user-managed 一起丢。
+    const _userManagedKeys = new Set();
+
+    // 消息签名 = 对话路径 + 消息序号（会话内只往后追加，序号稳定）。**必须带对话标识**，否则上个对话点过
+    // 的序号会让新对话同序号消息被误判「已接管」。不用文本：AI 消息开头就是思考内容，流式期间一直在变。
+    function msgSignature(msg) {
+        if (!msg || !msg.nodeType) return '';
+        const all = document.querySelectorAll('.ds-message');
+        const i = Array.prototype.indexOf.call(all, msg);
+        if (i < 0) return '';   // 不在列表里（重渲染/脱离文档）不给签名：'' 视为「未接管」，避免多条消息共用同一个键
+        return location.pathname + '#' + i;
+    }
+
+    // 该消息是否已被用户接管（点过思考标题行）
+    function isUserManaged(msg) {
+        if (!msg) return false;
+        if (msg.hasAttribute('data-ds-user-managed')) return true;
+        const sig = msgSignature(msg);
+        return !!sig && _userManagedKeys.has(sig);
+    }
+
+    function markUserManaged(msg) {
+        if (!msg) return;
+        msg.setAttribute('data-ds-user-managed', 'true');
+        const sig = msgSignature(msg);
+        if (sig) _userManagedKeys.add(sig);   // 拿不到签名时只靠 DOM 属性：重渲染后可能丢，但不会误伤别的消息
+    }
+
+    // 放行给原生时用：页面的折叠处理器会对被点元素调 scrollIntoView/scrollTo（常带 smooth），页面会突然
+    // 跳一段。只屏蔽这一瞬（约 2 帧）的程序化滚动，不影响用户滚轮与我们的 scrollTop 补偿。可重入保护：
+    // 连点时第二次会把已是 noop 的值当「原生方法」保存 → 全局方法被写坏，故用计数器保证进出平衡。
+    let _scrollShieldRefs = 0;
+    let _scrollShieldNative = null;
+    function shieldProgrammaticScroll(frames) {
+        if (_scrollShieldRefs === 0) {
+            _scrollShieldNative = {
+                siv: Element.prototype.scrollIntoView,
+                estc: Element.prototype.scrollTo,
+                wstc: window.scrollTo,
+                wstb: window.scrollBy,
+            };
+        }
+        _scrollShieldRefs++;
+        const noop = function () {};
+        Element.prototype.scrollIntoView = noop;
+        if (_scrollShieldNative.estc) Element.prototype.scrollTo = noop;
+        window.scrollTo = noop;
+        window.scrollBy = noop;
+        let left = frames || 2;
+        const restore = () => {
+            if (--left > 0) { requestAnimationFrame(restore); return; }
+            if (--_scrollShieldRefs > 0) return;   // 仍有屏蔽在途：保持 noop，由最后一次负责还原
+            Element.prototype.scrollIntoView = _scrollShieldNative.siv;
+            if (_scrollShieldNative.estc) Element.prototype.scrollTo = _scrollShieldNative.estc;
+            window.scrollTo = _scrollShieldNative.wstc;
+            window.scrollBy = _scrollShieldNative.wstb;
+        };
+        requestAnimationFrame(restore);
+        setTimeout(restore, 120);   // 后台标签页 rAF 被暂停时的兜底（restore 按 left/refs 判重，重复调用无害）
+    }
+
+    function setupThinkInteractionGuard() {
+        if (_thinkCaptureAdded) return;
+        _thinkCaptureAdded = true;
+        document.addEventListener('click', function dsThinkCapture(e) {
+            const clickable = e.target.closest && (e.target.closest('[class*="_5ab5d64"], [class*="c2b72bb8"]') || isThinkTitleBarHit(e.target));
+            if (!clickable) return;
+            // 双重记录：DOM 属性（快）+ 会话内签名（重渲染不会丢，这是「收起后点不开」的真正修复）。
+            // **必须放在清理之后** —— 先标记中途抛错会让该消息被永久判定「已接管」，此后无法自救。
+            const msg = clickable.closest('.ds-message');
+            const tc = findThinkContent(clickable);
+            const unit = tc && findThinkContentBox(tc);
+            const state = unit ? _thinkPreviewState.get(unit) : null;
+            // 预览只是脚本的视觉态，页面认为这块是「展开」：原生那一击会把它收起（很反直觉），所以预览显示
+            // 时这一击由脚本接管（撤预览 = 完全展开）；接管条件是「确实在夹断 + 页面认为展开」，否则放行。
+            const takeOver = !!(unit && state && state.enabled &&
+                !isThinkBodyHidden(unit) && isThinkPreviewClamped(unit));
+            if (takeOver) {
+                // 接管：原生 toggle 被阻断，展开与视口补偿全由脚本完成 —— 页面没有东西要滚，不必屏蔽。
+                e.preventDefault();
+                e.stopPropagation();
+            } else {
+                // 放行给原生：立刻屏蔽它紧随其后的程序化滚动（scrollIntoView/scrollTo 常带 smooth → 页面突然跳一段）。
+                // **不要**在这里自己做滚动补偿 —— 会与页面/浏览器自身的补偿互相打架。
+                // 「交还原生」模式下页面没有我们搬动的结构，屏蔽只会让原生行为变形，故不屏蔽。
+                if (!isThinkPreviewOff()) shieldProgrammaticScroll(2);
+            }
+            // 放行路径的清理必须轻量 + 同步：只摘样式/class、不搬 DOM（搬 DOM 会打断原生 toggle；延后又会撞动画）。
+            if (unit && state) {
+                // 撤夹断会把「表头带」移回内容盒 → 下方内容整体位移，这里把它补回来，观感「原地展开」。
+                // 锚点取**我们真正搬动的那个节点**（表头带），理由见 thinkShiftAnchor。
+                const anchor = thinkShiftAnchor(unit);
+                const beforeTop = anchor.getBoundingClientRect().top;
+                try {
+                    if (takeOver) {
+                        // 接管路径：原生 toggle 已被阻断 → 完整拆除（夹断/包裹层/表头带归位一次到位）。
+                        removeThinkPreview(unit, state);
+                    } else {
+                        // 放行路径：原生收起/展开照常执行，动画期间绝不能搬 DOM —— 只摘样式。
+                        softenThinkPreview(unit, state);
+                    }
+                    if (takeOver) {
+                        const afterTop = anchor.getBoundingClientRect().top;
+                        const scroller = thinkScrollHost();
+                        if (scroller && Math.abs(afterTop - beforeTop) > 1) scroller.scrollTop += (afterTop - beforeTop);
+                    }
+                } catch (err) {
+                    // 清理失败（重渲染 / 节点被替换）不能让用户陷入「撤不掉、点也没反应」→ 兜底再试一次轻量清理。
+                    console.error('[deepseektool] 思考标题行点击清理异常，回退为轻量清理:', err);
+                    try { softenThinkPreview(unit, state); }
+                    catch (e2) { console.error('[deepseektool] 思考预览兜底清理亦失败（已交还页面）:', e2); }   // 兜底也失败正是"点了没反应"的真凶，必须留痕
+                }
+            }
+            // 关闭态的点击纯属原生操作：不记接管 —— 否则之后再把高度调回 >0，这些块会「莫名没有窗口」
+            if (!isThinkPreviewOff()) markUserManaged(msg);
+        }, true);
+    }
+
+    // 初始化：把已存在的思考区统一套上预览窗口（预览是默认态）；历史思考区不做自动折叠，交原生操作。
+    function setupInitialThinkContents() {
+        setupThinkInteractionGuard();
+        const wrappers = new Set();
+        document.querySelectorAll('.ds-think-content').forEach(tc => {
+            if (tc.closest('pre, .md-code-block')) return;
+            const wrapper = findThinkContentBox(tc);
+            if (wrapper) wrappers.add(wrapper);
+        });
+        wrappers.forEach(wrapper => {
+            const msg = wrapper.closest('.ds-message');
+            if (isUserManaged(msg)) return;
+            if (isThinkPreviewOff()) return;   // 交还原生 → 不干预
+            const pageCollapsed = isThinkHiddenMode() ? isThinkBodyHidden(wrapper) : isThinkCollapsedLive(wrapper);
+            if (pageCollapsed || (!isThinkHiddenMode() && isThinkTooShortForPreview(wrapper))) return;
+            const state = _thinkPreviewState.get(wrapper) || {};
+            enableThinkPreview(wrapper, state);
+            _thinkPreviewState.set(wrapper, state);
         });
     }
 
@@ -3954,19 +4800,43 @@
     const folderUnit = (() => {
 
         /* ==================== 存储（沿用主脚本独立键 v2；v0.9.2 起数据结构含 expanded 展开态） ==================== */
+        // 数据被判定损坏时冻结写入：解析失败若当成「空数据」，随后任意一次建夹/移动都会把坏值覆盖写回，
+        // 用户整理好的分组会永久丢失。首次使用（无值）不算损坏。
+        let _folderDataCorrupted = false;
         function loadData() {
+            const raw = GM_getValue(STORAGE_FOLDER_DATA, 'null');
+            if (raw == null || raw === '' || raw === 'null') {
+                return { folders: [], links: {}, expanded: {}, collapsed: false };
+            }
             try {
-                const d = JSON.parse(GM_getValue(STORAGE_FOLDER_DATA, 'null'));
+                const d = JSON.parse(raw);
                 if (d && Array.isArray(d.folders) && d.links) {
                     if (!d.expanded || typeof d.expanded !== 'object') d.expanded = {};
                     if (typeof d.collapsed !== 'boolean') d.collapsed = false;   // 面板整体折叠态（v4.7.0 新增）
                     return d;
                 }
-            } catch (e) { /* ignore */ }
-            return { folders: [], links: {}, expanded: {}, collapsed: false };
+                throw new Error('数据形状不符（folders/links 缺失）');
+            } catch (e) {
+                console.error('[deepseektool] 文件夹数据解析失败（已冻结写入以防覆盖）:', e, '原始长度=' + String(raw).length);
+                try { showToast('文件夹数据读取失败，已暂停保存以免覆盖，请检查脚本管理器中的存储'); } catch (e2) { /* 忽略 */ }
+                _folderDataCorrupted = true;
+                return { folders: [], links: {}, expanded: {}, collapsed: false };
+            }
         }
         let data = loadData();
-        function saveData() { GM_setValue(STORAGE_FOLDER_DATA, JSON.stringify(data)); }
+        let _saveFrozenWarned = false;
+        function saveData() {
+            if (_folderDataCorrupted) {
+                // 冻结后必须留痕：否则用户以为改动已保存，刷新后才发现全没了
+                console.error('[deepseektool] 文件夹数据处于损坏冻结态，本次保存已跳过（改动不会保留）');
+                if (!_saveFrozenWarned) {
+                    _saveFrozenWarned = true;   // 只在第一次提醒，避免每次操作弹一次
+                    try { showToast('文件夹数据未保存：读取失败后已暂停保存，请检查脚本管理器中的存储'); } catch (e2) { /* 忽略 */ }
+                }
+                return;
+            }
+            GM_setValue(STORAGE_FOLDER_DATA, JSON.stringify(data));
+        }
         let pinGroupCollapsed = !!GM_getValue(STORAGE_PIN_COLLAPSED, false);   // 原生「置顶」分组折叠态
 
         const genId = () => 'f_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -4664,15 +5534,19 @@
             if (folderPending) return;
             folderPending = setTimeout(() => {
                 folderPending = null;
-                ensurePanel();
-                refreshTags();
-                injectMenus();
-                // 导航切换后重绘树（仅当 url 会话变化才做，避免 observer 自激循环）
-                const cur = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || null;
-                if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
-                syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
-                syncSelectModeLock();    // 原生多选态下禁用文件夹树交互（模式互斥）
-                if (pinGroupCollapsible) applyPinCollapse();   // 重放「置顶」分组折叠态（React 重建会重置；仅开关开启时）
+                // 整批隔离：中途抛错会让后面的 injectMenus / renderFolders / 归档隐藏全部跳过，
+                // 面板停在半渲染状态且无日志可查
+                safeRun(() => {
+                    ensurePanel();
+                    refreshTags();
+                    injectMenus();
+                    // 导航切换后重绘树（仅当 url 会话变化才做，避免 observer 自激循环）
+                    const cur = (location.pathname.match(/\/s\/([^/]+)/) || [])[1] || null;
+                    if (cur !== folderLastSid) { folderLastSid = cur; renderFolders(); }
+                    syncArchiveVisibility(); // 外部新增会话行也要按归档立即隐藏（仅改 display，不引循环）
+                    syncSelectModeLock();    // 原生多选态下禁用文件夹树交互（模式互斥）
+                    if (pinGroupCollapsible) applyPinCollapse();   // 重放「置顶」分组折叠态（React 重建会重置；仅开关开启时）
+                }, '文件夹面板刷新');
             }, 120);
         }
         function cancelSchedule() { if (folderPending) { clearTimeout(folderPending); folderPending = null; } }
@@ -7223,15 +8097,161 @@
         return { open: openDialog };
     })();
 
+    // ==================== 回复完成系统提醒 ====================
+    // 判据用站点自己的生成状态，不靠「文本静默」猜完成：
+    //   ① 空闲 + 空输入：发送按钮图标＝上箭头，类名含 ds-button--disabled
+    //   ② 空闲 + 有内容：上箭头，无 disabled 类
+    //   ③ 生成中：图标＝圆角方块（停止），无 disabled 类，输入框为空
+    // ①③ 输入框都为空，唯一区分点是「图标 / 类名」，故：生成中 ⇔ 图标 ≠ 发送基线（基线未建立时退化为
+    // 「无 disabled 类 且 输入框为空」）。CSS Modules 哈希类名会随版本变，不写死，图标只做等值比较。
+    // 文本增长只在读不到按钮时兜底（阈值放宽，宁可漏报不误报）。
+    const GEN_SAMPLE_MS = 250;     // 状态采样周期
+    const GEN_CONFIRM_TICKS = 2;   // 结束需连续几次采样一致（滤掉 React 换图标的中间态）
+    const GEN_SCAN_MS = 150;       // 兜底：文本长度采样节流（比较累积长度，节流不会漏慢速输出）
+    const GEN_ACTIVE_GAP = 1200;   // 兜底：两次文本增长间隔小于此 = 同一波生成
+    const GEN_ARM_MS = 5000;       // 兜底：持续活动达到此时长才武装为「生成中」
+    const GEN_QUIET_MS = 8000;     // 兜底：信号不可得时，文本静默达到此时长才认为结束
+    const GEN_WARMUP_MS = 5000;    // 启动宽限：这段时间内找不到发送按钮属冷启动，不告警
+    let _genRunning = false;       // 是否判定为生成中
+    let _genFired = false;         // 本轮是否已处理过「结束」（防重复提醒）
+    let _genPendingDone = 0;       // 结束确认计数
+    let _genSendIconD = '';        // 发送图标基线（只在空闲形态自校准，仅内存；页面重载后重建）
+    let _genLastActivity = 0;      // 兜底：最后一次文本增长时间
+    let _genBurstStart = 0;        // 兜底：本波活动起始时间
+    let _genTailLen = -1;          // 兜底：上次采样到的文本长度（-1 = 基线未建立）
+    let _genScanAt = 0;
+    let _genSendWarned = false;
+    let _genSendSeen = false;      // 是否成功读到过发送按钮（读到过就说明选择器没坏，之后读不到即结构变了）
+    const _genStartAt = Date.now(); // 启动时刻：冷启动期间找不到按钮属正常，过了宽限才告警
+
+    // 读生成状态三要素；输入区未挂载（冷启动 / 面板切换）时返回 null → 走兜底。
+    // 输入框与发送按钮必须由**同一次**查找得出：分两次查可能拿到不同元素（DOM 在两查之间重建），
+    // 于是「有没有内容」和「图标是什么」来自不同表单，判据互相打架。
+    function readGenState() {
+        const input = findComposerInput();
+        if (!input) return null;
+        const container = findComposerContainer(input);
+        const send = container && container.querySelector('div[role="button"].ds-button--primary');
+        if (!send || !send.isConnected) return null;
+        const path = send.querySelector('svg path');
+        const val = input.value !== undefined ? input.value : input.textContent;
+        return {
+            iconD: (path && path.getAttribute('d')) || '',
+            disabled: send.classList.contains('ds-button--disabled'),
+            empty: !String(val || '').trim(),
+        };
+    }
+
+    // 兜底活动源＝最后一条消息的文本变长。不能拿「DOM 有变化」当活动：切标签页时页面会重建消息 DOM、
+    // 脚本自己也往 .ds-markdown 里插按钮，这些都与生成无关，却会让静默判定反复重新武装
+    //（表现为「每切出去一次就再弹一次已弹过的提醒」）。流式输出必然让最后一条消息的文本变长。
+    function noteGenActivity() {
+        const now = Date.now();
+        if (now - _genScanAt < GEN_SCAN_MS) return;
+        _genScanAt = now;
+        const msgs = document.querySelectorAll('.ds-message');
+        // 兜底：.ds-message 结构不在时（改版）退化为最后一个内容块，至少还能判
+        const els = msgs.length ? msgs : document.querySelectorAll('.ds-markdown, .ds-think-content');
+        const el = els.length ? els[els.length - 1] : null;
+        const len = el ? (el.textContent || '').length : 0;
+        const grew = _genTailLen >= 0 && len > _genTailLen;
+        _genTailLen = len;
+        if (!grew) return;
+        // 距上次增长超过 ACTIVE_GAP = 新一波：波龄从这一刻重算，否则旧 burstStart 会让兜底立刻武装
+        const gap = _genLastActivity ? now - _genLastActivity : Infinity;
+        _genLastActivity = now;
+        if (!_genBurstStart || gap > GEN_ACTIVE_GAP) _genBurstStart = now;
+    }
+
+    // 系统通知：GM_notification 由脚本管理器代持权限（无需页面授权）；API 不存在时静默跳过
+    function notifyReplyDone() {
+        const name = (document.title || '').replace(/\s*[-|·]\s*DeepSeek.*$/i, '').trim() || 'DeepSeek';
+        try {
+            if (typeof GM_notification === 'function') {
+                GM_notification({
+                    title: 'DeepSeek 回复完成',
+                    text: name,
+                    timeout: 6000,
+                    onclick: () => { try { window.focus(); } catch (e) { /* 聚焦被浏览器拦截属正常 */ } },
+                });
+            }
+        } catch (e) { console.error('[deepseektool] 系统通知发送失败:', e); }
+    }
+
+    function finishGeneration() {
+        _genRunning = false;
+        _genPendingDone = 0;
+        _genBurstStart = 0;
+        _genLastActivity = 0;
+        _genTailLen = -1;   // 本波结束：下次增长重建基线，避免拿旧长度当新活动
+        if (_genFired) return;
+        _genFired = true;
+        if (notifyOnDone && document.hidden) notifyReplyDone();
+    }
+
+    function genTick() {
+        const now = Date.now();
+        const st = readGenState();
+
+        if (st) {
+            _genSendSeen = true;   // 曾经读到过 → 之后再读不到才算「结构变了」，冷启动未挂载不算
+            // 基线自校准：①（空输入被禁用）②（有内容可发送）必然是空闲形态，抓这个箭头图标。
+            // ② 额外要求 !_genRunning：生成中用户若往输入框预输入文字，形态与 ② 相同，
+            // 不能把「停止」图标误当基线，否则判定会整个反过来。
+            if (!_genSendIconD && st.iconD && (st.disabled || (!st.empty && !_genRunning))) _genSendIconD = st.iconD;
+            // 图标是权威判据；基线或当前图标缺失时退化为「无 disabled 类 且 输入框为空」
+            const generating = (_genSendIconD && st.iconD)
+                ? st.iconD !== _genSendIconD
+                : (!st.disabled && st.empty);
+            if (generating) {
+                if (!_genRunning) { _genRunning = true; _genFired = false; }
+                _genPendingDone = 0;
+                return;
+            }
+            if (!_genRunning) return;
+            if (++_genPendingDone < GEN_CONFIRM_TICKS) return;
+            finishGeneration();
+            return;
+        }
+
+        // 留痕一次，否则图标判据失效后会静默退化、无从排查。两种情况都算真失效：
+        //   ① 之前读到过、现在读不到（页面改版）；
+        //   ② 一直读不到，且已过启动宽限（选择器从一开始就不匹配）。
+        // 冷启动那几百毫秒内找不到属正常，宽限时间内的静默不告警。
+        if (!_genSendWarned && notifyOnDone && (_genSendSeen || now - _genStartAt >= GEN_WARMUP_MS)) {
+            _genSendWarned = true;
+            console.warn('[deepseektool] 未找到发送按钮，回复完成提醒改用文本静默兜底');
+        }
+        // 兜底：读不到按钮时退回「持续活动 + 静默」推断（阈值放宽，宁可漏报）
+        if (!_genRunning) {
+            if (_genBurstStart && now - _genBurstStart >= GEN_ARM_MS && now - _genLastActivity <= GEN_ACTIVE_GAP) {
+                _genRunning = true;
+                _genFired = false;
+            }
+            return;
+        }
+        if (_genLastActivity && now - _genLastActivity >= GEN_QUIET_MS) finishGeneration();
+    }
+
+    setInterval(() => safeRun(genTick, '回复完成判定'), GEN_SAMPLE_MS);
+    // 回前台立刻复核一次：后台定时器被节流，避免拿着过期状态等下一跳
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) safeRun(genTick, '回复完成判定');
+    });
+
     // ==================== 统一 DOM 监听（合并多个 observer，添加节流） ====================
     let _domObserver = null;
     function observeDOM() {
         if (_domObserver) return;
-        _domObserver = new MutationObserver(mutations => {
+        // 批处理体整体隔离：回调抛错不会让观察断开（后续批次照常派发），但不隔离的话本批次中
+        // 排在出错点之后的表格 / 思考区 / 按钮刷新会被整体跳过。
+        _domObserver = new MutationObserver(mutations => safeRun(() => {
             let hasNewCodeBlocks = false;
             let hasNewTables = false;
             let hasNewThinking = false;
             let folderNeedsRescan = false;   // 对话文件夹：出现新的会话链接/三点菜单时刷新
+
+            noteGenActivity();   // 回复完成判定的兜底活动源（内部 150ms 节流，只看最后一条消息的文本增长）
 
             for (const m of mutations) {
                 // 流式输出时单元格文本可能只触发 characterData，不产生 childList。
@@ -7239,11 +8259,11 @@
                 if (m.type === 'characterData') {
                     const p = m.target.parentElement;
                     if (p && p.closest('.ds-markdown table')) hasNewTables = true;
-                    // 「正在思考」→「已思考」是纯文本变化，不会产生 addedNodes；
-                    // 不在这里补一次扫描，思考结束后就永远不会折叠（实机复现）。
-                    if (!hasNewThinking && autoCollapseThinking && p && p.closest) {
-                        const bar = p.closest(THINK_TITLE_SELECTOR);
-                        if (bar && isThinkTitleBar(bar)) hasNewThinking = true;
+                    // 「正在思考」→「已思考」是纯文本变化，不会产生 addedNodes；不在这里补一次刷新，
+                    // 标题行的表头带标记/跟新就会停在生成中途的状态。
+                    if (!hasNewThinking && p) {
+                        if (p.closest && p.closest('.ds-think-content')) hasNewThinking = true;
+                        else if (isThinkTitleBarHit(p)) hasNewThinking = true;
                     }
                     continue;
                 }
@@ -7296,12 +8316,13 @@
                         else if (node.querySelectorAll && (node.querySelector('table') || node.querySelector('.ds-markdown'))) hasNewTables = true;
                     }
 
-                    // 思考区域检测（排除代码块内的文本）
-                    if (!hasNewThinking && autoCollapseThinking) {
-                        if (node.closest && node.closest('pre, .md-code-block')) continue;
-                        if (node.classList && node.classList.contains('ds-think-content')) {
-                            hasNewThinking = true;
-                        } else if (node.querySelectorAll && node.querySelector('.ds-think-content')) {
+                    // 思考区域检测（排除代码块内的文本）。三种形态都要判：①新增节点自身是思考段；
+                    // ②新增节点内含思考段（切换对话/加载历史时整体渲染）；③新增节点位于思考段内部
+                    //（虚拟列表重建是「先建空容器、再往里填内容」，填充的子节点只有 closest 才命中）。
+                    if (!hasNewThinking && node.closest && !node.closest('pre, .md-code-block')) {
+                        if ((node.classList && node.classList.contains('ds-think-content'))
+                            || (node.querySelector && node.querySelector('.ds-think-content'))
+                            || node.closest('.ds-think-content')) {
                             hasNewThinking = true;
                         }
                     }
@@ -7319,11 +8340,11 @@
                 });
             }
             if (hasNewTables) scheduleTableProcess();
-            if (hasNewThinking) setTimeout(processAllThinkingSections, 150);
+            if (hasNewThinking) scheduleThinkPreviewRefresh();
             if (folderNeedsRescan) folderUnit.schedule();
             // 输入区可能随 SPA 路由异步出现 / 重建：重算设置入口的避让位置（内部按签名去重）
             scheduleSettingsFabPosition();
-        });
+        }, 'DOM 监听批次'));
         _domObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
 
@@ -7331,6 +8352,14 @@
     let folderRuntimeEnabled = false;
 
     function init() {
+        // 两个键已退役，直接删除（删除幂等，不必防重复）。扩展环境的 shim 若不转发删除接口，
+        // 退回写 false —— 新代码无论如何都不读它们，两种结果等价。
+        LEGACY_THINK_KEYS.forEach(k => {
+            try {
+                if (typeof GM_deleteValue === 'function') GM_deleteValue(k);
+                else GM_setValue(k, false);
+            } catch (e) { /* 忽略：清不掉也不影响功能 */ }
+        });
         applyTableThemeClass(tableThemeMode);
         applyTableHeadAlign(tableHeadAlign);
         applyWideScreen(wideScreen, { skipInvalidate: true });   // 后续 processAllTables 会统一首轮重排
@@ -7340,8 +8369,9 @@
         deduplicateButtons();
         processAllExistingCodeBlocks();
         processAllTables();
-        cleanupThinkState();        // 清掉旧版本残留的全局隐藏样式 / inline display:none
-        reapplyThinkingSections();  // 开 → 立即折叠；关 → 保持原样
+        // 先落 CSS 变量（供下面的初始化读取），再把已存在的思考区按当前显示方式套上
+        safeRun(applyThinkPreviewHeight, '思考预览定高');
+        safeRun(setupInitialThinkContents, '思考区初始化');
         if (folderManagerEnabled) {
             folderUnit.on();
             folderUnit.schedule();   // 页面加载即应用（不等会话链接出现前的首轮 DOM 变化）
@@ -7374,6 +8404,8 @@
         STORAGE_PIN_COLLAPSED,
         STORAGE_MD_EXPORT_PREFS,
         STORAGE_CODE_IMAGE_PREFS,
+        // 已退役的思考开关：启动时会被删掉，别为这次删除再触发一轮全量重排
+        ...LEGACY_THINK_KEYS,
     ]);
 
     function applyRuntimeSettings() {
@@ -7386,7 +8418,7 @@
         processAllExistingCodeBlocks();
         applyCodeExportButtons(codeExportEnabled);
         processAllTables();
-        reapplyThinkingSections();
+        safeRun(applyThinkPreviewHeight, '思考预览定高重应用');   // 内部 refreshThinkPreviews 会把预览整轮重套（含清理）
 
         if (folderManagerEnabled) {
             folderUnit.on();
