@@ -1,6 +1,6 @@
 # DeepSeek 功能增强工具箱 — 代码地图（MAP）
 
-> 依据 `deepseektool.user.js`（@version 5.8.0）实际代码整理，描述模块划分、数据流与运行时调度。
+> 依据 `deepseektool.user.js`（@version 5.9.0）实际代码整理，描述模块划分、数据流与运行时调度。
 
 ## 1. 载体与元信息（头部注释）
 
@@ -32,7 +32,8 @@
 | `deepseek_table_overflow` | `tableOverflow` | 'scroll' | 列过多时：scroll（横向滚动）/ squeeze（压缩进容器） |
 | ~~`deepseek_table_width_mode`~~ | — | — | **旧键，仅一次性迁移**：equal→均分，auto/equal-minwidth/未设置→智能 |
 | `deepseek_wide_screen` | `wideScreen` | false | 宽屏模式总开关（`html.ds-wide-screen`） |
-| `deepseek_wide_screen_level` | `wideScreenLevel` | 'standard' | 宽屏宽度档位：standard 1000px / wide 1160px / wider 1320px（官方默认 840px，即 +160/+320/+480） |
+| ~~`deepseek_wide_screen_level`~~ | — | — | **旧键，仅一次性迁移**：standard→1000 / wide→1160 / wider→1320，读取后不再使用 |
+| `deepseek_wide_screen_width` | `wideScreenWidth` | 1000 | 宽屏宽度（px）：840–1320、步长 20；官方默认 840 即最小值端点 |
 | `deepseek_ctrl_enter` | `ctrlEnterEnabled` | false | Ctrl+Enter 发送快捷键 |
 | `deepseek_folder_manager_enabled` | `folderManagerEnabled` | false | 对话文件夹总开关（opt-in） |
 | `deepseek_folder_manager_data_v2` | `data`（folderUnit 内） | `{folders:[],links:{},expanded:{},collapsed:false}` | 文件夹/归属/树展开态/面板折叠态（独立键） |
@@ -385,27 +386,35 @@ Markdown `text/markdown;charset=utf-8`、JSON `application/json;charset=utf-8`�
 - **主题**：浅色白底深色齿轮；`body.dark` 下深蓝底浅色齿轮；悬停 / `:focus-visible` 在左侧显示深色气泡提示。
 - **测试注意**：面板测试 harness（`test-panel-deps.js`）只拼接 `openControlPanel` 区段，不含 FAB 函数；故 `closeOverlay`/打开逻辑只用 `typeof scheduleSettingsFabPosition === 'function'` 守卫，不直接调用模块级函数。
 
-### 5.10 宽屏宽度档位（`applyWideScreen` + `WIDE_LEVELS`，v5.7.0 / v5.7.2）
+### 5.10 宽屏宽度滑轨（`applyWideScreen` + `WIDE_WIDTH_*`，v5.9.0；三档时代的实现见 v5.7.0）
 
 - **机制**：官网用 `--message-list-max-width` 控制消息列表最大宽度（实测默认 **840px**），
   `.ds-virtual-list-items` 靠 `padding-left/right: calc((100% - var(--message-list-max-width)) / 2)` 居中留白。
   脚本只在 `html.ds-wide-screen` 下把该变量覆盖成 `var(--ds-wide-max-width, 1000px)`，
-  具体数值由 `applyWideScreen` 按档位写进 `html` 的内联 `--ds-wide-max-width`。
-  **不写死像素**，档位切换无需刷新页面。
+  具体数值由 `applyWideScreen` 按滑轨设定写进 `html` 的内联 `--ds-wide-max-width`（840–1320px）。
+  **不写死像素**，拖动滑轨无需刷新页面。
 - **作用域（v5.7.2 明确）**：选择器优先 `[class*="ds-virtual-list-items"]:has(.ds-markdown)`，保留旧的内联 style 子串条件兜底；
-  只覆盖**消息列表**。输入区 / 新对话页仍继承 `:root` 的 840px —— 这是设置面板「消息区加宽，三档宽度可选」的定义边界，不是遗漏。
-- **三档**（`WIDE_LEVELS`）：`standard` 1000（+160）/ `wide` 1160（+320）/ `wider` 1320（+480）。
-  默认 `standard` = 历史行为，升级后老用户看到的宽度不变。
+  只覆盖**消息列表**。输入区 / 新对话页仍继承 `:root` 的 840px —— 这是设置面板「消息区加宽，宽度可调」的定义边界，不是遗漏。
+- **滑轨**（`WIDE_WIDTH_MIN` / `MAX` / `STEP` / `DEFAULT` = 840 / 1320 / 20 / 1000）：面板用 `input[type=range]`，
+  840 即官网默认宽度（滑到最左等同关闭宽屏），默认 1000 = 旧「标准」档，升级后老用户宽度不变。
+  读取时 `normalizeWideWidth`（104 行）做 clamp + 20px 网格对齐；旧枚举键只迁移一次。
 - **生效边界（重要）**：数值是**绝对上限**而非相对增量，
-  净增 = `min(可用宽, 档位值) − min(可用宽, 840)`。
-  可用宽 ≤ 840 时默认态已无留白可收，三档趋同 —— 实测 1102 视口（可用 753）时宽屏净增约 0（测量显示 1px，属取整/滚动条误差），
+  净增 = `min(可用宽, 设定值) − min(可用宽, 840)`。
+  可用宽 ≤ 840 时默认态已无留白可收，滑轨封顶 —— 实测 1102 视口（可用 753）时宽屏净增约 0（测量显示 1px，属取整/滚动条误差），
   1252 视口（可用 991）时 +151。窄窗口下「宽屏无效」是设计使然，不是缺陷。
-- **重算联动**：档位切换同样改变可用宽度，故 `applyWideScreen` 在「class 状态变化」或
-  「宽屏开启且数值变化」时调用 `invalidateTableLayout()`；宽屏关着时改档位不改布局，不触发重算。
-  实测 1994 视口：standard / wide / wider 下 `.ds-markdown` 912 / 1072 / 1232，表格同步重排。
-- **面板依赖**：「宽屏宽度」下拉依赖「启用宽屏布局」，关开关即置灰（`refreshPanelDeps` 即时重算）；
-  「恢复默认设置」把档位写回 `standard`。实机面板：导航「宽屏模式」、副标题「消息区加宽，三档宽度可选」，
-  开关「启用宽屏布局」+ 下拉「宽屏宽度」（三个选项），关闭开关后下拉 `disabled`、`.ds-markdown` 752 且表格进入滚动。
+- **重算联动**：拖动滑轨同样改变可用宽度，故 `applyWideScreen` 在「class 状态变化」或
+  「宽屏开启且数值变化」时调用 `invalidateTableLayout()`；宽屏关着时改宽度不改布局，不触发重算。
+  拖动中走 `skipInvalidate`（只写变量与读数、不重排），松手统一重排；模块级 `_wideLayoutPx`（1221 行）做脏标记，
+  兜住「松手时 prevPx 已等于 nextPx、needsRelayout 为 false、表格停在旧列宽」。
+  实测 1994 视口：840 / 1000 / 1160 / 1320 下 `.ds-markdown` 752 / 912 / 1072 / 1232，表格同步重排。
+- **透视（v5.9.0）**：`createRangeSetting` 内 1085–1121 行。按住滑轨时给 wrap 加 `.ds-peek-target`、overlay 加 `.ds-peek`：
+  遮罩去底色与 `backdrop-filter`，面板/侧栏/主体去背景边框阴影，`.ds-panel` 及 `*` 设 `visibility:hidden` 保留布局
+  （不重排，避免指针脱手），目标滑轨及 `*` 强制 `visible`，再用 `box-shadow: 0 0 0 8px` 光晕做不占布局的底。
+  复原由 `stopPeek`（清 timer + 摘监听）负责，触发点：`pointerup`（延 90ms，早于 change 且覆盖「按下未拖动无 change」）、
+  `pointercancel`、`window blur`、`keyup`、`change`、Esc（立即停）。键盘（Arrow/Home/End/PageUp/PageDown）同样进透视。
+- **面板依赖**：「宽屏宽度」滑轨依赖「启用宽屏布局」，关开关即置灰（`refreshPanelDeps` 即时重算，选择器含 `input[type="range"]`）；
+  「恢复默认设置」把宽度写回 1000。实机面板：导航「宽屏模式」、副标题「消息区加宽，宽度可调」，
+  开关「启用宽屏布局」+ 滑轨「宽屏宽度」（右侧 px 读数），关闭开关后滑轨 `disabled`、`.ds-markdown` 752 且表格进入滚动。
 
 ## 6. 典型运行序列
 
@@ -420,7 +429,7 @@ sequenceDiagram
     Note over P,G: 页面加载
     P->>M: document-end / DOMContentLoaded → init()
     M->>G: 读取全部设置键（GM_getValue）
-    M->>P: 套用 html 主题/宽屏 class + --ds-wide-max-width 档位/恒显类 + 全量扫描既有 pre/table/思考
+    M->>P: 套用 html 主题/宽屏 class + --ds-wide-max-width 宽度/恒显类 + 全量扫描既有 pre/table/思考
     alt 文件夹已开启
         M->>F: on() + schedule()
         F->>P: 注入面板 / 标签 / ⋯ 菜单 / 归档隐藏

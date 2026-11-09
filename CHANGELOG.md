@@ -1,5 +1,16 @@
 # DeepSeek 功能增强工具箱 — 更新日志
 
+## v5.9.0 (2026-11-09)
+
+### 变更 · 宽屏宽度改为滑轨（+ 拖动透视）
+
+- **滑轨取代三档下拉**：面板「宽屏宽度」由 `standard` / `wide` / `wider` 三选一下拉改为 `input[type=range]` —— 范围 **840–1320px**、步长 **20px**、默认 **1000px**，右侧实时显示 px 读数，轨道已选段按品牌色填充，带 `aria-label`。840 即官网默认宽度（滑到最左等同关闭宽屏）。
+- **存储键迁移**：新增 `deepseek_wide_screen_width`（number）；旧键 `deepseek_wide_screen_level`（枚举）退役为**只读一次性迁移**：standard→1000 / wide→1160 / wider→1320，升级后视觉不变。读取时 `normalizeWideWidth` 做 clamp 到 840–1320 并对齐 20px 网格。`LEGACY_WIDE_LEVEL_PX` 仅保留映射表，旧枚举值不再被写回。
+- **拖动不重排**：`applyWideScreen(wideScreen, { skipInvalidate: true })` 在拖动中只写 `--ds-wide-max-width` 与读数；松手（`change`）才落盘 + `applyWideScreen` + `showToast`。新增模块级 `_wideLayoutPx` 脏标记：`needsRelayout = changed || (!!on && _wideLayoutPx !== nextPx)`，兜住「松手时 prevPx 已等于 nextPx、表格停在旧列宽」。
+- **拖动透视**：按住滑轨时遮罩去底色与 `backdrop-filter`、面板整体 `visibility:hidden`（保留布局，避免指针脱手），只留一条带 `box-shadow` 光晕的悬浮滑轨，方便直接观察对话区实际宽度。松手 / 失焦 / `pointercancel` / `keyup` / Esc 任一事件即复原；键盘方向键调整同样进透视。
+- **其他**：依赖置灰选择器补 `input[type="range"]`；「恢复默认设置」写回 1000；验证台新增滑轨与透视断言（PASS 46 / FAIL 0，面板写入点 45 处），表格宽度失效审计新增守卫 N（PASS 14，含反向对照）。
+- **未新增 `@grant` / `@require` / `@match`。**
+
 ## v5.8.0 (2026-10-18)
 
 ### 新增 · 页面内设置入口（右下角悬浮按钮）
