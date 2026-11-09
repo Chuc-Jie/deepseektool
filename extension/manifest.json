@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DeepSeek 功能增强工具箱",
   "short_name": "DS 工具箱",
-  "version": "0.1.0",
+  "version": "5.9.0",
   "description": "DeepSeek 对话页增强：代码块折叠与导出、表格优化与导出、对话导出、思考折叠、文件夹分组、宽屏模式。",
   "minimum_chrome_version": "111",
   "permissions": ["storage"],

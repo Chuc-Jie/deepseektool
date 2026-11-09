@@ -1,6 +1,6 @@
 {
   "name": "deepseektool-extension",
-  "version": "0.1.0",
+  "version": "5.9.0",
   "private": true,
   "description": "DeepSeek 功能增强工具箱 — Chrome MV3 扩展构建",
   "scripts": {

@@ -5,9 +5,15 @@ on:
     branches: [master]
     paths:
       - 'deepseektool.user.js'
+      - 'extension/manifest.json'
       - '.github/workflows/release.yml'
 
   workflow_dispatch:  # 手动触发
+    inputs:
+      dry_run:
+        description: '只验证构建（跳过创建 Release 与上传资产）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -26,6 +32,37 @@ jobs:
           VERSION=$(grep -oP '@version\s+\K[\d.]+' deepseektool.user.js)
           echo "current=$VERSION" >> "$GITHUB_OUTPUT"
           echo "当前版本: $VERSION"
+
+      - name: 扩展版本对齐校验
+        id: extver
+        run: |
+          # 版本线策略（选项 1）：扩展与脚本共用同一个版本号，manifest.json 的 version 必须等于 @version。
+          # 未对齐时不算失败，只告警且本次不附带扩展包——避免把过期 manifest 的 zip 挂到 Release 上。
+          VERSION="${{ steps.version.outputs.current }}"
+          EXT=$(node -p "require('./extension/manifest.json').version")
+          echo "manifest=$EXT" >> "$GITHUB_OUTPUT"
+          if [ "$EXT" = "$VERSION" ]; then
+            echo "attach=true" >> "$GITHUB_OUTPUT"
+            echo "扩展版本已对齐: $EXT"
+          else
+            echo "attach=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=扩展版本未对齐::extension/manifest.json=$EXT 与脚本 @version=$VERSION 不一致；本次发行不附带扩展包。若要一并发布扩展，请把 manifest.json 的 version 同步为 $VERSION 后提交。"
+          fi
+
+      - name: tag 与 HEAD 一致性校验
+        run: |
+          VERSION="${{ steps.version.outputs.current }}"
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            TAG_COMMIT=$(git rev-list -n1 "v${VERSION}")
+            HEAD_COMMIT=$(git rev-parse HEAD)
+            if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+              echo "::warning title=tag 与 HEAD 不一致::tag v${VERSION} 指向 ${TAG_COMMIT:0:7}，当前 HEAD 为 ${HEAD_COMMIT:0:7}；Release 会挂在已存在的 tag 上，请确认是否需要移动 tag。"
+            else
+              echo "tag v${VERSION} 已存在且指向 HEAD"
+            fi
+          else
+            echo "tag v${VERSION} 尚不存在，将由发布步骤创建"
+          fi
 
       - name: Release 是否已存在
         id: check
@@ -50,6 +87,33 @@ jobs:
           git archive --format=zip --output=deepseektool-v${VERSION}.zip HEAD
           echo "打包完成: deepseektool-v${VERSION}.zip"
 
+      - name: 构建并打包扩展
+        if: inputs.dry_run || (steps.check.outputs.changed == 'true' && steps.extver.outputs.attach == 'true')
+        run: |
+          VERSION="${{ steps.version.outputs.current }}"
+          npm ci --no-audit --no-fund
+          npm run build
+          # 关键：zip 的根目录必须直接是 manifest.json，所以进入 dist 后打包 "*"；
+          # 不能打包 dist 目录本身（会多一层 dist/），也别用 "."（部分 zip 实现会写成 "./manifest.json"）。
+          ( cd dist && zip -qr "../deepseektool-extension-v${VERSION}.zip" * )
+          unzip -l "deepseektool-extension-v${VERSION}.zip" | head -20
+          # 双保险：包内 manifest.json 必须在根部，且版本号与本次发行一致
+          unzip -p "deepseektool-extension-v${VERSION}.zip" manifest.json > /tmp/ext-manifest.json
+          if ! grep -q "\"version\": \"${VERSION}\"" /tmp/ext-manifest.json; then
+            echo "::error title=扩展包版本异常::zip 内 manifest.json 的 version 不是 ${VERSION}"
+            exit 1
+          fi
+          echo "扩展包校验通过: deepseektool-extension-v${VERSION}.zip"
+
+      - name: 上传构建产物（仅 dry_run）
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zip
+          path: deepseektool-extension-v*.zip
+          if-no-files-found: error
+          retention-days: 3
+
       - name: 提取 CHANGELOG 条目
         id: changelog
         if: steps.check.outputs.changed == 'true'
@@ -68,7 +132,7 @@ jobs:
           echo "提取到 CHANGELOG 条目 (${#SECTION} 字符)"
 
       - name: 创建 Release
-        if: steps.check.outputs.changed == 'true'
+        if: steps.check.outputs.changed == 'true' && !inputs.dry_run
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.current }}
@@ -79,3 +143,12 @@ jobs:
             deepseektool-v${{ steps.version.outputs.current }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 追加扩展包到 Release
+        if: steps.check.outputs.changed == 'true' && steps.extver.outputs.attach == 'true' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.current }}"
+          gh release upload "v${VERSION}" "deepseektool-extension-v${VERSION}.zip" --clobber
+          gh release view "v${VERSION}" --json assets --jq '.assets[].name'

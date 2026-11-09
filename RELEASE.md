@@ -26,7 +26,7 @@
 
 ---
 
-## 一、版本号同步（**5 处，缺一不可**）
+## 一、版本号同步（**6 处，缺一不可**）
 
 | # | 文件 | 位置 | 形式 |
 |---|---|---|---|
@@ -35,6 +35,7 @@
 | 3 | `README.md` | **第 1 行标题** | `## DeepSeek 功能增强工具箱 v5.0.0` |
 | 4 | `MAP.md` | **第 3 行引文** | `> 依据 \`deepseektool.user.js\`（@version 5.0.0）实际代码整理…` |
 | 5 | `CHANGELOG.md` | 文件顶部新增条目 | `## v5.0.0 (YYYY-MM-DD)` |
+| 6 | `extension/manifest.json` | `version` 字段 | `"version": "5.0.0"` |
 
 > `scriptcat-description.md` **不含版本号**（它是发布页文案），无需改版本号，但要改功能内容（见 §三）。
 
@@ -53,8 +54,9 @@ const m=u.match(/@version\s+([\d.]+)/)[1];const a=u.match(/功能增强工具箱
 const r=f.readFileSync('README.md','utf8').split('\n')[0].match(/v([\d.]+)/)[1];
 const p=f.readFileSync('MAP.md','utf8').match(/@version ([\d.]+)/)[1];
 const c=f.readFileSync('CHANGELOG.md','utf8').match(/## v([\d.]+)/)[1];
-console.log('@version',m,'| 关于页',a,'| README',r,'| MAP',p,'| CHANGELOG',c);
-console.log([m,a,r,p,c].every(x=>x===m)?'✓ 5 处一致':'✗ 不一致');"
+const e=JSON.parse(f.readFileSync('extension/manifest.json','utf8')).version;
+console.log('@version',m,'| 关于页',a,'| README',r,'| MAP',p,'| CHANGELOG',c,'| 扩展',e);
+console.log([m,a,r,p,c,e].every(x=>x===m)?'✓ 6 处一致':'✗ 不一致');"
 ```
 
 ---
@@ -108,7 +110,8 @@ console.log([m,a,r,p,c].every(x=>x===m)?'✓ 5 处一致':'✗ 不一致');"
 |---|---|---|
 | 1 | 本地提交（含版本号与全部文档） | 按 Git 流程：代码改动先分支 → 实测 → `merge --ff-only`；纯文档可直提 master |
 | 2 | **推送到远程** | 由用户执行，AI 不 push |
-| 3 | GitHub Release | **自动**：`release.yml` 监听 master 上的 `deepseektool.user.js` 变更，读 `@version` 建 tag 与 Release（已存在则跳过） |
+| 3 | GitHub Release | **自动**：`release.yml` 监听 master 上的 `deepseektool.user.js` 变更，读 `@version` 建 tag 与 Release（已存在则跳过）；`extension/manifest.json` 版本一致时，同时构建并挂上 `deepseektool-extension-v<版本>.zip`（不一致则告警且不带扩展包） |
+| 3b | 预演构建（可选） | `gh workflow run release.yml -f dry_run=true`：只跑 `npm ci && npm run build` + 打 zip 并作为 workflow artifact 上传，**不建 Release、不传资产** |
 | 4 | ScriptCat 发布页 | **手动**：运行 `scriptcat-update` 技能，填「脚本代码 / 详细说明 / 更新日志」三处，**绝不点「发布更新」** |
 | 5 | 更新日志字数 | ScriptCat 发布页的更新日志有 **≤500 字**限制，从 `CHANGELOG.md` 对应条目**精简**后填入 |
 
@@ -120,7 +123,7 @@ console.log([m,a,r,p,c].every(x=>x===m)?'✓ 5 处一致':'✗ 不一致');"
 # 1) 语法
 node --check deepseektool.user.js
 
-# 2) 5 处版本号一致（见 §一 的脚本）
+# 2) 6 处版本号一致（见 §一 的脚本）
 
 # 3) 工作区与 HEAD
 git status --short && git log --oneline -3
@@ -142,6 +145,7 @@ grep -l "<新功能关键词>" README.md CHANGELOG.md MAP.md scriptcat-descripti
 | 忘改 `MAP.md` 第 3 行 | MAP 声称的版本落后于代码 |
 | 新增功能没进 `README` 概述列表 | 概述里「四大核心模块」计数与实际不符 |
 | 新增存储键没进 MAP §2 表 | 后续维护者不知道键的存在 |
+| 改版本号忘改 `extension/manifest.json` | `release.yml` 只打 `::warning` 并跳过扩展包，该版本 Release 就缺扩展 zip |
 | 漏掉 `.codebuddy/` 与 `.workbuddy/handoff/` | 二者被 gitignore，`git status` 不提示 |
 | 新增 `@require` 没更新「外部依赖」 | 用户不知道装了什么第三方库 |
 | ScriptCat 更新日志超 500 字被截断 | 从 CHANGELOG 精简，不要整段粘贴 |

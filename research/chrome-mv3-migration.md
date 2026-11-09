@@ -600,3 +600,22 @@ M2：菜单/文案收尾（关于页安装条件改为扩展）、面板图标�
   同页检测到两套实例时，后启动的一方显示提示条（8 秒），提示保留其中一个。
 - **验证**：验证台 13 项脚本 + 版本核对全绿；jsdom 冒烟 6/6——冲突提示出现、
   面板图标为 data URI、页面无远程 img、扩展帮助文案正确；浅色面板截图确认 15 个图标正常渲染。
+
+---
+
+## 13. 版本线修订：改为与脚本对齐（2026-11-09）
+
+第 6.3 节与第 11 节「扩展独立版本线，从 `0.1.0` 起步」的决策**已被推翻**（用户拍板，选项 1）：
+
+- **结论**：扩展与 userscript 共用同一条版本线。`extension/manifest.json` 的 `version` 必须等于
+  `deepseektool.user.js` 的 `@version`，当前均为 `5.9.0`。
+- **理由**：本项目扩展只经 GitHub Release 分发、不经商店审核；CHANGELOG 与版本号是一体的。
+  独立版本线会让同一个 Release 出现两个版本号，CHANGELOG 段落无法对应，用户也不清楚装了哪版。
+- **发布流程**：`.github/workflows/release.yml` 在两者一致时跑 `npm ci` + `npm run build`，
+  把 `dist/` 打成 `deepseektool-extension-v{version}.zip`（zip 根部直接是 `manifest.json`，
+  不能把 `dist` 目录本身打进去，也别用 `zip ... .` 以免生成 `./manifest.json`），
+  创建 Release 后再 `gh release upload` 追加该资产。
+- **守卫**：manifest 版本与 `@version` 不一致 → CI `::warning` 并跳过扩展包（Release 照发脚本与源码 zip）；
+  tag 指向提交与 HEAD 不一致 → 同样告警，避免把新代码挂到旧 tag 上。
+- **何时回退**：若将来真的上架 Chrome Web Store（每次上传必须递增扩展版本号），
+  再解耦两条版本线，并把 `extver` 守卫改为「只读 manifest 版本 + 与上一次 Release 比较」。

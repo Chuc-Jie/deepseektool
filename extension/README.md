@@ -36,6 +36,13 @@ extension/
 dist/                  构建产物（gitignore），加载扩展时选它
 ```
 
+## 发布（GitHub Release）
+
+- **版本线**：`extension/manifest.json` 的 `version` 必须等于 `deepseektool.user.js` 的 `@version`（选项 1，一次发布一个版本号）。
+- **自动打包**：推送 `master` 后 `.github/workflows/release.yml` 会跑 `npm ci` + `npm run build`，把 `dist/` 打成 `deepseektool-extension-v{version}.zip`（zip 根部直接是 `manifest.json`，可直接解压加载），并在创建 Release 后追加为资产。
+- **守卫**：manifest 版本与 `@version` 不一致时 CI 打 `::warning` 并**跳过**扩展包（Release 仍照常发 userscript 与源码 zip）；tag 指向的提交与 HEAD 不一致时同样告警。
+- **手动安装**：下载该 zip 解压到任意目录 → `chrome://extensions/` → 开发者模式 → 「加载已解压的扩展程序」选解压目录。
+
 ## 关键设计
 
 - **单一源码**：扩展与 userscript 共用 `deepseektool.user.js`，通过兼容层与少量运行时分支适配，不维护第二份业务实现。
@@ -56,7 +63,7 @@ dist/                  构建产物（gitignore），加载扩展时选它
 ## 与用户脚本的关系
 
 两者功能相同、存储互相隔离，**请二选一启用**。同时开启会重复注入按钮与监听器。
-扩展版本号独立（当前 `0.1.0`），不跟随 userscript 的 `5.x`。
+扩展版本号与 userscript **对齐**（当前 `5.9.0`，两者共用同一条版本线）：脚本升版本时同步改 `extension/manifest.json`，`release.yml` 只在两者一致时构建并挂载扩展包。
 
 ## M1 验证状态
 
