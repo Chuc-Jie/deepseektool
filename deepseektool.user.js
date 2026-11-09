@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepSeek 功能增强工具箱
 // @namespace    https://github.com/Chuc-Jie/deepseektool
-// @version      5.8.0
-// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（三档宽度）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
+// @version      5.9.0
+// @description  为 DeepSeek 对话页提供统一控制面板：代码块折叠与外观、代码块导出为图片（8 项样式可调）、表格列宽自适应与 PNG/CSV/Markdown 导出（列宽方式 / 表格宽度 / 溢出策略 / 表头对齐可调）、对话导出为 Markdown / JSON（勾选 + 9 套模板）、AI 思考过程自动折叠、对话文件夹分组、宽屏模式（宽度滑轨可调）与 Ctrl+Enter 发送。设置即时生效、无需刷新。
 // @tag          工具
 // @tag          优化
 // @tag          DeepSeek
@@ -37,15 +37,16 @@
     const STORAGE_TABLE_OVERFLOW = 'deepseek_table_overflow';       // 列过多时：scroll / squeeze
     const LEGACY_TABLE_WIDTH_MODE = 'deepseek_table_width_mode';    // 旧键：只做一次性迁移，之后不再读取
     const STORAGE_WIDE_SCREEN = 'deepseek_wide_screen';
-    const STORAGE_WIDE_LEVEL = 'deepseek_wide_screen_level';        // 宽屏档位：standard / wide / wider（默认 standard）
-    // 宽屏三档：以「官方默认 840px」为基线，standard 即历史上的 1000px（+160），
-    // 另两档把增量翻倍 / 三倍。数值是**绝对上限**，可用宽度不足时会被 100% 封顶（窄窗口下三档趋同）。
-    const WIDE_LEVELS = {
-        standard: { px: 1000, label: '标准（+160px）' },
-        wide:     { px: 1160, label: '较宽（+320px）' },
-        wider:    { px: 1320, label: '最宽（+480px）' },
-    };
-    const WIDE_LEVEL_DEFAULT = 'standard';
+    const STORAGE_WIDE_LEVEL = 'deepseek_wide_screen_level';        // 旧键：三档枚举，只做一次性迁移，之后不再读取
+    const STORAGE_WIDE_WIDTH = 'deepseek_wide_screen_width';        // 宽屏宽度（px，连续值，默认 1000）
+    // 宽屏宽度：以「官方默认 840px」为基线，滑轨从 840（等于不改）到 1320 连续可调。
+    // 数值是**绝对上限**，可用宽度不足时会被 100% 封顶（窄窗口下两端观感差别很小）。
+    const WIDE_WIDTH_MIN = 840;
+    const WIDE_WIDTH_MAX = 1320;
+    const WIDE_WIDTH_STEP = 20;
+    const WIDE_WIDTH_DEFAULT = 1000;
+    // 旧三档 → 新 px：标准 1000 / 较宽 1160 / 最宽 1320，仅供 loadSettings 一次性迁移使用
+    const LEGACY_WIDE_LEVEL_PX = { standard: 1000, wide: 1160, wider: 1320 };
     const STORAGE_FOLDER_MANAGER = 'deepseek_folder_manager_enabled';   // 对话文件夹管理总开关（默认关）
     const STORAGE_FOLDER_DATA = 'deepseek_folder_manager_data_v2';      // 文件夹+归属数据（新键，不与旧独立脚本互相干扰）
     const STORAGE_CTRL_ENTER = 'deepseek_ctrl_enter';                   // 发送快捷键：Ctrl+Enter（默认关）
@@ -78,7 +79,7 @@
     let tableFill = 'fill';
     let tableOverflow = 'scroll';
     let wideScreen = false;
-    let wideScreenLevel = WIDE_LEVEL_DEFAULT;
+    let wideScreenWidth = WIDE_WIDTH_DEFAULT;
     let folderManagerEnabled = false;
     let ctrlEnterEnabled = false;
     let pinGroupCollapsible = false;
@@ -96,6 +97,16 @@
         if (allowed.indexOf(value) !== -1) return value;
         GM_setValue(key, fallback);
         return fallback;
+    }
+
+    // 宽屏宽度归一：夹到 [840, 1320] 并对齐 20px 网格 —— 滑轨只能落在网格上，
+    // 而旧值可能是任意整数（或迁移前的档位 px）。四舍五入而非截断，脏值不会单向漂移。
+    function normalizeWideWidth(value) {
+        const n = Number(value);
+        if (!isFinite(n)) return WIDE_WIDTH_DEFAULT;
+        const clamped = Math.min(WIDE_WIDTH_MAX, Math.max(WIDE_WIDTH_MIN, n));
+        const steps = Math.round((clamped - WIDE_WIDTH_MIN) / WIDE_WIDTH_STEP);
+        return Math.min(WIDE_WIDTH_MAX, WIDE_WIDTH_MIN + steps * WIDE_WIDTH_STEP);
     }
 
     // 从存储读取全部设置。启动时调用一次；扩展环境下其他标签页改设置时再次调用。
@@ -120,7 +131,16 @@
         tableFill = normalizeEnum(STORAGE_TABLE_FILL, GM_getValue(STORAGE_TABLE_FILL, 'fill'), ['fill', 'compact'], 'fill');
         tableOverflow = normalizeEnum(STORAGE_TABLE_OVERFLOW, GM_getValue(STORAGE_TABLE_OVERFLOW, 'scroll'), ['scroll', 'squeeze'], 'scroll');
         wideScreen = GM_getValue(STORAGE_WIDE_SCREEN, false);
-        wideScreenLevel = normalizeEnum(STORAGE_WIDE_LEVEL, GM_getValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT), Object.keys(WIDE_LEVELS), WIDE_LEVEL_DEFAULT);
+        // 宽屏宽度：新键是连续 px 值。旧版存的是三档枚举（deepseek_wide_screen_level），
+        // 迁移一次后即写新键，此后代码不再读旧键。
+        const savedWideWidth = GM_getValue(STORAGE_WIDE_WIDTH, null);
+        if (typeof savedWideWidth === 'number' && isFinite(savedWideWidth)) {
+            wideScreenWidth = normalizeWideWidth(savedWideWidth);
+            if (wideScreenWidth !== savedWideWidth) GM_setValue(STORAGE_WIDE_WIDTH, wideScreenWidth);
+        } else {
+            wideScreenWidth = normalizeWideWidth(LEGACY_WIDE_LEVEL_PX[GM_getValue(STORAGE_WIDE_LEVEL, '')] || WIDE_WIDTH_DEFAULT);
+            GM_setValue(STORAGE_WIDE_WIDTH, wideScreenWidth);
+        }
         folderManagerEnabled = GM_getValue(STORAGE_FOLDER_MANAGER, false);
         ctrlEnterEnabled = GM_getValue(STORAGE_CTRL_ENTER, false);
         pinGroupCollapsible = GM_getValue(STORAGE_PIN_COLLAPSIBLE, false);
@@ -526,7 +546,7 @@
 
         /* ===== 分区定义（控件工厂返回完整行式 .ds-setting-item） ===== */
         // 关于页版本：扩展发行线独立（manifest.version），userscript 仍显示脚本版本。
-        // 不硬编码扩展版本，避免每次发版漏改；userscript 环境读不到 chrome.runtime 时回退 5.8.0。
+        // 不硬编码扩展版本，避免每次发版漏改；userscript 环境读不到 chrome.runtime 时回退 5.9.0。
         const aboutVersion = (() => {
             if (isExtensionRuntime) {
                 try {
@@ -537,7 +557,7 @@
                     if (v) return v;
                 } catch (e) { /* 忽略：回退到脚本版本 */ }
             }
-            return '5.8.0';
+            return '5.9.0';
         })();
         const sections = [
             { key: 'fold', icon: 'code-tags', title: '代码块', sub: '折叠 · 外观 · 导出', build: () => [
@@ -698,22 +718,25 @@
                     showToast(`模拟点击折叠已${checked ? '开启' : '关闭'}`);
                 }),
             ] },
-            { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区加宽，三档宽度可选', build: () => [
+            { key: 'wide', icon: 'monitor', title: '宽屏模式', sub: '消息区加宽，宽度可调', build: () => [
                 createToggleSetting('启用宽屏布局', '消息区扩展至全宽，减少左右留白', wideScreen, checked => {
                     wideScreen = checked;
                     GM_setValue(STORAGE_WIDE_SCREEN, checked);
                     applyWideScreen(checked);
                     showToast(`宽屏模式已${checked ? '开启' : '关闭'}`);
                 }),
-                createSelectSetting('宽屏宽度', '在官网默认宽度基础上加宽；窗口较窄时，三档看起来会差不多', [
-                    { value: 'standard', label: WIDE_LEVELS.standard.label },
-                    { value: 'wide', label: WIDE_LEVELS.wide.label },
-                    { value: 'wider', label: WIDE_LEVELS.wider.label },
-                ], wideScreenLevel, value => {
-                    wideScreenLevel = value;
-                    GM_setValue(STORAGE_WIDE_LEVEL, value);
-                    applyWideScreen(wideScreen);      // 宽屏开着时立即生效；关着时只记档位
-                    showToast(`宽屏宽度：${WIDE_LEVELS[value].label}`);
+                createRangeSetting('宽屏宽度', '拖动滑块调节消息区最大宽度；840px 即官网默认宽度，窗口较窄时超出可用宽度的部分会被封顶', {
+                    min: WIDE_WIDTH_MIN, max: WIDE_WIDTH_MAX, step: WIDE_WIDTH_STEP, unit: 'px',
+                }, wideScreenWidth, value => {
+                    // 拖动中：只改样式与读数，不重排表格（每帧全量测量会明显掉帧）
+                    wideScreenWidth = value;
+                    applyWideScreen(wideScreen, { skipInvalidate: true });
+                }, value => {
+                    // 松手：落盘并统一重排表格（拖动阶段宽度已脏，由 applyWideScreen 的脏标记兜住）
+                    wideScreenWidth = value;
+                    GM_setValue(STORAGE_WIDE_WIDTH, value);
+                    applyWideScreen(wideScreen);
+                    showToast(`宽屏宽度：${value}px`);
                 }, () => !wideScreen),
             ] },
             { key: 'chat', icon: 'send', title: '聊天发送', sub: '回车发送与快捷键', build: () => [
@@ -832,7 +855,7 @@
                 tableFill = 'fill'; GM_setValue(STORAGE_TABLE_FILL, 'fill');
                 tableOverflow = 'scroll'; GM_setValue(STORAGE_TABLE_OVERFLOW, 'scroll');
                 wideScreen = false; GM_setValue(STORAGE_WIDE_SCREEN, false);
-                wideScreenLevel = WIDE_LEVEL_DEFAULT; GM_setValue(STORAGE_WIDE_LEVEL, WIDE_LEVEL_DEFAULT);
+                wideScreenWidth = WIDE_WIDTH_DEFAULT; GM_setValue(STORAGE_WIDE_WIDTH, WIDE_WIDTH_DEFAULT);
                 ctrlEnterEnabled = false; GM_setValue(STORAGE_CTRL_ENTER, false);
                 tableButtonsAlways = false; GM_setValue(STORAGE_TABLE_BUTTONS_ALWAYS, false); setTableButtonsAlways(false);
                 pinGroupCollapsible = false; GM_setValue(STORAGE_PIN_COLLAPSIBLE, false);
@@ -888,7 +911,7 @@
     function applyDepState(el, off) {
         el.classList.toggle('dsDisabled', !!off);
         el.setAttribute('aria-disabled', off ? 'true' : 'false');
-        const ctl = el.querySelector('.ds-switch input, .ds-custom-select-trigger, input[type="number"]');
+        const ctl = el.querySelector('.ds-switch input, .ds-custom-select-trigger, input[type="number"], input[type="range"]');
         if (ctl) ctl.disabled = !!off;
         const trig = el.querySelector('.ds-custom-select-trigger');
         if (trig) trig.classList.toggle('ds-select-disabled', !!off);
@@ -1023,6 +1046,84 @@
         return createSettingRow(labelText, description, container, disabled);
     }
 
+    // 滑轨设置项：拖动中只预览（onInput），松手才落盘（onChange）。
+    // 读数与轨道填充都由 --ds-range-pct 驱动，避免每帧重建 DOM / 重写文本节点以外的东西。
+    // 不用 <output> / datalist：面板会在扩展与油猴两种环境下反复重建，越简单的节点越稳。
+    function createRangeSetting(labelText, description, opts, currentValue, onInput, onChange, disabled) {
+        const wrap = document.createElement('div');
+        wrap.className = 'ds-range';
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.className = 'ds-range-input';
+        input.min = opts.min;
+        input.max = opts.max;
+        input.step = opts.step || 1;
+        input.value = currentValue;
+        input.setAttribute('aria-label', labelText);
+        const out = document.createElement('span');
+        out.className = 'ds-range-value';
+        const unit = opts.unit || '';
+        const span = (opts.max - opts.min) || 1;
+        const render = v => {
+            out.textContent = v + unit;
+            input.style.setProperty('--ds-range-pct', ((v - opts.min) / span * 100).toFixed(2) + '%');
+        };
+        render(currentValue);
+        // input：拖动过程（每帧）—— 只做视觉预览，调用方负责传 skipInvalidate 之类的轻路径
+        input.addEventListener('input', () => {
+            const v = Number(input.value);
+            render(v);
+            onInput(v);
+        });
+        // change：松手 / 键盘调整完成后落盘
+        input.addEventListener('change', () => {
+            const v = Number(input.value);
+            render(v);
+            onChange(v);
+            refreshPanelDeps();
+        });
+        // —— 拖动「透视」：按住滑轨时把遮罩与面板整体隐形，只留这条滑轨（CSS 的 .ds-peek），
+        //    这样调宽度能直接看到对话区真实宽度。松手 / 失焦 / 指针取消 / Esc 都要能复原，
+        //    否则面板会永久隐形；挂在 document 上的兜底监听只在拖动期间存在，退出即摘掉。
+        let peekTimer = 0;
+        const setPeek = on => {
+            const ov = document.getElementById('ds-control-panel-overlay');
+            if (!ov) return;
+            wrap.classList.toggle('ds-peek-target', on);
+            ov.classList.toggle('ds-peek', on);
+        };
+        const stopPeek = () => {
+            clearTimeout(peekTimer); peekTimer = 0;
+            setPeek(false);
+            document.removeEventListener('pointerup', peekUp, true);
+            document.removeEventListener('pointercancel', stopPeek, true);
+            window.removeEventListener('blur', stopPeek);
+        };
+        // pointerup 早于 change：先等一小拍再复原，让「松手后的最终宽度」也落在透视状态里，
+        // 否则面板先回来、宽度后跳，观感是闪一下。
+        const peekUp = () => { clearTimeout(peekTimer); peekTimer = setTimeout(stopPeek, 90); };
+        const startPeek = () => {
+            if (input.disabled) return;
+            setPeek(true);
+            document.addEventListener('pointerup', peekUp, true);
+            document.addEventListener('pointercancel', stopPeek, true);
+            window.addEventListener('blur', stopPeek);
+        };
+        input.addEventListener('pointerdown', startPeek);
+        // 键盘调值同样进透视；Esc 立即复原
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { stopPeek(); return; }
+            if (e.key.indexOf('Arrow') === 0 || e.key === 'Home' || e.key === 'End'
+                || e.key === 'PageUp' || e.key === 'PageDown') startPeek();
+        });
+        input.addEventListener('keyup', stopPeek);
+        input.addEventListener('blur', stopPeek);
+        input.addEventListener('change', stopPeek);
+        wrap.appendChild(input);
+        wrap.appendChild(out);
+        return createSettingRow(labelText, description, wrap, disabled);
+    }
+
     // 说明性字（帮助/关于页）：竖向小标题 + 描述段，供 build() 返回
     function createInfoIntro(labelText, text) {
         const block = document.createElement('div');
@@ -1149,22 +1250,32 @@
         document.documentElement.classList.toggle('ds-table-head-center', mode === 'center');
     }
 
-    // 宽屏宽度按档位写进 --ds-wide-max-width（CSS 侧只做 var() 覆盖，见宽屏规则）。
-    // 可用宽度变化时表格必须重算：① 开关切换；② 档位切换（宽屏开着时数值变了）。
-    // 宽屏关着时改档位不改布局，不必重算 —— 故 prevPx 只在 on 时参与比较。
+    // 宽屏宽度写进 --ds-wide-max-width（CSS 侧只做 var() 覆盖，见宽屏规则）。
+    // 可用宽度变化时表格必须重算：① 开关切换；② 宽度变化（宽屏开着时数值变了）。
+    // 宽屏关着时改宽度不改布局，不必重算 —— 故 prevPx 只在 on 时参与比较。
+    // _wideLayoutPx 记录「最近一次真正重排表格时的宽度」：滑轨拖动阶段每个 input 事件都重排
+    // 整页表格会明显掉帧，故拖动时传 skipInvalidate 只改样式，松手再统一重排 ——
+    // 此时 prevPx 已等于 nextPx，只能靠这个脏标记补判，否则表格会停在旧列宽。
+    let _wideLayoutPx = null;
+
     function applyWideScreen(on, opts) {
         const html = document.documentElement;
-        const level = WIDE_LEVELS[wideScreenLevel] || WIDE_LEVELS[WIDE_LEVEL_DEFAULT];
-        const nextPx = level.px + 'px';
+        const nextPx = wideScreenWidth + 'px';
         const prevPx = html.style.getPropertyValue('--ds-wide-max-width').trim();
         const wasOn = html.classList.contains('ds-wide-screen');
         const changed = wasOn !== !!on || (!!on && prevPx !== nextPx);
         html.classList.toggle('ds-wide-screen', !!on);
         html.style.setProperty('--ds-wide-max-width', nextPx);
-        // 消息区最大宽度 840（官网默认）↔ 档位值，正文与表格的可用宽度随之变化；
+        // 消息区最大宽度 840（官网默认）↔ 设定值，正文与表格的可用宽度随之变化；
         // 表格宽度是 px 快照、不会自动跟随，必须显式失效重算。
         // init() 后续本来就会 processAllTables()，用 skipInvalidate 跳过首轮重复重排。
-        if (changed && !(opts && opts.skipInvalidate)) invalidateTableLayout();
+        const needsRelayout = changed || (!!on && _wideLayoutPx !== nextPx);
+        if (opts && opts.skipInvalidate) {
+            _wideLayoutPx = null;      // 本轮没重排：留下脏标记，交给下一次落地调用
+        } else if (needsRelayout) {
+            _wideLayoutPx = nextPx;
+            invalidateTableLayout();
+        }
     }
 
     // 导出按钮“恒显”开关：切换 html.ds-export-always 让 .table-internal-buttons 不再依赖悬停即可见
@@ -1536,6 +1647,66 @@
             box-shadow: 0 0 0 3px var(--dsp-ring);
         }
         .ds-panel-unit { font-size: 13px; color: var(--dsp-sub); }
+
+        /* 滑轨（range）—— 轨道底色由 --ds-range-pct 驱动：已选段品牌色、未选段控件底，
+           这样「不加载滚动条样式」也能看出当前位置；读数在右侧用等宽数字对齐。 */
+        .ds-range { display: flex; align-items: center; gap: 10px; }
+        .ds-range-input {
+            -webkit-appearance: none; appearance: none;
+            width: 150px; height: 4px; margin: 0; padding: 0;
+            border-radius: 2px; outline: none; cursor: pointer;
+            background: linear-gradient(to right,
+                var(--dsp-accent) 0 var(--ds-range-pct, 0%),
+                color-mix(in srgb, var(--dsp-ctrl-border) 78%, var(--dsp-ctrl-bg) 22%) var(--ds-range-pct, 0%) 100%);
+        }
+        /* 滑块球沿用开关的白色 + 品牌色描边：深色面板里仍能看清 */
+        .ds-range-input::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: #fff; border: 2px solid var(--dsp-accent);
+            box-shadow: var(--dsp-shadow-xs); cursor: pointer;
+            transition: box-shadow 140ms cubic-bezier(.2, 0, 0, 1);
+        }
+        .ds-range-input::-moz-range-thumb {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #fff; border: 2px solid var(--dsp-accent);
+            box-shadow: var(--dsp-shadow-xs); cursor: pointer;
+        }
+        .ds-range-input::-moz-range-track { height: 4px; border-radius: 2px; background: transparent; }
+        .ds-range-input:focus-visible { box-shadow: 0 0 0 3px var(--dsp-ring); }
+        .ds-range-input:disabled { cursor: not-allowed; }
+        .ds-range-value {
+            min-width: 52px; text-align: right;
+            font-size: 13px; font-variant-numeric: tabular-nums; color: var(--dsp-text);
+        }
+
+        /* 拖动滑轨时的「透视模式」：把遮罩与面板整体隐形，只留正在拖动的那条滑轨，
+           调宽度的同时能直接看到对话区真实宽度。开关由 JS 控制在
+           #ds-control-panel-overlay.ds-peek + .ds-peek-target 上，松开即整体复原。 */
+        #ds-control-panel-overlay.ds-peek {
+            background: transparent !important;
+            -webkit-backdrop-filter: none !important;
+            backdrop-filter: none !important;
+        }
+        #ds-control-panel-overlay.ds-peek .ds-panel,
+        #ds-control-panel-overlay.ds-peek .ds-p-sidebar,
+        #ds-control-panel-overlay.ds-peek .ds-p-main,
+        #ds-control-panel-overlay.ds-peek .ds-p-topbar {
+            background: none !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+        }
+        /* 只关可见性、保留布局：滑轨仍停在原位，拖动中的指针不会因重排而脱手 */
+        #ds-control-panel-overlay.ds-peek .ds-panel,
+        #ds-control-panel-overlay.ds-peek .ds-panel * { visibility: hidden; }
+        #ds-control-panel-overlay.ds-peek .ds-panel .ds-peek-target,
+        #ds-control-panel-overlay.ds-peek .ds-panel .ds-peek-target * { visibility: visible; }
+        /* 悬浮滑轨自身补一层底，落在任意页面内容上都能看清。
+           不给 padding：按下瞬间改盒子尺寸会让滑轨跳一下，改用不占布局的光晕。 */
+        #ds-control-panel-overlay.ds-peek .ds-peek-target {
+            background: var(--dsp-ctrl-bg); border-radius: 999px;
+            box-shadow: 0 0 0 8px var(--dsp-ctrl-bg), var(--dsp-shadow-sm);
+        }
 
         /* 自定义下拉（深浅自适应）—— 描边/圆角/焦点环与弹窗控件同源 */
         .ds-custom-select { position: relative; min-width: 178px; }
@@ -2053,11 +2224,13 @@
             .ds-setting-ctrl { margin-left: 0; width: 100%; }
             .ds-custom-select { min-width: 100%; }
             .ds-setting-ctrl input[type="number"] { width: 100%; }
+            .ds-range { width: 100%; }
+            .ds-range-input { flex: 1; width: auto; }
         }
 
-        /* 宽屏模式 — 只加宽消息区（设置面板「宽屏模式」的定义：消息区加宽，三档宽度可选）。
-           数值不写死：JS 按档位写 --ds-wide-max-width（standard 1000 / wide 1160 / wider 1320），
-           这里只负责把消息列表的 --message-list-max-width 覆盖成它 —— 档位切换无需刷新页面。
+        /* 宽屏模式 — 只加宽消息区（设置面板「宽屏模式」的定义：消息区加宽，宽度可调）。
+           数值不写死：JS 按滑轨设定写 --ds-wide-max-width（840–1320px，默认 1000），
+           这里只负责把消息列表的 --message-list-max-width 覆盖成它 —— 拖动滑轨无需刷新页面。
            作用域：只匹配包含 .ds-markdown 的消息虚拟列表项，不碰输入区（输入区继承 :root 的 840px，
            这是功能定义边界，不是遗漏）。:has() 用于官网把变量引用移出内联 style 后仍能命中；
            旧的内联 style 子串条件保留为兜底。 */
